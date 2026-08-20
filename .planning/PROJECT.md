@@ -6,7 +6,7 @@ Reduzir o trabalho manual e os erros de quem organiza campeonatos comunitários 
 
 ## Current State
 
-Projeto greenfield. A visão, os requisitos e o roadmap v1 estão aprovados; a Fase 1 inicia a fundação modular e os ambientes reproduzíveis.
+Projeto greenfield com visão, requisitos e roadmap v1 aprovados. A fundação modular da Fase 1 está implementada e passou nos gates automatizados; falta somente o smoke test do ambiente em um host com Docker.
 
 ## Requirements
 
@@ -35,7 +35,7 @@ Projeto greenfield. A visão, os requisitos e o roadmap v1 estão aprovados; a F
 
 ## Validated Requirements
 
-Nenhum requisito validado ainda.
+- Fase 1: implementação validada para NFR-001, NFR-004, NFR-005, NFR-007, NFR-009 e NFR-010; a conclusão formal aguarda o smoke test Docker registrado em `01-HUMAN-UAT.md`.
 
 ---
 Last updated: 2026-08-20

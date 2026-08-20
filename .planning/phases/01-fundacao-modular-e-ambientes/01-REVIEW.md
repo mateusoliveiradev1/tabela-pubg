@@ -2,7 +2,7 @@
 status: clean
 phase: 01-fundacao-modular-e-ambientes
 depth: standard
-files_reviewed: 82
+files_reviewed: 87
 findings:
   critical: 0
   warning: 0
@@ -30,10 +30,16 @@ Nenhum problema crítico, warning ou informativo permaneceu após a revisão.
 ## Evidências
 
 - `pnpm ci:verify` passou.
-- 61 módulos e 75 dependências sem violações arquiteturais.
-- 13 testes automatizados passaram em contratos, configuração, outbox, filas, storage e health.
+- 67 módulos e 82 dependências sem violações arquiteturais.
+- Testes automatizados passaram em contratos, configuração, outbox, filas, storage e health.
 - Next.js gerou as rotas esperadas e o deploy produtivo da API foi materializado com sucesso.
 - Docker não está instalado nesta máquina; builds das imagens permanecem cobertos pelo workflow CI e não foram declarados como executados localmente.
+
+## Hardening posterior à revisão
+
+- O commit `9d727f3` restringiu chaves de objetos S3 a namespaces controlados e identificadores opacos.
+- O commit `c0b9262` adicionou Helmet, rate limiting e cabeçalhos defensivos no web/API.
+- O gate completo foi executado novamente após esses controles e passou.
 
 ## Veredito
 

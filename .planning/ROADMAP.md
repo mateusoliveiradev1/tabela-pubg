@@ -13,7 +13,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** repositório executável, limites arquiteturais e infraestrutura local reproduzível.
 
-**Progresso:** 3/3 planos concluídos — verificação pendente.
+**Progresso:** 3/3 planos concluídos — gates automatizados aprovados; smoke test Docker pendente.
 
 ### Entregas
 
