@@ -61,7 +61,7 @@ services:
       PORT: 3001
       DATABASE_URL: ${DATABASE_URL:-postgresql://pubg:pubg_local_only@postgres:5432/pubg_camp}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-    command: ["node", "../../scripts/migrate-and-start.mjs", "api"]
+      RUN_MIGRATIONS: "true"
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

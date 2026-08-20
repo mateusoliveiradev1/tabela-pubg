@@ -8,20 +8,14 @@ WORKDIR /workspace
 FROM base AS builder
 ARG APP
 COPY . .
-RUN pnpm install --frozen-lockfile && pnpm --filter "@pubg-camp/${APP}..." build
+RUN pnpm install --frozen-lockfile \
+    && pnpm --filter "@pubg-camp/${APP}..." build \
+    && pnpm --filter "@pubg-camp/${APP}" deploy --prod --legacy /prod
 
 FROM node:24-alpine AS runner
-ARG APP
 ENV NODE_ENV=production
-ENV APP_NAME=$APP
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable && addgroup --system --gid 1001 app && adduser --system --uid 1001 --ingroup app app
-WORKDIR /workspace
-COPY --from=builder --chown=app:app /workspace/node_modules ./node_modules
-COPY --from=builder --chown=app:app /workspace/apps ./apps
-COPY --from=builder --chown=app:app /workspace/packages ./packages
-COPY --from=builder --chown=app:app /workspace/scripts ./scripts
-COPY --from=builder --chown=app:app /workspace/package.json /workspace/pnpm-lock.yaml /workspace/pnpm-workspace.yaml ./
+RUN addgroup --system --gid 1001 app && adduser --system --uid 1001 --ingroup app app
+WORKDIR /app
+COPY --from=builder --chown=app:app /prod ./
 USER app
-CMD ["/bin/sh", "-c", "node apps/$APP_NAME/dist/main.js"]
+CMD ["node", "dist/main.js"]
