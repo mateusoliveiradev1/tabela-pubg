@@ -11,10 +11,14 @@
     "./schema": {
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js"
+    },
+    "./migrator": {
+      "types": "./dist/migrator.d.ts",
+      "import": "./dist/migrator.js"
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts src/schema.ts --format esm --dts --clean --external postgres",
+    "build": "tsup src/index.ts src/schema.ts src/migrator.ts --format esm --dts --clean --external postgres",
     "clean": "rimraf dist coverage",
     "db:check": "drizzle-kit check",
     "db:generate": "drizzle-kit generate",

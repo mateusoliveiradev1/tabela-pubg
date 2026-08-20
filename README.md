@@ -58,6 +58,8 @@ Nunca reutilize as credenciais locais do exemplo em produção.
 
 Liveness indica que o processo responde. Readiness verifica as dependências necessárias e deve ser usada pelo orquestrador antes de enviar tráfego.
 
+Em produção, um ingress/reverse proxy deve terminar TLS antes de encaminhar tráfego aos contêineres. A API já respeita `trustProxy`, aplica rate limiting e headers defensivos; a web publica CSP, HSTS e políticas de navegador.
+
 ## Comandos
 
 | Comando | Uso |

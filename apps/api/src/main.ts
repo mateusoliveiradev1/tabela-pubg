@@ -1,8 +1,10 @@
 import "reflect-metadata";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { BaseEnvSchema, loadEnv } from "@pubg-camp/config";
-import { migrateDatabase } from "@pubg-camp/database";
+import { migrateDatabase } from "@pubg-camp/database/migrator";
 import { createLogger } from "@pubg-camp/logger";
 import { initializeTelemetry } from "@pubg-camp/observability";
 import { z } from "zod";
@@ -34,9 +36,23 @@ if (env.RUN_MIGRATIONS) {
   await migrateDatabase(env.DATABASE_URL);
 }
 
-const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
+const adapter = new FastifyAdapter({ trustProxy: true });
+const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
   bufferLogs: true,
 });
+// Nest's adapter and Fastify plugins augment the same instance correctly at runtime,
+// but their generic register signatures are structurally incompatible under NodeNext.
+type RegisterablePlugin = Parameters<typeof app.register>[0];
+await app.register(helmet as unknown as RegisterablePlugin, {
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+});
+await app.register(rateLimit as unknown as RegisterablePlugin, {
+  max: 300,
+  timeWindow: "1 minute",
+  errorResponseBuilder: () => ({ statusCode: 429, error: "Too Many Requests" }),
+});
+
 app.enableShutdownHooks();
 await app.listen(env.PORT, "0.0.0.0");
 logger.info({ port: env.PORT }, "api listening");
