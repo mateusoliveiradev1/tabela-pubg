@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality and affected build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@11.17.0 --activate
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate repository policies
+        run: pnpm verify:secrets && pnpm verify:migrations && pnpm verify:compose && pnpm lint:boundaries
+      - name: Validate affected packages
+        run: pnpm turbo run lint typecheck test build --affected
+
+  images:
+    name: Image ${{ matrix.app }}
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: web
+            dockerfile: docker/web.Dockerfile
+            build_args: ""
+          - app: api
+            dockerfile: docker/service.Dockerfile
+            build_args: APP=api
+          - app: worker
+            dockerfile: docker/service.Dockerfile
+            build_args: APP=worker
+          - app: discord-bot
+            dockerfile: docker/service.Dockerfile
+            build_args: APP=discord-bot
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          build-args: ${{ matrix.build_args }}
+          push: false
+          tags: pubg-camp/${{ matrix.app }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

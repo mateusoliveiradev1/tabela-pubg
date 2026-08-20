@@ -2,7 +2,9 @@ name: pubg-camp
 
 x-app-common: &app-common
   restart: unless-stopped
-  env_file: .env
+  env_file:
+    - path: .env
+      required: false
   networks: [backend]
 
 services:

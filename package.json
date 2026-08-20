@@ -23,7 +23,7 @@
     "env:down": "docker compose down",
     "env:logs": "docker compose logs -f",
     "verify:compose": "node scripts/verify-compose.mjs",
-    "verify:migrations": "node scripts/check-migrations.mjs",
+    "verify:migrations": "node scripts/check-migrations.mjs && pnpm --filter @pubg-camp/database db:check",
     "verify:secrets": "node scripts/check-secrets.mjs"
   },
   "devDependencies": {
