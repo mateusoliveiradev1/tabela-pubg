@@ -1,0 +1,28 @@
+{
+  "name": "@pubg-camp/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup src/main.ts --format esm --clean --external fastify --external bullmq --external ioredis",
+    "clean": "rimraf dist coverage",
+    "dev": "tsx watch src/main.ts",
+    "lint": "biome check src",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pubg-camp/config": "workspace:*",
+    "@pubg-camp/contracts": "workspace:*",
+    "@pubg-camp/logger": "workspace:*",
+    "@pubg-camp/observability": "workspace:*",
+    "@pubg-camp/queue": "workspace:*",
+    "fastify": "5.12.1",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
