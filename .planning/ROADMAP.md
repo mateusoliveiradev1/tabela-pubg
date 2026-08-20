@@ -13,7 +13,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** repositório executável, limites arquiteturais e infraestrutura local reproduzível.
 
-**Progresso:** 1/3 planos concluídos — em execução.
+**Progresso:** 2/3 planos concluídos — em execução.
 
 ### Entregas
 
