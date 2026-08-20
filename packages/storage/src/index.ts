@@ -10,7 +10,16 @@ export const UploadPolicySchema = z.object({
   allowedMimeTypes: z.array(z.string().min(1)).min(1),
 });
 
+export const StorageNamespaceSchema = z.enum(["branding", "receipts", "exports"]);
+export const ObjectKeySchema = z
+  .string()
+  .regex(
+    /^(branding|receipts|exports)\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    "Storage key must use a known namespace and opaque UUID segments",
+  );
+
 export type UploadPolicy = z.infer<typeof UploadPolicySchema>;
+export type StorageNamespace = z.infer<typeof StorageNamespaceSchema>;
 
 export interface StorageConfig {
   endpoint: string;
@@ -31,6 +40,16 @@ export function validateUpload(size: number, mimeType: string, policy: UploadPol
   }
 }
 
+export function createObjectKey(
+  namespace: StorageNamespace,
+  organizationId: string,
+  objectId = crypto.randomUUID(),
+): string {
+  return ObjectKeySchema.parse(
+    `${StorageNamespaceSchema.parse(namespace)}/${organizationId}/${objectId}`,
+  );
+}
+
 export function createStorage(config: StorageConfig) {
   const client = new S3Client({
     endpoint: config.endpoint,
@@ -44,14 +63,16 @@ export function createStorage(config: StorageConfig) {
 
   return {
     async createUploadUrl(key: string, contentType: string, expiresIn = 300): Promise<string> {
+      const safeKey = ObjectKeySchema.parse(key);
       return getSignedUrl(
         client,
-        new PutObjectCommand({ Bucket: config.bucket, Key: key, ContentType: contentType }),
+        new PutObjectCommand({ Bucket: config.bucket, Key: safeKey, ContentType: contentType }),
         { expiresIn },
       );
     },
     async createDownloadUrl(key: string, expiresIn = 300): Promise<string> {
-      return getSignedUrl(client, new GetObjectCommand({ Bucket: config.bucket, Key: key }), {
+      const safeKey = ObjectKeySchema.parse(key);
+      return getSignedUrl(client, new GetObjectCommand({ Bucket: config.bucket, Key: safeKey }), {
         expiresIn,
       });
     },
