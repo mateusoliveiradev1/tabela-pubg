@@ -1,0 +1,17 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  esbuild: true
+
+catalog:
+  '@types/node': 26.2.0
+  pino: 10.3.1
+  typescript: 7.0.2
+  vitest: 4.1.11
+  zod: 4.4.3
+
+onlyBuiltDependencies:
+  - '@biomejs/biome'
+  - esbuild
