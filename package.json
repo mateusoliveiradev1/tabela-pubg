@@ -18,11 +18,13 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "clean": "turbo run clean && rimraf .turbo coverage",
-    "ci:verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "ci:verify": "pnpm verify:secrets && pnpm verify:migrations && pnpm verify:compose && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "env:up": "docker compose up --build -d",
     "env:down": "docker compose down",
     "env:logs": "docker compose logs -f",
-    "verify:compose": "node scripts/verify-compose.mjs"
+    "verify:compose": "node scripts/verify-compose.mjs",
+    "verify:migrations": "node scripts/check-migrations.mjs",
+    "verify:secrets": "node scripts/check-secrets.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.9",
