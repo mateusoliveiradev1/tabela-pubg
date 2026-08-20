@@ -1,0 +1,19 @@
+{
+  "runtime": "codex",
+  "context_window": 200000,
+  "planning": {
+    "commit_docs": true,
+    "sub_repos": []
+  },
+  "workflow": {
+    "use_worktrees": false,
+    "parallelization": false,
+    "auto_advance": false,
+    "human_verify_mode": "end-of-phase",
+    "inline_plan_threshold": 2,
+    "security_enforcement": true,
+    "code_review": true,
+    "tdd_mode": false,
+    "test_command": "pnpm test"
+  }
+}
