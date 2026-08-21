@@ -87,7 +87,10 @@ describe("organization logo cleanup processor", () => {
   it("treats an already-missing object as idempotent success and ignores completed replays", async () => {
     const missing = setup();
     vi.mocked(missing.storage.deleteObject).mockRejectedValueOnce(
-      Object.assign(new Error("not found"), { name: "NoSuchKey", $metadata: { httpStatusCode: 404 } }),
+      Object.assign(new Error("not found"), {
+        name: "NoSuchKey",
+        $metadata: { httpStatusCode: 404 },
+      }),
     );
     await expect(missing.processor({ cleanupId })).resolves.toEqual({ status: "completed" });
     expect(missing.store.complete).toHaveBeenCalledWith(cleanupId, now);
@@ -113,5 +116,69 @@ describe("organization logo cleanup processor", () => {
     });
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(objectKey);
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(organizationId);
+  });
+
+  it("claims, retries and completes a persisted cleanup without duplicating a successful delete", async () => {
+    let clockNow = now;
+    let ledger = claimed({ status: "pending", claimedAt: null });
+    const store: LogoCleanupStore = {
+      claim: vi.fn(async (id, at) => {
+        if (
+          id !== cleanupId ||
+          ledger.status === "completed" ||
+          ledger.nextAttemptAt.getTime() > at.getTime()
+        ) {
+          return null;
+        }
+        ledger = { ...ledger, status: "claimed", claimedAt: at, updatedAt: at };
+        return ledger;
+      }),
+      retry: vi.fn(async (id, input) => {
+        if (id !== cleanupId || ledger.status !== "claimed") return false;
+        ledger = {
+          ...ledger,
+          status: "failed",
+          attempts: ledger.attempts + 1,
+          claimedAt: null,
+          nextAttemptAt: input.nextAttemptAt,
+          lastError: input.error,
+          updatedAt: input.now,
+        };
+        return true;
+      }),
+      complete: vi.fn(async (id, at) => {
+        if (id !== cleanupId || ledger.status !== "claimed") return false;
+        ledger = {
+          ...ledger,
+          status: "completed",
+          attempts: ledger.attempts + 1,
+          completedAt: at,
+          updatedAt: at,
+        };
+        return true;
+      }),
+    };
+    const storage: StorageObjectDeleter = {
+      deleteObject: vi
+        .fn<StorageObjectDeleter["deleteObject"]>()
+        .mockRejectedValueOnce(new Error("provider unavailable"))
+        .mockResolvedValue(undefined),
+    };
+    const processor = createLogoCleanupProcessor({
+      store,
+      storage,
+      clock: { now: () => clockNow },
+      logger: { info: vi.fn(), warn: vi.fn() },
+      retryBaseDelayMs: 1_000,
+    });
+
+    await expect(processor({ cleanupId })).rejects.toThrow("organization logo cleanup failed");
+    expect(ledger).toMatchObject({ status: "failed", attempts: 1 });
+
+    clockNow = new Date(now.getTime() + 1_000);
+    await expect(processor({ cleanupId })).resolves.toEqual({ status: "completed" });
+    await expect(processor({ cleanupId })).resolves.toEqual({ status: "ignored" });
+    expect(storage.deleteObject).toHaveBeenCalledTimes(2);
+    expect(ledger).toMatchObject({ status: "completed", attempts: 2 });
   });
 });

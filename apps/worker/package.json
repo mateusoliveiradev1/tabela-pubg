@@ -19,6 +19,7 @@
     "@pubg-camp/logger": "workspace:*",
     "@pubg-camp/observability": "workspace:*",
     "@pubg-camp/queue": "workspace:*",
+    "@pubg-camp/storage": "workspace:*",
     "fastify": "5.12.1",
     "resend": "6.21.0",
     "zod": "catalog:"

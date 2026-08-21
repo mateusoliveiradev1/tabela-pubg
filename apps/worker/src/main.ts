@@ -3,15 +3,18 @@ import {
   clearNotificationPayload,
   createDatabase,
   type NotificationDeliveryRow,
+  StorageCleanupRepository,
 } from "@pubg-camp/database";
 import { createLogger } from "@pubg-camp/logger";
 import { initializeTelemetry } from "@pubg-camp/observability";
 import { createRedisConnection, createWorker, pingRedis } from "@pubg-camp/queue";
+import { createStorage } from "@pubg-camp/storage";
 import Fastify from "fastify";
 import { z } from "zod";
 import { live, ready } from "./health.js";
 import { createNotificationProcessor } from "./notifications/processor.js";
 import { ResendEmailSender } from "./notifications/resend-email-sender.js";
+import { createLogoCleanupProcessor } from "./storage/logo-cleanup.processor.js";
 
 const env = loadEnv(
   BaseEnvSchema.extend({
@@ -23,6 +26,11 @@ const env = loadEnv(
     ENCRYPTION_KEY_VERSION: Phase2EnvSchema.shape.ENCRYPTION_KEY_VERSION,
     RESEND_API_KEY: Phase2EnvSchema.shape.RESEND_API_KEY,
     EMAIL_FROM: Phase2EnvSchema.shape.EMAIL_FROM,
+    S3_ENDPOINT: z.url(),
+    S3_REGION: z.string().trim().min(1).max(120),
+    S3_BUCKET: z.string().trim().min(3).max(63),
+    S3_ACCESS_KEY: z.string().min(1).max(512),
+    S3_SECRET_KEY: z.string().min(8).max(512),
   }),
   { ...process.env, SERVICE_NAME: process.env.SERVICE_NAME ?? "worker" },
 );
@@ -37,6 +45,14 @@ const telemetry = initializeTelemetry({
 });
 const database = createDatabase(env.DATABASE_URL);
 const redis = createRedisConnection(env.REDIS_URL);
+const logoStorage = createStorage({
+  endpoint: env.S3_ENDPOINT,
+  region: env.S3_REGION,
+  bucket: env.S3_BUCKET,
+  accessKeyId: env.S3_ACCESS_KEY,
+  secretAccessKey: env.S3_SECRET_KEY,
+  forcePathStyle: true,
+});
 const sender = new ResendEmailSender({ apiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM });
 const notificationProcessor = createNotificationProcessor({
   store: {
@@ -54,6 +70,20 @@ const notificationProcessor = createNotificationProcessor({
   appBaseUrl: env.APP_ORIGIN,
 });
 const notificationWorker = createWorker("outbox-delivery", redis, notificationProcessor);
+const logoCleanupProcessor = createLogoCleanupProcessor({
+  store: {
+    claim: (cleanupId, now) =>
+      StorageCleanupRepository.claimOrphanCleanup(database.db, cleanupId, now),
+    complete: (cleanupId, now) =>
+      StorageCleanupRepository.completeOrphanCleanup(database.db, cleanupId, now),
+    retry: (cleanupId, input) =>
+      StorageCleanupRepository.retryOrphanCleanup(database.db, cleanupId, input),
+  },
+  storage: logoStorage,
+  clock: { now: () => new Date() },
+  logger,
+});
+const logoCleanupWorker = createWorker("storage-logo-cleanup", redis, logoCleanupProcessor);
 const server = Fastify({ loggerInstance: logger });
 
 server.get("/health/live", async () => live());
@@ -80,6 +110,11 @@ async function shutdown(signal: string): Promise<void> {
     failures.push(error);
   }
   try {
+    await logoCleanupWorker.close();
+  } catch (error) {
+    failures.push(error);
+  }
+  try {
     await server.close();
   } catch (error) {
     failures.push(error);
@@ -90,6 +125,7 @@ async function shutdown(signal: string): Promise<void> {
     failures.push(error);
   }
   redis.disconnect();
+  logoStorage.close();
   try {
     await telemetry.shutdown();
   } catch (error) {

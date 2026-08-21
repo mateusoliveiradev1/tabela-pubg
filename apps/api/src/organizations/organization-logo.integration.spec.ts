@@ -120,6 +120,33 @@ describe("organization logo application flow", () => {
     expect(repository.enqueueOrphanCleanup).not.toHaveBeenCalled();
   });
 
+  it("persists an independent cleanup ledger when rollback deletion also fails", async () => {
+    const { repository, service, storage } = setup();
+    vi.mocked(repository.create).mockRejectedValueOnce(
+      new Error("organization transaction failed"),
+    );
+    vi.mocked(storage.deleteObject).mockRejectedValueOnce(new Error("storage unavailable"));
+
+    await expect(
+      service.create({
+        actorId,
+        body: {
+          name: "Arena Alpha",
+          logo: { declaredMime: "image/png", byteSize: png.byteLength },
+        },
+        logoBytes: png,
+        correlationId: "55555555-5555-4555-8555-555555555555",
+      }),
+    ).rejects.toThrow("organization transaction failed");
+
+    expect(repository.enqueueOrphanCleanup).toHaveBeenCalledWith({
+      cleanupId: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+      objectKey: expect.stringMatching(/^branding\//),
+      outboxEventId: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+      occurredAt: now,
+    });
+  });
+
   it("rejects spoofed bytes and cross-organization mutation before writing storage", async () => {
     const { repository, service, storage } = setup();
     vi.mocked(storage.store).mockRejectedValueOnce(new Error("Declared MIME must match bytes"));
