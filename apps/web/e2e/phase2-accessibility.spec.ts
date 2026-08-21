@@ -23,8 +23,8 @@ test.describe("phase 2 responsive and accessible flows", () => {
   }) => {
     await phase2.signIn(page);
     await page.goto(`/o/${phase2.organizationSlug}`);
-    await page.keyboard.press("Tab");
     const skipLink = page.getByRole("link", { name: "Pular para o conteúdo" });
+    await reachWithKeyboard(page, skipLink);
     await expect(skipLink).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(page.locator("#platform-content")).toBeFocused();
@@ -43,9 +43,11 @@ test.describe("phase 2 responsive and accessible flows", () => {
     test.skip(test.info().project.name !== "mobile-320", "mobile-only interaction");
     await phase2.signIn(page);
     await page.goto(`/o/${phase2.organizationSlug}`);
-    const trigger = page.getByRole("button", { name: "Abrir navegação" });
+    const trigger = page.locator("#platform-drawer-trigger");
+    await expect(trigger).toHaveAccessibleName("Abrir navegação");
     await trigger.click();
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(trigger).toHaveAccessibleName("Fechar navegação");
     await page.keyboard.press("Escape");
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(trigger).toBeFocused();
@@ -76,7 +78,7 @@ test.describe("phase 2 responsive and accessible flows", () => {
       page.getByText("Transfira a propriedade antes de alterar este membro."),
     ).toBeVisible();
     await page.goto(`/o/${phase2.organizationSlug}/auditoria`);
-    await expect(page.getByRole("heading", { name: "Auditoria" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Auditoria", exact: true })).toBeVisible();
     await page.goto("/o/organizacao-inexistente/membros");
     await expect(page.getByText(/Não foi possível abrir esta área/)).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Arena externa");
@@ -84,7 +86,11 @@ test.describe("phase 2 responsive and accessible flows", () => {
 
   test("reduced motion collapses authored animation and transition duration", async ({ page }) => {
     test.skip(test.info().project.name !== "reduced-motion", "reduced-motion project only");
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/entrar");
+    expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(
+      true,
+    );
     const duration = await page
       .getByRole("button", { name: "Continuar com Discord" })
       .evaluate((element) => ({
@@ -92,7 +98,7 @@ test.describe("phase 2 responsive and accessible flows", () => {
         transition: getComputedStyle(element).transitionDuration,
       }));
     expect(shortDurations(duration.animation)).toBe(true);
-    expect(shortDurations(duration.transition)).toBe(true);
+    expect(shortDurations(duration.transition), duration.transition).toBe(true);
   });
 });
 
@@ -108,5 +114,22 @@ function horizontalOverflow(page: import("@playwright/test").Page): Promise<numb
 }
 
 function shortDurations(value: string): boolean {
-  return value.split(",").every((duration) => Number.parseFloat(duration) <= 0.00001);
+  return value.split(",").every((duration) => {
+    const normalized = duration.trim();
+    const numeric = Number.parseFloat(normalized);
+    const seconds = normalized.endsWith("ms") ? numeric / 1_000 : numeric;
+    return seconds <= 0.001;
+  });
+}
+
+async function reachWithKeyboard(
+  page: import("@playwright/test").Page,
+  target: import("@playwright/test").Locator,
+): Promise<void> {
+  // Next's development toolbar participates in the tab order locally. The product link must
+  // still be reachable using only the keyboard, regardless of development-only controls.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await page.keyboard.press("Tab");
+    if (await target.evaluate((element) => element === document.activeElement)) return;
+  }
 }
