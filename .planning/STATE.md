@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T05:23:47.021Z"
+last_updated: "2026-08-21T05:55:28.094Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 11
-  percent: 41
+  completed_plans: 12
+  percent: 44
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 8 de 24 concluídos
-- Status: execução em andamento; services modulares de OAuth, OTP e sessões concluídos
-- Progresso: 41% do milestone (11 de 27 planos)
+- Plano: 9 de 24 concluídos
+- Status: execução em andamento; pipeline seguro e tenant-aware de logos concluído
+- Progresso: 44% do milestone (12 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -35,6 +35,8 @@ progress:
 - Convites e ownership serializam na linha da organização; as corridas usam duas conexões Neon diretas e nunca mock/PGlite.
 - A matrix CI da Fase 2 redige logs e produz artifact por suite, mas sua execução remota continua reservada ao plano 02-24.
 - OAuth, OTP e sessões dependem apenas de ports, Clock e RNG injetados; linking exige confirmação dual/step-up e alert context permanece read-only.
+- Logos validam assinatura/estrutura PNG, JPEG e WebP antes do upload; banco guarda apenas metadata e key server-side.
+- Cleanup de storage usa ledger sem FK de organização, outbox somente com `cleanupId` e claim com lease/retry idempotente.
 
 ## Bloqueadores
 
@@ -42,6 +44,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: services OAuth/Identity/OTP/Session aprovados com 27 testes fonte, boundaries, typecheck e build no plano 02-06.
-- Próxima ação: implementar pipeline seguro e tenant-aware de logos de organização no plano 02-21.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-21-PLAN.md`
+- Última ação: logos aprovados com migrations 0000→0002, 17 integrações reais, tests/build/boundaries e secret scan no plano 02-21.
+- Próxima ação: implementar guards e fronteira HTTP segura do plano 02-07.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-07-PLAN.md`
