@@ -80,6 +80,8 @@ jobs:
         run: corepack enable && corepack prepare pnpm@11.17.0 --activate
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build phase 2 storage dependency
+        run: pnpm --filter @pubg-camp/storage build
       - name: Validate phase 2 workflow structure
         run: pnpm verify:phase2-ci
       - name: Run PostgreSQL and Redis preflight
@@ -154,6 +156,8 @@ jobs:
         run: corepack enable && corepack prepare pnpm@11.17.0 --activate
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build phase 2 storage dependency
+        run: pnpm --filter @pubg-camp/storage build
       - name: Validate final phase 2 workflow structure
         run: pnpm verify:phase2-ci
       - name: Run mandatory PostgreSQL and Redis preflight
