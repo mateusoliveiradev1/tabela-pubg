@@ -115,7 +115,7 @@ export class OAuthService {
       throw new Error("oauth transaction unavailable");
     }
 
-    const exchanged = await this.provider.exchange({ code: input.code });
+    const exchanged = await this.provider.exchange({ code: input.code, state: input.state });
     try {
       const profile = await this.provider.fetchUser(exchanged.accessToken);
       return await this.completeCallback(transaction, profile);

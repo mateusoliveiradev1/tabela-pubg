@@ -9,7 +9,7 @@ export interface DiscordUserProfile {
 
 export interface DiscordIdentityProvider {
   start(input: { state: string; purpose: OAuthPurpose }): Promise<{ authorizationUrl: string }>;
-  exchange(input: { code: string }): Promise<{ accessToken: string }>;
+  exchange(input: { code: string; state: string }): Promise<{ accessToken: string }>;
   fetchUser(accessToken: string): Promise<DiscordUserProfile>;
   revoke(accessToken: string): Promise<void>;
 }

@@ -1,8 +1,8 @@
 import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
+import { IdentityController } from "./identity.controller.js";
 import type { OAuthService } from "./oauth.service.js";
 import type { OtpService } from "./otp.service.js";
-import { IdentityController } from "./identity.controller.js";
 
 function setup() {
   const oauth = {
@@ -26,10 +26,15 @@ function setup() {
 describe("IdentityController", () => {
   it("returns only the public redirect contract while preserving browser binding", async () => {
     const { controller, oauth } = setup();
+    const reply = {
+      header: vi.fn().mockReturnThis(),
+      status: vi.fn().mockReturnThis(),
+    };
 
     const result = await controller.startDiscord(
       { purpose: "sign-in", returnPath: "/dashboard" },
       "browser-binding-secret",
+      reply,
     );
 
     expect(oauth.start).toHaveBeenCalledWith({
@@ -38,6 +43,11 @@ describe("IdentityController", () => {
       browserBinding: "browser-binding-secret",
     });
     expect(result).toEqual({ status: "redirect-required" });
+    expect(reply.header).toHaveBeenCalledWith(
+      "location",
+      "https://discord.test/authorize?state=secret",
+    );
+    expect(reply.status).toHaveBeenCalledWith(302);
     expect(JSON.stringify(result)).not.toContain("state=secret");
   });
 
@@ -80,7 +90,7 @@ describe("IdentityController", () => {
     const { controller } = setup();
 
     const result = await controller.callbackDiscord(
-      { code: "provider-code", state: "oauth-state", purpose: "sign-in" },
+      { code: "provider-code", state: "oauth-state-long-enough", purpose: "sign-in" },
       "browser-binding",
     );
 

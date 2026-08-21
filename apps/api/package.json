@@ -25,6 +25,8 @@
     "@pubg-camp/observability": "workspace:*",
     "@pubg-camp/queue": "workspace:*",
     "fastify": "5.11.3",
+    "oauth4webapi": "3.8.7",
+    "rate-limiter-flexible": "11.2.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "zod": "catalog:"

@@ -60,6 +60,7 @@ export const EmailOtpResponseSchema = z
 export const VerifyEmailOtpRequestSchema = z
   .object({
     challengeId: PublicIdSchema,
+    email: z.email().trim().max(254),
     code: z.string().regex(/^\d{8}$/),
     purpose: EmailOtpPurposeSchema,
   })

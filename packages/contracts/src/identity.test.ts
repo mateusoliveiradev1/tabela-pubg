@@ -6,6 +6,7 @@ import {
   SessionAlertContextRequestSchema,
   SessionAlertContextResponseSchema,
   SessionListResponseSchema,
+  VerifyEmailOtpRequestSchema,
 } from "./identity.js";
 
 const sessionId = "018f0ce7-98e3-7b27-bf2d-6eeac51d2311";
@@ -31,6 +32,24 @@ describe("identity contracts", () => {
         status: "accepted",
         retryAfterSeconds: 60,
         accountExists: true,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("binds OTP verification to the normalized email supplied by the browser", () => {
+    expect(
+      VerifyEmailOtpRequestSchema.safeParse({
+        challengeId: sessionId,
+        email: "Organizer@Example.com",
+        code: "12345678",
+        purpose: "sign-in",
+      }).success,
+    ).toBe(true);
+    expect(
+      VerifyEmailOtpRequestSchema.safeParse({
+        challengeId: sessionId,
+        code: "12345678",
+        purpose: "sign-in",
       }).success,
     ).toBe(false);
   });

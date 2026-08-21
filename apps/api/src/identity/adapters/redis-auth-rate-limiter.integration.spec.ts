@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createRedisConnection } from "@pubg-camp/queue";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RedisAuthRateLimiter } from "./redis-auth-rate-limiter.js";
+import { RedisAuthRateLimiter, RedisDiscordOAuthVerifierStore } from "./redis-auth-rate-limiter.js";
 
 const redisUrl = process.env.TEST_REDIS_URL;
 
@@ -17,12 +17,12 @@ describe.runIf(Boolean(redisUrl))("RedisAuthRateLimiter integration", () => {
     await Promise.all(clients.map((client) => client.quit().catch(() => undefined)));
   });
 
-  function createAdapter(instance: string): RedisAuthRateLimiter {
+  function createAdapter(): RedisAuthRateLimiter {
     if (!redisUrl) throw new Error("TEST_REDIS_URL is required");
     const client = createRedisConnection(redisUrl);
     clients.push(client);
     return new RedisAuthRateLimiter(client, {
-      keyPrefix: `${prefix}:${instance}`.replace(`:${instance}`, ""),
+      keyPrefix: prefix,
       policies: {
         "otp-request": {
           email: { points: 4, durationSeconds: 2 },
@@ -40,8 +40,8 @@ describe.runIf(Boolean(redisUrl))("RedisAuthRateLimiter integration", () => {
   }
 
   it("shares counters, cooldown and TTL between two independent instances", async () => {
-    const first = createAdapter("first");
-    const second = createAdapter("second");
+    const first = createAdapter();
+    const second = createAdapter();
     const now = new Date();
     const verifyInput = {
       operation: "otp-verify" as const,
@@ -73,7 +73,7 @@ describe.runIf(Boolean(redisUrl))("RedisAuthRateLimiter integration", () => {
   });
 
   it("fails closed immediately when Redis is unavailable", async () => {
-    const adapter = createAdapter("unavailable");
+    const adapter = createAdapter();
     const client = clients.at(-1);
     await client?.disconnect();
 
@@ -84,5 +84,26 @@ describe.runIf(Boolean(redisUrl))("RedisAuthRateLimiter integration", () => {
         keys: [{ dimension: "email" as const, digest: "fail-closed-digest" }],
       }),
     ).rejects.toThrow("auth limiter unavailable");
+  });
+
+  it("stores the PKCE verifier behind a state digest and consumes it once", async () => {
+    if (!redisUrl) throw new Error("TEST_REDIS_URL is required");
+    const client = createRedisConnection(redisUrl);
+    clients.push(client);
+    await client.connect();
+    const store = new RedisDiscordOAuthVerifierStore(client, `${prefix}:pkce`);
+    const state = "raw-oauth-state-must-not-be-a-redis-key";
+    const record = {
+      mode: "required" as const,
+      codeVerifier: "verifier-with-sufficient-entropy-for-pkce-1234567890",
+      expiresAt: new Date(Date.now() + 5_000),
+    };
+
+    await store.save(state, record);
+    const keys = await client.keys(`${prefix}:pkce:*`);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).not.toContain(state);
+    await expect(store.consume(state)).resolves.toEqual(record);
+    await expect(store.consume(state)).resolves.toBeNull();
   });
 });

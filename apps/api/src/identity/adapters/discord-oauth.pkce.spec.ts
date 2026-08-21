@@ -97,11 +97,9 @@ describe("DiscordOAuthAdapter PKCE", () => {
 
     expect(
       () =>
-        new DiscordOAuthAdapter(
-          { ...config, pkceMode: "documented-exception" },
-          verifierStore,
-          { fetch: captured.fetch },
-        ),
+        new DiscordOAuthAdapter({ ...config, pkceMode: "documented-exception" }, verifierStore, {
+          fetch: captured.fetch,
+        }),
     ).toThrow("documented PKCE exception requires evidence");
 
     const exceptionAdapter = new DiscordOAuthAdapter(
@@ -125,9 +123,9 @@ describe("DiscordOAuthAdapter PKCE", () => {
     const exceptionTokenRequest = captured.requests.find((request) =>
       request.url.endsWith("/oauth2/token"),
     );
-    expect(new URLSearchParams(await exceptionTokenRequest?.clone().text()).has("code_verifier")).toBe(
-      false,
-    );
+    expect(
+      new URLSearchParams(await exceptionTokenRequest?.clone().text()).has("code_verifier"),
+    ).toBe(false);
 
     const repairedAdapter = new DiscordOAuthAdapter(config, verifierStore, {
       fetch: captured.fetch,
