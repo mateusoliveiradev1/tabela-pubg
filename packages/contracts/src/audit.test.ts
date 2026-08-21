@@ -36,6 +36,8 @@ describe("audit contracts", () => {
       action: "membership.roles.updated",
       targetLabel: "Membro da organização",
       scopeLabel: "Camps da Comunidade",
+      authorizationScopeId: null,
+      correlationId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2342",
       reason: "Reorganização da equipe",
       occurredAt: "2026-08-20T12:00:00.000Z",
       changes: [
