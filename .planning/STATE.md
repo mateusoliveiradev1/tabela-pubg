@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T06:15:16.212Z"
+last_updated: "2026-08-21T06:33:45.634Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 13
-  percent: 48
+  completed_plans: 14
+  percent: 52
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 10 de 24 concluídos
-- Status: execução em andamento; adapters Discord/Redis e borda HTTP de identidade concluídos
-- Progresso: 48% do milestone (13 de 27 planos)
+- Plano: 11 de 24 concluídos
+- Status: execução em andamento; worker de e-mail transacional cifrado e idempotente concluído
+- Progresso: 52% do milestone (14 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -39,6 +39,8 @@ progress:
 - Cleanup de storage usa ledger sem FK de organização, outbox somente com `cleanupId` e claim com lease/retry idempotente.
 - Verifier PKCE é one-use no Redis, indexado somente pelo digest do state; `documented-exception` exige evidence ID e repara para `required` sem migration.
 - OAuth externo usa HTTP capturado nos testes e nunca devolve authorization URL, challengeId, sessionId ou provider token no JSON público.
+- Jobs de notificação carregam somente `deliveryId`; recipient, OTP, convite e alert context permanecem cifrados até o worker e são apagados após entrega/expiração.
+- Retry reutiliza a idempotency key da delivery; um resend de convite nasce como nova delivery com chave e token próprios.
 
 ## Bloqueadores
 
@@ -46,6 +48,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: OAuth Discord PKCE, limiter Redis distribuído e endpoints de identidade aprovados com preflight Neon/Redis, 73 testes API e gates estáticos no plano 02-07.
+- Última ação: processor BullMQ, templates OTP/convite/novo dispositivo e adapter Resend 6.21.0 aprovados com 12 testes, captura HTTP e cleanup AES-GCM no plano 02-08.
 - Próxima ação: implementar CSRF, guards default-deny e bootstrap seguro do plano 02-16.
 - Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-16-PLAN.md`
