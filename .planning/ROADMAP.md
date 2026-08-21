@@ -37,6 +37,8 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
+**Progresso:** 20/24 planos concluídos — identidade, operações e branding seguro entregues; gates finais pendentes.
+
 ### Entregas
 
 - Discord OAuth2, entrada alternativa por e-mail e sessões revogáveis.

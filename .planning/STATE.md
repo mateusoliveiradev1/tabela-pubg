@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T10:02:00.000Z"
+last_updated: "2026-08-21T10:13:03.840Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 22
-  percent: 81
+  completed_plans: 23
+  percent: 85
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 19 de 24 concluídos
-- Status: execução em andamento; central operacional de membros, convites e auditoria concluída
-- Progresso: 81% do milestone (22 de 27 planos)
+- Plano: 20 de 24 concluídos
+- Status: execução em andamento; branding persistente e seguro concluído
+- Progresso: 85% do milestone (23 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -64,6 +64,12 @@ progress:
 - A UI operacional consome capabilities e projeções autoritativas do servidor sem duplicar a matriz RBAC no navegador.
 - Mutações sensíveis de organização preservam o motivo durante step-up e recarregam shell e capabilities somente após resposta confirmada.
 - A visibilidade de auditoria vem da API e filtros da UI nunca ampliam uma projeção self para all.
+- Branding da UI muda somente após resposta autoritativa e refresh do shell.
+- Logo de convite usa origem allowlisted, no-referrer e fallback local após remoção do token.
+
+## Métricas de execução
+
+- Plano 02-23: 8 min, 2 tarefas, 10 arquivos.
 
 ## Bloqueadores
 
@@ -71,6 +77,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: central operacional de membros, convites e auditoria concluída no plano 02-14.
-- Próxima ação: continuar a wave 12 conforme o orquestrador da Fase 2.
-- Arquivo de retomada: nenhum; plano 02-14 completo.
+- Última ação: branding persistente e seguro concluído no plano 02-23.
+- Próxima ação: continuar a wave 13 conforme o orquestrador da Fase 2.
+- Arquivo de retomada: nenhum; plano 02-23 completo.
