@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T08:03:23.419Z"
+last_updated: "2026-08-21T08:22:18.195Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 17
-  percent: 63
+  completed_plans: 18
+  percent: 50
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 14 de 24 concluídos
-- Status: execução em andamento; fundação visual acessível e primitivos privados concluídos
-- Progresso: 63% do milestone (17 de 27 planos)
+- Plano: 15 de 24 concluídos
+- Status: execução em andamento; BFF same-origin seguro e ciclo CSRF completo concluídos
+- Progresso: 67% do milestone (18 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -50,6 +50,9 @@ progress:
 - Radix e Lucide ficam isolados nos primitivos locais; componentes de domínio recebem apenas capacidades já resolvidas.
 - Specs TSX executam em jsdom e testes de route continuam em Node por projetos Vitest distintos.
 - A UI usa quatro tamanhos, dois pesos e tokens globais grafite/teal; componentes TSX não codificam cores hexadecimais.
+- O BFF aceita somente combinações path/method allowlisted e um `API_INTERNAL_ORIGIN` server-only sem credenciais ou path.
+- O token CSRF retorna em header same-origin, é readquirido com os cookies rotacionados após autenticação e descartado no logout.
+- O Next encaminha 401/403/404 e capabilities sem interpretar autorização; o Nest permanece a única autoridade RBAC.
 
 ## Bloqueadores
 
@@ -57,6 +60,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: tokens e primitivos acessíveis concluídos no plano 02-11.
-- Próxima ação: executar o plano 02-19 da wave atual.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-19-PLAN.md`
+- Última ação: BFF same-origin seguro concluído no plano 02-19.
+- Próxima ação: executar os planos 02-12 e 02-22 da próxima wave.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-12-PLAN.md`
