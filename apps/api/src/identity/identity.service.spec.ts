@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  IdentityService,
   type IdentityRepository,
+  IdentityService,
   type IdentitySessionPort,
 } from "./identity.service.js";
 import type { TokenGenerator } from "./ports/token-generator.js";
@@ -11,7 +11,9 @@ const now = new Date("2026-08-21T12:00:00.000Z");
 function setup(options?: { existingSubject?: string; linkConflict?: boolean }) {
   const repository: IdentityRepository = {
     findDiscordIdentity: vi.fn(async (subject) =>
-      subject === options?.existingSubject ? { userId: "user-existing", emailVerified: true } : null,
+      subject === options?.existingSubject
+        ? { userId: "user-existing", emailVerified: true }
+        : null,
     ),
     createDiscordAccount: vi.fn(async (input) =>
       options?.existingSubject === input.subject

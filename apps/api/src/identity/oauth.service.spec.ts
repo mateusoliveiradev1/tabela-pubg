@@ -13,7 +13,9 @@ const now = new Date("2026-08-21T12:00:00.000Z");
 function setup(transaction: OAuthTransaction | null = { purpose: "sign-in", returnPath: "/home" }) {
   let stored = transaction;
   const provider: DiscordIdentityProvider = {
-    start: vi.fn(async ({ state }) => ({ authorizationUrl: `https://discord.test/oauth?state=${state}` })),
+    start: vi.fn(async ({ state }) => ({
+      authorizationUrl: `https://discord.test/oauth?state=${state}`,
+    })),
     exchange: vi.fn(async () => ({ accessToken: "discord-secret" })),
     fetchUser: vi.fn(async () => ({
       id: "discord-1",
