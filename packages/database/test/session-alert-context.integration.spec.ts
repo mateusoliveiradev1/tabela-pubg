@@ -21,10 +21,6 @@ import { outboxEvents, sessionAlertContexts, sessions } from "../src/schema.js";
 const databaseUrl = process.env.DATABASE_URL;
 const migrationsFolder = fileURLToPath(new URL("../migrations", import.meta.url));
 
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required for session repository integration tests");
-}
-
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
@@ -70,13 +66,16 @@ function notificationInput(idempotencyKey: string) {
   };
 }
 
-describe("session repositories", () => {
+describe.runIf(Boolean(databaseUrl))("session repositories", () => {
   let client: Sql;
   let db: PostgresJsDatabase<typeof schema>;
   let schemaName: string;
   let userId: string;
 
   beforeAll(async () => {
+    if (!databaseUrl) {
+      throw new Error("DATABASE_URL is required for session repository integration tests");
+    }
     schemaName = `phase2_sessions_${process.pid}_${randomBytes(6).toString("hex")}`;
     client = postgres(databaseUrl, {
       max: 1,

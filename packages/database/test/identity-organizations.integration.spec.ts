@@ -24,10 +24,6 @@ import { notificationDeliveries } from "../src/schema.js";
 const databaseUrl = process.env.DATABASE_URL;
 const migrationsFolder = fileURLToPath(new URL("../migrations", import.meta.url));
 
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required for identity repository integration tests");
-}
-
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
@@ -53,12 +49,15 @@ async function applyMigrations(client: Sql, schemaName: string): Promise<void> {
   }
 }
 
-describe("identity repositories", () => {
+describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
   let client: Sql;
   let db: PostgresJsDatabase<typeof schema>;
   let schemaName: string;
 
   beforeAll(async () => {
+    if (!databaseUrl) {
+      throw new Error("DATABASE_URL is required for identity repository integration tests");
+    }
     schemaName = `phase2_identity_${process.pid}_${randomBytes(6).toString("hex")}`;
     client = postgres(databaseUrl, {
       max: 1,
