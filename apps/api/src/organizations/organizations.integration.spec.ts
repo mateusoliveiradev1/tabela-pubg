@@ -2,6 +2,7 @@ import type { CreateOrganizationRequest, OrganizationSummary } from "@pubg-camp/
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TokenGenerator } from "../identity/ports/token-generator.js";
 import { type InvitationRepositoryPort, InvitationsService } from "./invitations.service.js";
+import { type MemberRepositoryPort, MembersService } from "./members.service.js";
 import { type OrganizationRepositoryPort, OrganizationsService } from "./organizations.service.js";
 
 const actorId = "11111111-1111-4111-8111-111111111111";
@@ -197,5 +198,145 @@ describe("InvitationsService", () => {
     const listed = await service.list(actorId, organizationId);
 
     expect(JSON.stringify({ created, resent, listed })).not.toContain("opaque-32-bytes");
+  });
+});
+
+describe("MembersService", () => {
+  const targetMembership = {
+    id: membershipId,
+    user: { id: actorId, displayName: "Player", maskedEmail: "p***@example.com" },
+    organizationRole: "admin" as const,
+    status: "active" as const,
+    assignments: [],
+    joinedAt: now.toISOString(),
+  };
+
+  function setup() {
+    const repository: MemberRepositoryPort = {
+      list: vi.fn(async () => [targetMembership]),
+      update: vi.fn(async () => ({ status: "updated" as const, membership: targetMembership })),
+      revoke: vi.fn(async () => ({ status: "revoked" as const, membership: targetMembership })),
+      transferOwnership: vi.fn(async () => ({
+        status: "transferred" as const,
+        currentMembership: { ...targetMembership, organizationRole: "member" as const },
+        newOwnerMembership: { ...targetMembership, organizationRole: "owner" as const },
+        otherSessionsRevoked: 2,
+      })),
+    };
+    const sessions = {
+      requireRecentReauthentication: vi.fn(async () => undefined),
+    };
+    return {
+      repository,
+      sessions,
+      service: new MembersService(repository, sessions, { now: () => now }),
+    };
+  }
+
+  it("requires a fresh step-up before changing global or operational roles", async () => {
+    const { repository, sessions, service } = setup();
+    vi.mocked(sessions.requireRecentReauthentication).mockRejectedValueOnce(
+      new Error("recent authentication required"),
+    );
+
+    await expect(
+      service.update({
+        actorId,
+        sessionId: "session-current",
+        organizationId,
+        membershipId,
+        body: {
+          organizationRole: "admin",
+          assignments: [],
+          reason: "Responsabilidades operacionais atualizadas",
+        },
+        correlationId: "55555555-5555-4555-8555-555555555555",
+      }),
+    ).rejects.toThrow("recent authentication required");
+    expect(repository.update).not.toHaveBeenCalled();
+  });
+
+  it("does not mutate when the repository rejects a scope from another organization", async () => {
+    const { repository, service } = setup();
+    vi.mocked(repository.update).mockResolvedValueOnce({ status: "unavailable" });
+
+    await expect(
+      service.update({
+        actorId,
+        sessionId: "session-current",
+        organizationId,
+        membershipId,
+        body: {
+          organizationRole: "member",
+          assignments: [
+            {
+              authorizationScopeId: "88888888-8888-4888-8888-888888888888",
+              role: "broadcast",
+            },
+          ],
+          reason: "Escopo de transmissão atualizado",
+        },
+        correlationId: "55555555-5555-4555-8555-555555555555",
+      }),
+    ).rejects.toThrow("membership action unavailable");
+  });
+
+  it("keeps the last owner active until an explicit ownership transfer", async () => {
+    const { repository, service } = setup();
+    vi.mocked(repository.revoke).mockResolvedValueOnce({ status: "last-owner" });
+
+    await expect(
+      service.revoke({
+        actorId,
+        sessionId: "session-current",
+        organizationId,
+        membershipId,
+        reason: "Proprietário solicitou remoção",
+        correlationId: "55555555-5555-4555-8555-555555555555",
+      }),
+    ).rejects.toThrow("ownership transfer required");
+  });
+
+  it("transfers ownership only after exact organization-name confirmation and fresh step-up", async () => {
+    const { repository, sessions, service } = setup();
+
+    await expect(
+      service.transferOwnership({
+        actorId,
+        sessionId: "session-current",
+        organizationId,
+        body: {
+          targetMembershipId: membershipId,
+          organizationNameConfirmation: "Nome incorreto",
+          reason: "Responsabilidade transferida para nova liderança",
+        },
+        correlationId: "55555555-5555-4555-8555-555555555555",
+      }),
+    ).rejects.toThrow("organization name confirmation does not match");
+    expect(repository.transferOwnership).not.toHaveBeenCalled();
+
+    vi.mocked(repository.transferOwnership).mockImplementationOnce(async (input) => {
+      expect(input.organizationNameConfirmation).toBe("Arena Alpha");
+      return {
+        status: "transferred",
+        currentMembership: { ...targetMembership, organizationRole: "member" },
+        newOwnerMembership: { ...targetMembership, organizationRole: "owner" },
+        otherSessionsRevoked: 2,
+      };
+    });
+    const transferred = await service.transferOwnership({
+      actorId,
+      sessionId: "session-current",
+      organizationId,
+      body: {
+        targetMembershipId: membershipId,
+        organizationNameConfirmation: "Arena Alpha",
+        reason: "Responsabilidade transferida para nova liderança",
+      },
+      correlationId: "55555555-5555-4555-8555-555555555555",
+    });
+
+    expect(sessions.requireRecentReauthentication).toHaveBeenCalledWith(actorId, "session-current");
+    expect(transferred.otherSessionsRevoked).toBe(2);
   });
 });
