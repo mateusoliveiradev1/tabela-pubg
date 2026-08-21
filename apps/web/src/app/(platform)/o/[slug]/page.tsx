@@ -11,9 +11,11 @@ interface OrganizationOverviewProps {
 
 export function OrganizationOverview({ organization, state }: OrganizationOverviewProps) {
   if (state !== "authorized" || !organization) {
+    const feedbackState = state === "authorized" || state === "permission" ? "permission" : state;
+
     return (
       <section className="platform-page">
-        <FeedbackState state={state === "permission" ? "permission" : state} />
+        <FeedbackState state={feedbackState} />
       </section>
     );
   }

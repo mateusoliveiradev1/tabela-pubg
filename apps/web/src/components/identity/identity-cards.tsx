@@ -335,7 +335,7 @@ function EmailIdentityLink({ onVerified }: { onVerified: () => void }) {
     >
       <form className="identity-link-form" onSubmit={challengeId ? verifyCode : requestCode}>
         {challengeId ? (
-          <OtpInput value={code} onChange={setCode} error={error} />
+          <OtpInput value={code} onChange={setCode} {...(error ? { error } : {})} />
         ) : (
           <Input
             label="E-mail a vincular"

@@ -71,8 +71,12 @@ describe("platform shell e organização explícita", () => {
 
   it("habilita busca a partir de oito organizações sem persistir seleção na sessão", async () => {
     const user = userEvent.setup();
+    const organizationTemplate = organizations[1] ?? organizations[0];
+    if (!organizationTemplate) {
+      throw new Error("Organization fixture is required");
+    }
     const manyOrganizations = Array.from({ length: 8 }, (_, index) => ({
-      ...organizations[1],
+      ...organizationTemplate,
       id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
       slug: `arena-${index + 1}`,
       name: `Arena ${index + 1}`,
@@ -110,7 +114,7 @@ describe("primeiro acesso e overview", () => {
 
   it("renderiza overview autorizado e uniformiza permission/cross-tenant", () => {
     const { rerender } = render(
-      <OrganizationOverview organization={organizations[0]} state="authorized" />,
+      <OrganizationOverview organization={organizations[0] ?? null} state="authorized" />,
     );
     expect(screen.getByRole("heading", { name: "Liga Central" })).toBeTruthy();
     expect(screen.getByText("Proprietário")).toBeTruthy();
