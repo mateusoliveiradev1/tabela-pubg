@@ -1,4 +1,5 @@
 import { type DynamicModule, Module } from "@nestjs/common";
+import { AuditModule, type AuditModuleOptions } from "./audit/audit.module.js";
 import {
   AuthorizationModule,
   type AuthorizationModulePorts,
@@ -22,6 +23,7 @@ export interface AppModuleOptions {
   csrf: CsrfService;
   authorization: AuthorizationModulePorts;
   organizations: OrganizationsModuleOptions;
+  audit: AuditModuleOptions;
 }
 
 export function registerAppModule(options: AppModuleOptions): DynamicModule {
@@ -30,6 +32,7 @@ export function registerAppModule(options: AppModuleOptions): DynamicModule {
     imports: [
       AuthorizationModule.register({ ...options.authorization, csrf: options.csrf }),
       OrganizationsModule.register(options.organizations),
+      AuditModule.register(options.audit),
     ],
     controllers: [CsrfController],
     providers: [{ provide: CsrfService, useValue: options.csrf }],

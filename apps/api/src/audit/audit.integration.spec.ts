@@ -1,10 +1,6 @@
 import type { AuditEventPage } from "@pubg-camp/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  type AuditRepositoryPort,
-  AuditService,
-  projectAuditChanges,
-} from "./audit.service.js";
+import { type AuditRepositoryPort, AuditService, projectAuditChanges } from "./audit.service.js";
 
 const actorId = "11111111-1111-4111-8111-111111111111";
 const otherActorId = "22222222-2222-4222-8222-222222222222";
@@ -113,6 +109,8 @@ describe("audit redacted projection", () => {
       { field: "organizationRole", before: "member", after: "admin" },
       { field: "operationalRoles", before: null, after: "arena:broadcast" },
     ]);
-    expect(JSON.stringify(changes)).not.toMatch(/secret-token|full@example|ciphertext|session-cookie/);
+    expect(JSON.stringify(changes)).not.toMatch(
+      /secret-token|full@example|ciphertext|session-cookie/,
+    );
   });
 });

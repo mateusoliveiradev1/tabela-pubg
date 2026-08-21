@@ -127,6 +127,7 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
           },
         },
       },
+      audit: { database: database.db },
     }),
     adapter,
     { bufferLogs: true },

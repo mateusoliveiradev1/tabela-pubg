@@ -70,6 +70,8 @@ export const AuditEventSchema = z
     action: AuditActionSchema,
     targetLabel: z.string().trim().min(1).max(160),
     scopeLabel: z.string().trim().min(1).max(160),
+    authorizationScopeId: PublicIdSchema.nullable(),
+    correlationId: PublicIdSchema,
     reason: z.string().trim().min(1).max(500),
     occurredAt: TimestampSchema,
     changes: z.array(AuditChangeSchema).max(100),
