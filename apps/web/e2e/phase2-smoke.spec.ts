@@ -21,10 +21,13 @@ test.describe("phase 2 browser smoke", () => {
       mimeType: "image/png",
       buffer: phase2.logoBytes,
     });
-    await page.getByRole("button", { name: "Salvar logo" }).click();
-    await expect(page.getByRole("status")).toContainText("Logo atualizado");
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/logo") && response.ok()),
+      page.getByRole("button", { name: "Salvar logo" }).click(),
+    ]);
+    await expect(page.getByRole("img", { name: /Logo atual de Arena Alpha/ })).toBeVisible();
 
-    await page.goto(`/convites/aceitar?context=${phase2.invitationContext}`);
+    await page.goto(`/convites/aceitar?token=${phase2.invitationContext}`);
     const logo = page.getByRole("img", { name: new RegExp(phase2.organizationName) });
     await expect(logo).toBeVisible();
     const response = await page.request.get(await logo.getAttribute("src"));
@@ -32,8 +35,8 @@ test.describe("phase 2 browser smoke", () => {
 
     await page.goto("/conta/sessoes");
     await expect(page.getByRole("heading", { name: "Sessões e dispositivos" })).toBeVisible();
-    await page.getByRole("button", { name: /Encerrar sessão de Chrome/i }).click();
     await page.getByRole("button", { name: "Encerrar sessão", exact: true }).click();
-    await expect(page.getByText("Sessão encerrada")).toBeVisible();
+    await page.getByRole("button", { name: "Encerrar sessão agora" }).click();
+    await expect(page.getByText(/Chrome do estúdio foi encerrado/)).toBeVisible();
   });
 });

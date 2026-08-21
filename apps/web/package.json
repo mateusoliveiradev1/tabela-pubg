@@ -9,6 +9,9 @@
     "lint": "biome check src next.config.ts",
     "start": "next start --port 3000",
     "test": "vitest run",
+    "test:e2e:install": "playwright install chromium",
+    "test:e2e:smoke": "node ../../scripts/run-phase2-e2e.mjs --smoke",
+    "test:e2e": "node ../../scripts/run-phase2-e2e.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -27,6 +27,12 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const ROUTES: readonly RouteRule[] = [
   { pattern: /^security\/csrf$/, methods: ["GET"], upstream: "root" },
   {
+    pattern: /^__e2e\/logos\/run-[a-z0-9][a-z0-9-]{14,62}\/[A-Za-z0-9._-]{1,160}$/,
+    methods: ["GET"],
+    upstream: "root",
+    noReferrer: true,
+  },
+  {
     pattern: /^identity\/oauth\/discord\/start$/,
     methods: ["POST"],
     upstream: "root",
@@ -301,7 +307,8 @@ function isAuthorizedSameOriginRequest(
   const origin = request.headers.get("origin");
   const referer = request.headers.get("referer");
   const fetchSite = request.headers.get("sec-fetch-site");
-  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") return false;
+  if (fetchSite === "same-origin") return true;
+  if (fetchSite && fetchSite !== "none") return false;
   if (origin) return normalizeOrigin(origin) === requestUrl.origin;
   if (referer) return normalizeOrigin(referer) === requestUrl.origin;
   return false;

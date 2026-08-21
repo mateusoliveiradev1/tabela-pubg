@@ -2,6 +2,7 @@ import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["127.0.0.1"],
   output: "standalone",
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
   poweredByHeader: false,
@@ -14,7 +15,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Content-Security-Policy",
-            value: "default-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'",
+            value: contentSecurityPolicy(),
           },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-Content-Type-Options", value: "nosniff" },
@@ -37,5 +38,24 @@ const nextConfig: NextConfig = {
     ];
   },
 };
+
+function contentSecurityPolicy(): string {
+  const scriptSource =
+    process.env.NODE_ENV === "development"
+      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+      : "script-src 'self'";
+  return [
+    "default-src 'self'",
+    scriptSource,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "frame-ancestors 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+}
 
 export default nextConfig;

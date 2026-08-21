@@ -1,6 +1,11 @@
 import { type DynamicModule, Module } from "@nestjs/common";
 import type { DatabaseConnection, EncryptionKey } from "@pubg-camp/database";
 import type { TokenGenerator } from "../identity/ports/token-generator.js";
+import {
+  assertE2EProviderEnvironment,
+  E2EOrganizationLogoStorage,
+  type E2EProviderEnvironment,
+} from "./adapters/e2e-organization-logo-storage.js";
 import { INVITATIONS_SERVICE, InvitationsController } from "./invitations.controller.js";
 import { InvitationsService, PostgresInvitationRepository } from "./invitations.service.js";
 import { MEMBERS_SERVICE, MembersController } from "./members.controller.js";
@@ -18,10 +23,13 @@ export interface OrganizationsModuleOptions {
   encryptionKey: EncryptionKey;
   tokens: TokenGenerator;
   sessions: RecentReauthenticationPort;
-  logoStorage: OrganizationLogoStorage;
+  logoStorage?: OrganizationLogoStorage;
   logoFallbackUrl: string;
   logoSignedUrlTtlSeconds?: number;
   clock?: { now(): Date };
+  environment?: E2EProviderEnvironment;
+  e2eObjectRoot?: string;
+  e2eLogoPublicBasePath?: string;
 }
 
 @Module({})
@@ -29,11 +37,13 @@ export interface OrganizationsModuleOptions {
 export class OrganizationsModule {
   static register(options: OrganizationsModuleOptions): DynamicModule {
     const clock = options.clock ?? { now: () => new Date() };
+    const environment = options.environment ?? process.env;
+    const logoStorage = resolveLogoStorage(options, environment);
     const organizations = new OrganizationsService(
       new PostgresOrganizationRepository(options.database),
       options.tokens,
       clock,
-      options.logoStorage,
+      logoStorage,
       {
         fallbackUrl: options.logoFallbackUrl,
         signedUrlTtlSeconds: options.logoSignedUrlTtlSeconds ?? 300,
@@ -63,4 +73,22 @@ export class OrganizationsModule {
       exports: [ORGANIZATIONS_SERVICE, INVITATIONS_SERVICE, MEMBERS_SERVICE],
     };
   }
+}
+
+export function resolveLogoStorage(
+  options: OrganizationsModuleOptions,
+  environment: E2EProviderEnvironment = process.env,
+): OrganizationLogoStorage {
+  if (environment.E2E_PROVIDER_MODE === "fake") {
+    const runId = assertE2EProviderEnvironment(environment);
+    if (!options.e2eObjectRoot)
+      throw new Error("E2E_OBJECT_ROOT is required for fake logo storage");
+    return new E2EOrganizationLogoStorage({
+      root: options.e2eObjectRoot,
+      runId,
+      publicBasePath: options.e2eLogoPublicBasePath ?? "/api/platform/__e2e/logos",
+    });
+  }
+  if (!options.logoStorage) throw new Error("organization logo storage is required");
+  return options.logoStorage;
 }

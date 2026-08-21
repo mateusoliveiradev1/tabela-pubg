@@ -1,7 +1,20 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
-  "globalPassThroughEnv": ["PHASE2_SUITE"],
+  "globalPassThroughEnv": [
+    "PHASE2_SUITE",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "E2E_PROVIDER_MODE",
+    "E2E_RUN_ID",
+    "E2E_OBJECT_ROOT",
+    "E2E_WEB_ORIGIN",
+    "E2E_API_ORIGIN",
+    "E2E_WEB_PORT",
+    "E2E_API_PORT",
+    "API_INTERNAL_ORIGIN",
+    "NEXT_PUBLIC_ORGANIZATION_LOGO_ORIGINS"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

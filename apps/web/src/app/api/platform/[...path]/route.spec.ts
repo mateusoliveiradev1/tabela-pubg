@@ -75,7 +75,11 @@ describe("same-origin platform BFF", () => {
     const response = await POST(
       request("identity/email/otp/request", {
         method: "POST",
-        headers: { origin: "https://evil.test", "content-type": "application/json" },
+        headers: {
+          origin: "https://evil.test",
+          "sec-fetch-site": "cross-site",
+          "content-type": "application/json",
+        },
         body: JSON.stringify({ email: "person@example.test" }),
       }),
       context("identity", "email", "otp", "request"),
@@ -172,6 +176,22 @@ describe("same-origin platform BFF", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(setCookies(response).join(";")).toContain("__Host-preauth=opaque");
     expect(setCookies(response).join(";")).toContain("__Host-csrf=secret");
+  });
+
+  it("accepts browser-owned same-origin metadata across a trusted dev host normalization", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ csrfToken: "metadata-csrf-token-123" }));
+    const browserRequest = new Request("http://localhost:3000/api/platform/security/csrf", {
+      headers: {
+        referer: "http://127.0.0.1:3000/entrar",
+        "sec-fetch-site": "same-origin",
+      },
+    });
+
+    const response = await GET(browserRequest, context("security", "csrf"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-csrf-token")).toBe("metadata-csrf-token-123");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("reacquires CSRF with rotated cookies after authentication", async () => {
