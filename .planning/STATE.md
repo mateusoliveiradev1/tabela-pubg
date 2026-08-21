@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T08:40:30.762Z"
+last_updated: "2026-08-21T09:06:50.288Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 19
-  percent: 70
+  completed_plans: 20
+  percent: 74
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 16 de 24 concluídos
-- Status: execução em andamento; login público, OTP, callback e convite seguros concluídos
-- Progresso: 70% do milestone (19 de 27 planos)
+- Plano: 17 de 24 concluídos
+- Status: execução em andamento; upload, projeção e cleanup seguro de logos concluídos
+- Progresso: 74% do milestone (20 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -56,6 +56,9 @@ progress:
 - O desafio OTP permanece fora do JSON público e cruza o BFF apenas em header opaco allowlisted.
 - Callback OAuth público é POST-only com CSRF; GET não processa `code` ou `state`.
 - Contexto de convite sai da URL antes do preview e permanece em custódia HttpOnly curta até o POST explícito de aceite.
+- Multipart de logo aceita somente `name`/`logo`, deriva metadata no servidor e nunca encaminha filename ou object key.
+- Replace ativa o novo asset e enfileira cleanup do anterior na mesma transação; compensação de órfão usa transação independente.
+- Worker de logo recebe somente `cleanupId` e resolve provider/key do ledger server-side.
 
 ## Bloqueadores
 
@@ -63,6 +66,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: login, OTP, callback e convite públicos concluídos no plano 02-12.
-- Próxima ação: executar o plano 02-22 da wave atual.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-22-PLAN.md`
+- Última ação: upload, URL segura e cleanup idempotente de logos concluídos no plano 02-22.
+- Próxima ação: continuar a wave 10 conforme o orquestrador da Fase 2.
+- Arquivo de retomada: nenhum; plano 02-22 completo.
