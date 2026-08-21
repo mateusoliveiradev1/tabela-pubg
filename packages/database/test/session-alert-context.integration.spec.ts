@@ -16,12 +16,7 @@ import {
   touchSession,
 } from "../src/repositories/sessions.js";
 import * as schema from "../src/schema.js";
-import {
-  notificationDeliveries,
-  outboxEvents,
-  sessionAlertContexts,
-  sessions,
-} from "../src/schema.js";
+import { outboxEvents, sessionAlertContexts, sessions } from "../src/schema.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const migrationsFolder = fileURLToPath(new URL("../migrations", import.meta.url));
@@ -54,12 +49,15 @@ async function applyMigrations(client: Sql, schemaName: string): Promise<void> {
   }
 }
 
+let dependencySeed = 0;
+
 function deterministicDependencies(now: Date) {
+  const seed = ++dependencySeed;
   let randomCounter = 0;
   return {
     clock: () => now,
     generateId: () => randomUUID(),
-    randomBytes: (size: number) => Buffer.alloc(size, ++randomCounter),
+    randomBytes: (size: number) => Buffer.alloc(size, seed + randomCounter++),
   };
 }
 
@@ -136,8 +134,11 @@ describe("session repositories", () => {
       deterministicDependencies(new Date(now.getTime() + 60_000)),
     );
     expect(rotated).not.toBeNull();
+    if (!rotated) {
+      throw new Error("session rotation did not return a replacement token");
+    }
     await expect(resolveSession(db, issued.token, () => now)).resolves.toBeNull();
-    await expect(resolveSession(db, rotated!.token, () => now)).resolves.toMatchObject({
+    await expect(resolveSession(db, rotated.token, () => now)).resolves.toMatchObject({
       session: { id: issued.session.id },
     });
   });
@@ -219,7 +220,10 @@ describe("session repositories", () => {
       "sensitive-operation",
       () => new Date(now.getTime() + 60_000),
     );
-    await expect(resolveSession(db, rotated!.token, () => now)).resolves.not.toBeNull();
+    if (!rotated) {
+      throw new Error("reauthenticated session was not rotated");
+    }
+    await expect(resolveSession(db, rotated.token, () => now)).resolves.not.toBeNull();
   });
 
   it("resolves alert context by digest and user without mutating or authorizing", async () => {
@@ -237,12 +241,15 @@ describe("session repositories", () => {
       ),
     );
     expect(issued.alertToken).toBeDefined();
+    if (!issued.alertToken || !issued.notificationDeliveryId) {
+      throw new Error("new device did not create its alert context and delivery");
+    }
 
     await expect(
-      resolveAlertContextReadOnly(db, randomUUID(), issued.alertToken!, () => now),
+      resolveAlertContextReadOnly(db, randomUUID(), issued.alertToken, () => now),
     ).resolves.toEqual({ status: "not-found-expired" });
     await expect(
-      resolveAlertContextReadOnly(db, userId, issued.alertToken!, () => now),
+      resolveAlertContextReadOnly(db, userId, issued.alertToken, () => now),
     ).resolves.toEqual({ status: "active", sessionId: issued.session.id });
 
     const [contextBefore] = await db
@@ -253,7 +260,7 @@ describe("session repositories", () => {
 
     await revokeSession(db, userId, issued.session.id, "alert-confirmed", () => now);
     await expect(
-      resolveAlertContextReadOnly(db, userId, issued.alertToken!, () => now),
+      resolveAlertContextReadOnly(db, userId, issued.alertToken, () => now),
     ).resolves.toEqual({ status: "already-revoked", sessionId: issued.session.id });
     const [contextAfter] = await db
       .select()
@@ -264,7 +271,7 @@ describe("session repositories", () => {
     const [outbox] = await db
       .select({ payload: outboxEvents.payload })
       .from(outboxEvents)
-      .where(eq(outboxEvents.aggregateId, issued.notificationDeliveryId!));
+      .where(eq(outboxEvents.aggregateId, issued.notificationDeliveryId));
     expect(outbox?.payload).toEqual({ deliveryId: issued.notificationDeliveryId });
     expect(JSON.stringify(outbox)).not.toContain(issued.alertToken);
   });

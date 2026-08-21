@@ -3,6 +3,7 @@ import postgres from "postgres";
 import * as schema from "./schema.js";
 
 export * from "./outbox.js";
+export * from "./repositories/index.js";
 export * from "./schema.js";
 
 export function createDatabase(databaseUrl: string) {
