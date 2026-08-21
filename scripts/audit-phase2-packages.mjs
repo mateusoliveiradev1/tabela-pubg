@@ -37,7 +37,21 @@ const PACKAGE_ALLOWLIST = Object.freeze([
 const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 const EXPECTED_CARDINALITY = 12;
 const SUBPROCESS_TIMEOUT_MS = 30_000;
-const DOWNLOAD_ATTEMPTS = 3;
+const REGISTRY_ATTEMPTS = 3;
+const REGISTRY_SEARCH_GROUPS = Object.freeze([
+  Object.freeze({
+    query: "maintainer:npm-workos",
+    names: Object.freeze(PACKAGE_ALLOWLIST.filter((name) => name.startsWith("@radix-ui/"))),
+  }),
+  Object.freeze({
+    query: "maintainer:testing-library-bot",
+    names: Object.freeze(PACKAGE_ALLOWLIST.filter((name) => name.startsWith("@testing-library/"))),
+  }),
+  Object.freeze({ query: "maintainer:dgozman-ms", names: Object.freeze(["@playwright/test"]) }),
+  Object.freeze({ query: "maintainer:npmdeque", names: Object.freeze(["@axe-core/playwright"]) }),
+  Object.freeze({ query: "lucide-react", names: Object.freeze(["lucide-react"]) }),
+  Object.freeze({ query: "jsdom", names: Object.freeze(["jsdom"]) }),
+]);
 
 function fail(message) {
   throw new Error(`phase 2 package audit failed closed: ${message}`);
@@ -246,14 +260,14 @@ function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function fetchRegistrySnapshot(name) {
-  const url = `https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(name)}&size=20`;
-  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
+async function fetchRegistrySearch(query) {
+  const url = `https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(query)}&size=250`;
+  for (let attempt = 1; attempt <= REGISTRY_ATTEMPTS; attempt += 1) {
     const response = await fetch(url, {
       headers: { accept: "application/json", "user-agent": "pubg-camp-package-audit/1" },
       signal: AbortSignal.timeout(SUBPROCESS_TIMEOUT_MS),
     });
-    if (response.status === 429 && attempt < DOWNLOAD_ATTEMPTS) {
+    if (response.status === 429 && attempt < REGISTRY_ATTEMPTS) {
       const retryAfterSeconds = Number(response.headers.get("retry-after"));
       const delay = Number.isFinite(retryAfterSeconds)
         ? Math.min(retryAfterSeconds * 1_000, 5_000)
@@ -261,31 +275,50 @@ async function fetchRegistrySnapshot(name) {
       await wait(delay);
       continue;
     }
-    if (!response.ok) fail(`${name}: npm registry search returned ${response.status}`);
+    if (!response.ok) fail(`npm registry search ${query}: returned ${response.status}`);
     const payload = await response.json();
-    const matches = Array.isArray(payload.objects)
-      ? payload.objects.filter((item) => item?.package?.name === name)
-      : [];
-    if (matches.length !== 1) fail(`${name}: npm registry search did not return one exact match`);
-    const match = matches[0];
-    if (
-      !Number.isSafeInteger(match.downloads?.weekly) ||
-      typeof match.package?.version !== "string" ||
-      typeof match.package?.publisher?.username !== "string" ||
-      typeof match.package?.links?.repository !== "string" ||
-      typeof match.package?.date !== "string"
-    ) {
-      fail(`${name}: incomplete npm registry provenance or download metadata`);
-    }
-    return {
-      weeklyDownloads: match.downloads.weekly,
-      version: match.package.version,
-      publisher: match.package.publisher.username,
-      repository: normalizeRepository(match.package.links.repository),
-      publishedAt: match.package.date,
-    };
+    if (!Array.isArray(payload.objects)) fail(`npm registry search ${query}: invalid payload`);
+    return payload.objects;
   }
-  fail(`${name}: npm registry search exhausted retry budget`);
+  fail(`npm registry search ${query}: exhausted retry budget`);
+}
+
+function normalizeRegistryMatch(name, match) {
+  if (
+    !Number.isSafeInteger(match.downloads?.weekly) ||
+    typeof match.package?.version !== "string" ||
+    typeof match.package?.publisher?.username !== "string" ||
+    typeof match.package?.links?.repository !== "string" ||
+    typeof match.package?.date !== "string"
+  ) {
+    fail(`${name}: incomplete npm registry provenance or download metadata`);
+  }
+  return {
+    weeklyDownloads: match.downloads.weekly,
+    version: match.package.version,
+    publisher: match.package.publisher.username,
+    repository: normalizeRepository(match.package.links.repository),
+    publishedAt: match.package.date,
+  };
+}
+
+async function fetchRegistrySnapshots() {
+  const snapshots = new Map();
+  for (const group of REGISTRY_SEARCH_GROUPS) {
+    const objects = await fetchRegistrySearch(group.query);
+    for (const name of group.names) {
+      const matches = objects.filter((item) => item?.package?.name === name);
+      if (matches.length !== 1) {
+        fail(`${name}: npm registry search did not return one exact match`);
+      }
+      if (snapshots.has(name)) fail(`${name}: duplicate registry audit result`);
+      snapshots.set(name, normalizeRegistryMatch(name, matches[0]));
+    }
+  }
+  if (snapshots.size !== EXPECTED_CARDINALITY) {
+    fail(`npm registry audit returned ${snapshots.size} exact packages`);
+  }
+  return snapshots;
 }
 
 function packageAgeDays(createdAt, now) {
@@ -294,7 +327,7 @@ function packageAgeDays(createdAt, now) {
   return Math.floor((now.getTime() - created) / 86_400_000);
 }
 
-async function auditPackage(name, slopcheck, now) {
+async function auditPackage(name, slopcheck, registry, now) {
   const npmRaw = runNpm(
     [
       "view",
@@ -318,7 +351,6 @@ async function auditPackage(name, slopcheck, now) {
     `${name}: slopcheck scan`,
   );
   const verdict = validateSlopcheck(name, parseJsonPayload(slopRaw, `${name}: slopcheck scan`));
-  const registry = await fetchRegistrySnapshot(name);
   if (
     registry.version !== metadata.version ||
     registry.publisher !== metadata.publisher ||
@@ -372,9 +404,12 @@ async function main() {
 
   const slopcheck = resolveSlopcheck();
   const now = new Date();
+  const registrySnapshots = await fetchRegistrySnapshots();
   const packages = [];
   for (const name of PACKAGE_ALLOWLIST) {
-    packages.push(await auditPackage(name, slopcheck, now));
+    const registry = registrySnapshots.get(name);
+    if (!registry) fail(`${name}: registry audit result missing`);
+    packages.push(await auditPackage(name, slopcheck, registry, now));
   }
 
   const report = {
