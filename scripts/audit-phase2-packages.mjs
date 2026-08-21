@@ -37,6 +37,7 @@ const PACKAGE_ALLOWLIST = Object.freeze([
 const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 const EXPECTED_CARDINALITY = 12;
 const SUBPROCESS_TIMEOUT_MS = 30_000;
+const DOWNLOAD_ATTEMPTS = 3;
 
 function fail(message) {
   throw new Error(`phase 2 package audit failed closed: ${message}`);
@@ -241,23 +242,50 @@ function validateSlopcheck(name, payload) {
   return { status: result.status, flags: result.flags };
 }
 
-async function fetchDownloads(name) {
-  const url = `https://api.npmjs.org/downloads/point/last-week/${encodeURIComponent(name)}`;
-  const response = await fetch(url, {
-    headers: { accept: "application/json", "user-agent": "pubg-camp-package-audit/1" },
-    signal: AbortSignal.timeout(SUBPROCESS_TIMEOUT_MS),
-  });
-  if (!response.ok) fail(`${name}: npm downloads API returned ${response.status}`);
-  const payload = await response.json();
-  if (
-    payload.package !== name ||
-    !Number.isSafeInteger(payload.downloads) ||
-    typeof payload.start !== "string" ||
-    typeof payload.end !== "string"
-  ) {
-    fail(`${name}: incomplete npm downloads metadata`);
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function fetchRegistrySnapshot(name) {
+  const url = `https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(name)}&size=20`;
+  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
+    const response = await fetch(url, {
+      headers: { accept: "application/json", "user-agent": "pubg-camp-package-audit/1" },
+      signal: AbortSignal.timeout(SUBPROCESS_TIMEOUT_MS),
+    });
+    if (response.status === 429 && attempt < DOWNLOAD_ATTEMPTS) {
+      const retryAfterSeconds = Number(response.headers.get("retry-after"));
+      const delay = Number.isFinite(retryAfterSeconds)
+        ? Math.min(retryAfterSeconds * 1_000, 5_000)
+        : attempt * 1_000;
+      await wait(delay);
+      continue;
+    }
+    if (!response.ok) fail(`${name}: npm registry search returned ${response.status}`);
+    const payload = await response.json();
+    const matches = Array.isArray(payload.objects)
+      ? payload.objects.filter((item) => item?.package?.name === name)
+      : [];
+    if (matches.length !== 1) fail(`${name}: npm registry search did not return one exact match`);
+    const match = matches[0];
+    if (
+      !Number.isSafeInteger(match.downloads?.weekly) ||
+      typeof match.package?.version !== "string" ||
+      typeof match.package?.publisher?.username !== "string" ||
+      typeof match.package?.links?.repository !== "string" ||
+      typeof match.package?.date !== "string"
+    ) {
+      fail(`${name}: incomplete npm registry provenance or download metadata`);
+    }
+    return {
+      weeklyDownloads: match.downloads.weekly,
+      version: match.package.version,
+      publisher: match.package.publisher.username,
+      repository: normalizeRepository(match.package.links.repository),
+      publishedAt: match.package.date,
+    };
   }
-  return { weekly: payload.downloads, period: { start: payload.start, end: payload.end } };
+  fail(`${name}: npm registry search exhausted retry budget`);
 }
 
 function packageAgeDays(createdAt, now) {
@@ -290,15 +318,23 @@ async function auditPackage(name, slopcheck, now) {
     `${name}: slopcheck scan`,
   );
   const verdict = validateSlopcheck(name, parseJsonPayload(slopRaw, `${name}: slopcheck scan`));
-  const downloads = await fetchDownloads(name);
+  const registry = await fetchRegistrySnapshot(name);
+  if (
+    registry.version !== metadata.version ||
+    registry.publisher !== metadata.publisher ||
+    registry.repository !== metadata.repository ||
+    registry.publishedAt !== metadata.publishedAt
+  ) {
+    fail(`${name}: npm view and registry search provenance disagree`);
+  }
 
   return {
     name,
     npmUrl: `https://www.npmjs.com/package/${name}`,
     ...metadata,
     ageDays: packageAgeDays(metadata.createdAt, now),
-    weeklyDownloads: downloads.weekly,
-    downloadPeriod: downloads.period,
+    weeklyDownloads: registry.weeklyDownloads,
+    downloadWindow: "last-week",
     slopcheck: verdict,
   };
 }
