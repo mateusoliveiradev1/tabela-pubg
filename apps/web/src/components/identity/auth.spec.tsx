@@ -36,7 +36,9 @@ describe("login Discord-first", () => {
     const button = screen.getByRole("button", { name: "Continuar com Discord" });
     await user.dblClick(button);
 
-    expect(screen.getByRole("button", { name: "Abrindo Discord…" })).toBeDisabled();
+    expect(
+      (screen.getByRole("button", { name: "Abrindo Discord…" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(document.body.textContent).not.toContain("state=");
 
@@ -137,7 +139,7 @@ describe("OTP acessível", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     await user.click(screen.getByRole("button", { name: "Confirmar código" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect((await screen.findByRole("alert")).textContent).toContain(
       "Código inválido. Confira os 8 dígitos e tente novamente.",
     );
     expect(document.activeElement).toBe(otp);

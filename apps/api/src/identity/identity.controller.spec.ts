@@ -69,11 +69,13 @@ describe("IdentityController", () => {
 
   it("keeps OTP request body and status uniform without exposing challenge data", async () => {
     const { controller, otp } = setup();
+    const reply = { header: vi.fn() };
 
     const result = await controller.requestEmailOtp(
       { email: "player@example.com", purpose: "sign-in" },
       "203.0.113.8",
       "corr-1",
+      reply,
     );
 
     expect(otp.request).toHaveBeenCalledWith({
@@ -84,6 +86,7 @@ describe("IdentityController", () => {
     });
     expect(result).toEqual({ status: "accepted", retryAfterSeconds: 60 });
     expect(result).not.toHaveProperty("challengeId");
+    expect(reply.header).toHaveBeenCalledWith("x-otp-challenge-id", "internal-challenge-secret");
   });
 
   it("maps successful provider output without returning provider or session tokens", async () => {

@@ -160,6 +160,7 @@ const RESPONSE_HEADER_ALLOWLIST = new Set([
   "location",
   "retry-after",
   "x-correlation-id",
+  "x-otp-challenge-id",
 ]);
 
 async function proxy(request: Request, context: PlatformRouteContext): Promise<Response> {

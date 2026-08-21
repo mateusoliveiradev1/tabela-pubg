@@ -126,6 +126,7 @@ export class IdentityController {
     @Body() rawBody: unknown,
     @Ip() trustedIp: string,
     @Headers("x-correlation-id") correlationId: string | undefined,
+    @Res({ passthrough: true }) reply?: Pick<FastifyReply, "header">,
   ): Promise<EmailOtpResponse> {
     const body = EmailOtpRequestSchema.parse(rawBody);
     const result = await this.otp.request({
@@ -134,6 +135,7 @@ export class IdentityController {
       trustedIp,
       correlationId: normalizeCorrelationId(correlationId),
     });
+    if (result.challengeId) reply?.header("x-otp-challenge-id", result.challengeId);
     return EmailOtpResponseSchema.parse(result.response);
   }
 

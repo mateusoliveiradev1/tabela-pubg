@@ -109,7 +109,11 @@ describe("same-origin platform BFF", () => {
         { status: "accepted" },
         {
           status: 202,
-          headers: { server: "internal-api", "x-provider-token": "provider-response-secret" },
+          headers: {
+            server: "internal-api",
+            "x-otp-challenge-id": "66323e38-bb3e-4c19-b23a-821b355c06e3",
+            "x-provider-token": "provider-response-secret",
+          },
         },
       ),
     );
@@ -142,6 +146,7 @@ describe("same-origin platform BFF", () => {
     expect(headers.get("x-provider-token")).toBeNull();
     expect(response.headers.get("server")).toBeNull();
     expect(response.headers.get("x-provider-token")).toBeNull();
+    expect(response.headers.get("x-otp-challenge-id")).toBe("66323e38-bb3e-4c19-b23a-821b355c06e3");
   });
 
   it("acquires a pre-auth CSRF token and preserves every secure Set-Cookie", async () => {
