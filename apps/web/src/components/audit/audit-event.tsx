@@ -1,9 +1,6 @@
 "use client";
 
-import type {
-  AuditEvent as AuditEventData,
-  AuditEventPage,
-} from "@pubg-camp/contracts";
+import type { AuditEvent as AuditEventData, AuditEventPage } from "@pubg-camp/contracts";
 import { useState } from "react";
 import { Button } from "../ui/button";
 import { EmptyState, FeedbackState, InlineAlert } from "../ui/feedback";

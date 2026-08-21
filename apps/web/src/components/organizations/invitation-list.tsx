@@ -76,7 +76,8 @@ export function InvitationList({
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error();
-      await onAuthoritativeRefresh?.();
+      if (onAuthoritativeRefresh) await onAuthoritativeRefresh();
+      else window.location.reload();
       setNotice(
         action.kind === "create"
           ? "Convite enviado"

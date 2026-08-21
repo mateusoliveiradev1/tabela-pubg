@@ -71,7 +71,7 @@ export function MemberList({
       reason,
     });
     if (!response.ok) throw new Error("mutation rejected");
-    await onAuthoritativeRefresh?.();
+    await refreshAuthoritative();
     setNotice("Permissões atualizadas");
     setDraft(undefined);
     setEditing(undefined);
@@ -84,7 +84,7 @@ export function MemberList({
       { reason },
     );
     if (!response.ok) throw new Error("mutation rejected");
-    await onAuthoritativeRefresh?.();
+    await refreshAuthoritative();
     setNotice("Acesso revogado");
     setRevoking(undefined);
   }
@@ -100,12 +100,17 @@ export function MemberList({
       },
     );
     if (!response.ok) throw new Error("mutation rejected");
-    await onAuthoritativeRefresh?.();
+    await refreshAuthoritative();
     setNotice("Propriedade transferida. Encerramos suas outras sessões por segurança.");
     setTransferReady(false);
     setTransferOpen(false);
     setTransferTargetId("");
     setTransferName("");
+  }
+
+  async function refreshAuthoritative() {
+    if (onAuthoritativeRefresh) await onAuthoritativeRefresh();
+    else window.location.reload();
   }
 
   return (
