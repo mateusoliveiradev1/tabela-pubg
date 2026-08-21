@@ -65,14 +65,20 @@ describe.runIf(Boolean(databaseUrl))("invitation concurrency", () => {
     if (!databaseUrl) throw new Error("DATABASE_URL is required for invitation concurrency tests");
     schemaName = `phase2_invite_${process.pid}_${randomBytes(6).toString("hex")}`;
     adminClient = postgres(concurrencyDatabaseUrl ?? databaseUrl, {
-      max: 1, prepare: false, onnotice: () => undefined,
+      max: 1,
+      prepare: false,
+      onnotice: () => undefined,
     });
     await applyMigrations(adminClient, schemaName);
     firstClient = postgres(concurrencyDatabaseUrl ?? databaseUrl, {
-      max: 1, prepare: false, onnotice: () => undefined,
+      max: 1,
+      prepare: false,
+      onnotice: () => undefined,
     });
     secondClient = postgres(concurrencyDatabaseUrl ?? databaseUrl, {
-      max: 1, prepare: false, onnotice: () => undefined,
+      max: 1,
+      prepare: false,
+      onnotice: () => undefined,
     });
     await Promise.all([
       firstClient.unsafe(`set search_path to ${quoteIdentifier(schemaName)}`),
@@ -129,24 +135,28 @@ describe.runIf(Boolean(databaseUrl))("invitation concurrency", () => {
       insert into authorization_scopes (id, organization_id, label)
       values (${scopeId}, ${organizationId}, 'Final')
     `;
-    await createInvitation(db, organizationId, {
-      id: invitationId,
-      invitedByMembershipId: ownerMembershipId,
-      email: inviteeEmail,
-      token,
-      organizationRole: "admin",
-      rolePayload: [
-        { authorizationScopeId: scopeId, role: "broadcast" },
-        { authorizationScopeId: scopeId, role: "analyst" },
-      ],
-      issuedAt: now,
-    });
+    await db.transaction((tx) =>
+      createInvitation(tx, organizationId, {
+        id: invitationId,
+        invitedByMembershipId: ownerMembershipId,
+        email: inviteeEmail,
+        token,
+        organizationRole: "admin",
+        rolePayload: [
+          { authorizationScopeId: scopeId, role: "broadcast" },
+          { authorizationScopeId: scopeId, role: "analyst" },
+        ],
+        issuedAt: now,
+        auditEventId: randomUUID(),
+        outboxEventId: randomUUID(),
+        correlationId: randomUUID(),
+        reason: "owner invited tournament operators",
+        occurredAt: now,
+      }),
+    );
 
     const barrier = createBarrier(2);
-    const attempt = (
-      connection: PostgresJsDatabase<typeof schema>,
-      suffix: string,
-    ) =>
+    const attempt = (connection: PostgresJsDatabase<typeof schema>, suffix: string) =>
       connection.transaction(async (tx) => {
         await barrier();
         return acceptInvitation(tx, organizationId, token, inviteeUserId, {
@@ -161,10 +171,7 @@ describe.runIf(Boolean(databaseUrl))("invitation concurrency", () => {
       });
 
     const results = await Promise.all([attempt(firstDb, "a"), attempt(secondDb, "b")]);
-    expect(results.map((result) => result.status).toSorted()).toEqual([
-      "accepted",
-      "unavailable",
-    ]);
+    expect(results.map((result) => result.status).toSorted()).toEqual(["accepted", "unavailable"]);
 
     const [state] = await adminClient`
       select
@@ -235,44 +242,101 @@ describe.runIf(Boolean(databaseUrl))("invitation concurrency", () => {
       );
 
     const wrongEmailToken = `wrong-${randomUUID()}`;
-    await createInvitation(db, organizationId, {
-      id: randomUUID(), invitedByMembershipId: ownerMembershipId,
-      email: "another@example.test", token: wrongEmailToken,
-      organizationRole: "member", rolePayload: [], issuedAt: now,
-    });
+    await db.transaction((tx) =>
+      createInvitation(tx, organizationId, {
+        id: randomUUID(),
+        invitedByMembershipId: ownerMembershipId,
+        email: "another@example.test",
+        token: wrongEmailToken,
+        organizationRole: "member",
+        rolePayload: [],
+        issuedAt: now,
+        auditEventId: randomUUID(),
+        outboxEventId: randomUUID(),
+        correlationId: randomUUID(),
+        reason: "wrong email negative case",
+        occurredAt: now,
+      }),
+    );
     await expect(attempt(wrongEmailToken)).resolves.toEqual({ status: "unavailable" });
 
     const expiredToken = `expired-${randomUUID()}`;
     const expiredInvitationId = randomUUID();
-    await createInvitation(db, organizationId, {
-      id: expiredInvitationId, invitedByMembershipId: ownerMembershipId,
-      email: "verified@example.test", token: expiredToken,
-      organizationRole: "member", rolePayload: [],
-      issuedAt: new Date(now.getTime() - 8 * 24 * 60 * 60_000),
-    });
+    await db.transaction((tx) =>
+      createInvitation(tx, organizationId, {
+        id: expiredInvitationId,
+        invitedByMembershipId: ownerMembershipId,
+        email: "verified@example.test",
+        token: expiredToken,
+        organizationRole: "member",
+        rolePayload: [],
+        issuedAt: new Date(now.getTime() - 8 * 24 * 60 * 60_000),
+        auditEventId: randomUUID(),
+        outboxEventId: randomUUID(),
+        correlationId: randomUUID(),
+        reason: "expired invitation negative case",
+        occurredAt: now,
+      }),
+    );
     await expect(attempt(expiredToken)).resolves.toEqual({ status: "unavailable" });
-    await revokeInvitation(db, organizationId, expiredInvitationId, {
-      reason: "expired invitation cleanup", occurredAt: now,
-    });
+    await db.transaction((tx) =>
+      revokeInvitation(tx, organizationId, expiredInvitationId, {
+        actorMembershipId: ownerMembershipId,
+        auditEventId: randomUUID(),
+        outboxEventId: randomUUID(),
+        correlationId: randomUUID(),
+        reason: "expired invitation cleanup",
+        occurredAt: now,
+      }),
+    );
 
     const revokedToken = `revoked-${randomUUID()}`;
     const revokedInvitationId = randomUUID();
-    await createInvitation(db, organizationId, {
-      id: revokedInvitationId, invitedByMembershipId: ownerMembershipId,
-      email: "revoked@example.test", token: revokedToken,
-      organizationRole: "member", rolePayload: [], issuedAt: now,
-    });
-    await revokeInvitation(db, organizationId, revokedInvitationId, {
-      reason: "invitation no longer valid", occurredAt: now,
-    });
+    await db.transaction((tx) =>
+      createInvitation(tx, organizationId, {
+        id: revokedInvitationId,
+        invitedByMembershipId: ownerMembershipId,
+        email: "revoked@example.test",
+        token: revokedToken,
+        organizationRole: "member",
+        rolePayload: [],
+        issuedAt: now,
+        auditEventId: randomUUID(),
+        outboxEventId: randomUUID(),
+        correlationId: randomUUID(),
+        reason: "revoked invitation negative case",
+        occurredAt: now,
+      }),
+    );
+    await db.transaction((tx) =>
+      revokeInvitation(tx, organizationId, revokedInvitationId, {
+        actorMembershipId: ownerMembershipId,
+        auditEventId: randomUUID(),
+        outboxEventId: randomUUID(),
+        correlationId: randomUUID(),
+        reason: "invitation no longer valid",
+        occurredAt: now,
+      }),
+    );
     await expect(attempt(revokedToken)).resolves.toEqual({ status: "unavailable" });
 
     const replayToken = `replay-${randomUUID()}`;
-    await createInvitation(db, organizationId, {
-      id: randomUUID(), invitedByMembershipId: ownerMembershipId,
-      email: "verified@example.test", token: replayToken,
-      organizationRole: "member", rolePayload: [], issuedAt: now,
-    });
+    await db.transaction((tx) =>
+      createInvitation(tx, organizationId, {
+        id: randomUUID(),
+        invitedByMembershipId: ownerMembershipId,
+        email: "verified@example.test",
+        token: replayToken,
+        organizationRole: "member",
+        rolePayload: [],
+        issuedAt: now,
+        auditEventId: randomUUID(),
+        outboxEventId: randomUUID(),
+        correlationId: randomUUID(),
+        reason: "replay invitation negative case",
+        occurredAt: now,
+      }),
+    );
     await expect(attempt(replayToken)).resolves.toMatchObject({ status: "accepted" });
     await expect(attempt(replayToken)).resolves.toEqual({ status: "unavailable" });
 

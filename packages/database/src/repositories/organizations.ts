@@ -1,19 +1,80 @@
+import { createHash } from "node:crypto";
 import type { EventEnvelope } from "@pubg-camp/contracts";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { appendOutboxEvent } from "../outbox.js";
 import type * as databaseSchema from "../schema.js";
 import {
+  authorizationScopes,
+  type InvitationRolePayloadEntry,
+  invitations,
   type OrganizationMembershipRow,
   organizationMemberships,
   organizations,
+  roleAssignments,
+  verifiedEmails,
 } from "../schema.js";
 import { AuditWriter } from "./audit.js";
 
 export type OrganizationRepositoryExecutor = Pick<
   PostgresJsDatabase<typeof databaseSchema>,
-  "insert" | "select" | "update"
+  "execute" | "insert" | "select" | "update"
 >;
+
+const INVITATION_TTL_MS = 7 * 24 * 60 * 60_000;
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function digestToken(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+async function lockOrganization(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+): Promise<boolean> {
+  const locked = await executor.execute(
+    sql`select ${organizations.id} from ${organizations}
+        where ${organizations.id} = ${organizationId} for update`,
+  );
+  return locked.length === 1;
+}
+
+async function validateRolePayload(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  rolePayload: readonly InvitationRolePayloadEntry[],
+): Promise<boolean> {
+  const uniqueAssignments = new Set<string>();
+  for (const assignment of rolePayload) {
+    const key = `${assignment.authorizationScopeId}:${assignment.role}`;
+    if (uniqueAssignments.has(key)) return false;
+    uniqueAssignments.add(key);
+    const [scope] = await executor
+      .select({ id: authorizationScopes.id })
+      .from(authorizationScopes)
+      .where(
+        and(
+          eq(authorizationScopes.organizationId, organizationId),
+          eq(authorizationScopes.id, assignment.authorizationScopeId),
+          isNull(authorizationScopes.archivedAt),
+        ),
+      )
+      .limit(1);
+    if (!scope) return false;
+  }
+  return true;
+}
+
+export interface MutationMetadata {
+  auditEventId: string;
+  outboxEventId: string;
+  correlationId: string;
+  reason: string;
+  occurredAt: Date;
+}
 
 export interface CreateOrganizationInput {
   id: string;
@@ -92,3 +153,436 @@ export async function findMembershipById(
     .limit(1);
   return membership ?? null;
 }
+
+export interface CreateInvitationInput extends MutationMetadata {
+  id: string;
+  invitedByMembershipId: string;
+  email: string;
+  token: string;
+  organizationRole: "admin" | "member";
+  rolePayload: readonly InvitationRolePayloadEntry[];
+  issuedAt: Date;
+}
+
+export async function createInvitation(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  input: CreateInvitationInput,
+): Promise<void> {
+  const [inviter] = await executor
+    .select({ id: organizationMemberships.id })
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.id, input.invitedByMembershipId),
+        eq(organizationMemberships.status, "active"),
+        or(eq(organizationMemberships.role, "owner"), eq(organizationMemberships.role, "admin")),
+      ),
+    )
+    .limit(1);
+  if (!inviter || !(await validateRolePayload(executor, organizationId, input.rolePayload))) {
+    throw new Error("invitation actor or role payload is outside the organization scope");
+  }
+
+  await executor.insert(invitations).values({
+    id: input.id,
+    organizationId,
+    invitedByMembershipId: input.invitedByMembershipId,
+    normalizedEmail: normalizeEmail(input.email),
+    tokenDigest: digestToken(input.token),
+    organizationRole: input.organizationRole,
+    rolePayload: [...input.rolePayload],
+    issuedAt: input.issuedAt,
+    expiresAt: new Date(input.issuedAt.getTime() + INVITATION_TTL_MS),
+    createdAt: input.issuedAt,
+    updatedAt: input.issuedAt,
+  });
+  await AuditWriter.append(executor, {
+    id: input.auditEventId,
+    organizationId,
+    actorMembershipId: input.invitedByMembershipId,
+    action: "invitation.created",
+    targetType: "invitation",
+    targetId: input.id,
+    reason: input.reason,
+    before: null,
+    after: { invitationStatus: "pending", organizationRole: input.organizationRole },
+    correlationId: input.correlationId,
+    occurredAt: input.occurredAt,
+  });
+  await appendOutboxEvent(executor, {
+    id: input.outboxEventId,
+    type: "invitation.created",
+    version: 1,
+    occurredAt: input.occurredAt.toISOString(),
+    correlationId: input.correlationId,
+    aggregate: { type: "invitation", id: input.id },
+    payload: { organizationId, invitationId: input.id },
+  });
+}
+
+export interface RevokeInvitationInput extends MutationMetadata {
+  actorMembershipId: string;
+}
+
+export async function revokeInvitation(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  invitationId: string,
+  input: RevokeInvitationInput,
+): Promise<boolean> {
+  if (!(await lockOrganization(executor, organizationId))) return false;
+  await executor.execute(
+    sql`select ${invitations.id} from ${invitations}
+        where ${invitations.organizationId} = ${organizationId}
+          and ${invitations.id} = ${invitationId} for update`,
+  );
+  const [revoked] = await executor
+    .update(invitations)
+    .set({
+      revokedAt: input.occurredAt,
+      revocationReason: input.reason,
+      updatedAt: input.occurredAt,
+    })
+    .where(
+      and(
+        eq(invitations.organizationId, organizationId),
+        eq(invitations.id, invitationId),
+        isNull(invitations.acceptedAt),
+        isNull(invitations.revokedAt),
+        isNull(invitations.supersededAt),
+      ),
+    )
+    .returning({ id: invitations.id });
+  if (!revoked) return false;
+  await AuditWriter.append(executor, {
+    id: input.auditEventId,
+    organizationId,
+    actorMembershipId: input.actorMembershipId,
+    action: "invitation.revoked",
+    targetType: "invitation",
+    targetId: invitationId,
+    reason: input.reason,
+    before: { invitationStatus: "pending" },
+    after: { invitationStatus: "revoked" },
+    correlationId: input.correlationId,
+    occurredAt: input.occurredAt,
+  });
+  await appendOutboxEvent(executor, {
+    id: input.outboxEventId,
+    type: "invitation.revoked",
+    version: 1,
+    occurredAt: input.occurredAt.toISOString(),
+    correlationId: input.correlationId,
+    aggregate: { type: "invitation", id: invitationId },
+    payload: { organizationId, invitationId },
+  });
+  return true;
+}
+
+export interface AcceptInvitationInput extends MutationMetadata {
+  membershipId: string;
+  assignmentIds: readonly string[];
+}
+
+export type AcceptInvitationResult =
+  | { status: "accepted"; membershipId: string }
+  | { status: "unavailable" };
+
+export async function acceptInvitation(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  token: string,
+  userId: string,
+  input: AcceptInvitationInput,
+): Promise<AcceptInvitationResult> {
+  if (!(await lockOrganization(executor, organizationId))) return { status: "unavailable" };
+  const tokenDigest = digestToken(token);
+  await executor.execute(
+    sql`select ${invitations.id} from ${invitations}
+        where ${invitations.organizationId} = ${organizationId}
+          and ${invitations.tokenDigest} = ${tokenDigest} for update`,
+  );
+  const [invitation] = await executor
+    .select()
+    .from(invitations)
+    .where(
+      and(
+        eq(invitations.organizationId, organizationId),
+        eq(invitations.tokenDigest, tokenDigest),
+        isNull(invitations.acceptedAt),
+        isNull(invitations.revokedAt),
+        isNull(invitations.supersededAt),
+        gt(invitations.expiresAt, input.occurredAt),
+      ),
+    )
+    .limit(1);
+  const [verifiedEmail] = await executor
+    .select({ normalizedEmail: verifiedEmails.normalizedEmail })
+    .from(verifiedEmails)
+    .where(and(eq(verifiedEmails.userId, userId), isNull(verifiedEmails.revokedAt)))
+    .limit(1);
+  const [existingMembership] = await executor
+    .select({ id: organizationMemberships.id })
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.userId, userId),
+      ),
+    )
+    .limit(1);
+  if (
+    !invitation ||
+    !verifiedEmail ||
+    verifiedEmail.normalizedEmail !== invitation.normalizedEmail ||
+    existingMembership ||
+    input.assignmentIds.length !== invitation.rolePayload.length ||
+    !(await validateRolePayload(executor, organizationId, invitation.rolePayload))
+  ) {
+    return { status: "unavailable" };
+  }
+
+  await executor.insert(organizationMemberships).values({
+    id: input.membershipId,
+    organizationId,
+    userId,
+    role: invitation.organizationRole,
+    status: "active",
+    joinedAt: input.occurredAt,
+    createdAt: input.occurredAt,
+    updatedAt: input.occurredAt,
+  });
+  if (invitation.rolePayload.length > 0) {
+    await executor.insert(roleAssignments).values(
+      invitation.rolePayload.map((assignment, index) => ({
+        id: input.assignmentIds[index] as string,
+        organizationId,
+        membershipId: input.membershipId,
+        authorizationScopeId: assignment.authorizationScopeId,
+        role: assignment.role,
+        status: "active" as const,
+        assignedByMembershipId: invitation.invitedByMembershipId,
+        assignmentReason: input.reason,
+        assignedAt: input.occurredAt,
+      })),
+    );
+  }
+  const [consumed] = await executor
+    .update(invitations)
+    .set({
+      acceptedByMembershipId: input.membershipId,
+      acceptedAt: input.occurredAt,
+      updatedAt: input.occurredAt,
+    })
+    .where(
+      and(
+        eq(invitations.organizationId, organizationId),
+        eq(invitations.id, invitation.id),
+        isNull(invitations.acceptedAt),
+        isNull(invitations.revokedAt),
+        isNull(invitations.supersededAt),
+      ),
+    )
+    .returning({ id: invitations.id });
+  if (!consumed) throw new Error("invitation changed while locked; transaction must roll back");
+
+  await AuditWriter.append(executor, {
+    id: input.auditEventId,
+    organizationId,
+    actorMembershipId: input.membershipId,
+    action: "invitation.accepted",
+    targetType: "invitation",
+    targetId: invitation.id,
+    reason: input.reason,
+    before: { invitationStatus: "pending" },
+    after: { invitationStatus: "accepted", organizationRole: invitation.organizationRole },
+    correlationId: input.correlationId,
+    occurredAt: input.occurredAt,
+  });
+  await appendOutboxEvent(executor, {
+    id: input.outboxEventId,
+    type: "invitation.accepted",
+    version: 1,
+    occurredAt: input.occurredAt.toISOString(),
+    correlationId: input.correlationId,
+    aggregate: { type: "invitation", id: invitation.id },
+    payload: { organizationId, invitationId: invitation.id, membershipId: input.membershipId },
+  });
+  return { status: "accepted", membershipId: input.membershipId };
+}
+
+export type RevokeMembershipResult =
+  | { status: "revoked" }
+  | { status: "last-owner" }
+  | { status: "unavailable" };
+
+export async function revokeMembership(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  membershipId: string,
+  actorMembershipId: string,
+  input: MutationMetadata,
+): Promise<RevokeMembershipResult> {
+  if (!(await lockOrganization(executor, organizationId))) return { status: "unavailable" };
+  const [target] = await executor
+    .select()
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.id, membershipId),
+        eq(organizationMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+  const [actor] = await executor
+    .select({ id: organizationMemberships.id })
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.id, actorMembershipId),
+        eq(organizationMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+  if (!target || !actor) return { status: "unavailable" };
+  if (target.role === "owner") {
+    const owners = await executor
+      .select({ id: organizationMemberships.id })
+      .from(organizationMemberships)
+      .where(
+        and(
+          eq(organizationMemberships.organizationId, organizationId),
+          eq(organizationMemberships.role, "owner"),
+          eq(organizationMemberships.status, "active"),
+        ),
+      );
+    if (owners.length <= 1) return { status: "last-owner" };
+  }
+  const [revoked] = await executor
+    .update(organizationMemberships)
+    .set({
+      status: "revoked",
+      revokedAt: input.occurredAt,
+      revocationReason: input.reason,
+      updatedAt: input.occurredAt,
+    })
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.id, membershipId),
+        eq(organizationMemberships.status, "active"),
+      ),
+    )
+    .returning({ id: organizationMemberships.id });
+  if (!revoked) return { status: "unavailable" };
+  await AuditWriter.append(executor, {
+    id: input.auditEventId,
+    organizationId,
+    actorMembershipId,
+    action: "membership.revoked",
+    targetType: "organization-membership",
+    targetId: membershipId,
+    reason: input.reason,
+    before: { membershipStatus: "active", organizationRole: target.role },
+    after: { membershipStatus: "revoked", organizationRole: target.role },
+    correlationId: input.correlationId,
+    occurredAt: input.occurredAt,
+  });
+  await appendOutboxEvent(executor, {
+    id: input.outboxEventId,
+    type: "membership.revoked",
+    version: 1,
+    occurredAt: input.occurredAt.toISOString(),
+    correlationId: input.correlationId,
+    aggregate: { type: "organization-membership", id: membershipId },
+    payload: { organizationId, membershipId },
+  });
+  return { status: "revoked" };
+}
+
+export type TransferOwnershipResult = { status: "transferred" } | { status: "unavailable" };
+
+export async function transferOwnership(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  currentOwnerMembershipId: string,
+  newOwnerMembershipId: string,
+  input: MutationMetadata,
+): Promise<TransferOwnershipResult> {
+  if (
+    currentOwnerMembershipId === newOwnerMembershipId ||
+    !(await lockOrganization(executor, organizationId))
+  ) {
+    return { status: "unavailable" };
+  }
+  const memberships = await executor
+    .select({ id: organizationMemberships.id, role: organizationMemberships.role })
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.status, "active"),
+        or(
+          eq(organizationMemberships.id, currentOwnerMembershipId),
+          eq(organizationMemberships.id, newOwnerMembershipId),
+        ),
+      ),
+    );
+  const currentOwner = memberships.find((item) => item.id === currentOwnerMembershipId);
+  const newOwner = memberships.find((item) => item.id === newOwnerMembershipId);
+  if (currentOwner?.role !== "owner" || !newOwner) return { status: "unavailable" };
+
+  await executor
+    .update(organizationMemberships)
+    .set({ role: "owner", updatedAt: input.occurredAt })
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.id, newOwnerMembershipId),
+        eq(organizationMemberships.status, "active"),
+      ),
+    );
+  await executor
+    .update(organizationMemberships)
+    .set({ role: "member", updatedAt: input.occurredAt })
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.id, currentOwnerMembershipId),
+        eq(organizationMemberships.status, "active"),
+      ),
+    );
+  await AuditWriter.append(executor, {
+    id: input.auditEventId,
+    organizationId,
+    actorMembershipId: currentOwnerMembershipId,
+    action: "ownership.transferred",
+    targetType: "organization",
+    targetId: organizationId,
+    reason: input.reason,
+    before: { ownership: currentOwnerMembershipId },
+    after: { ownership: newOwnerMembershipId },
+    correlationId: input.correlationId,
+    occurredAt: input.occurredAt,
+  });
+  await appendOutboxEvent(executor, {
+    id: input.outboxEventId,
+    type: "ownership.transferred",
+    version: 1,
+    occurredAt: input.occurredAt.toISOString(),
+    correlationId: input.correlationId,
+    aggregate: { type: "organization", id: organizationId },
+    payload: {
+      organizationId,
+      previousOwnerMembershipId: currentOwnerMembershipId,
+      newOwnerMembershipId,
+    },
+  });
+  return { status: "transferred" };
+}
+
+export const invitationDurations = { ttlMs: INVITATION_TTL_MS };

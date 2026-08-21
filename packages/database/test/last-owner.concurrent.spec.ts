@@ -5,10 +5,7 @@ import { fileURLToPath } from "node:url";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  revokeMembership,
-  transferOwnership,
-} from "../src/repositories/organizations.js";
+import { revokeMembership, transferOwnership } from "../src/repositories/organizations.js";
 import * as schema from "../src/schema.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -63,14 +60,20 @@ describe.runIf(Boolean(databaseUrl))("last owner concurrency", () => {
     if (!databaseUrl) throw new Error("DATABASE_URL is required for owner concurrency tests");
     schemaName = `phase2_owner_${process.pid}_${randomBytes(6).toString("hex")}`;
     adminClient = postgres(concurrencyDatabaseUrl ?? databaseUrl, {
-      max: 1, prepare: false, onnotice: () => undefined,
+      max: 1,
+      prepare: false,
+      onnotice: () => undefined,
     });
     await applyMigrations(adminClient, schemaName);
     firstClient = postgres(concurrencyDatabaseUrl ?? databaseUrl, {
-      max: 1, prepare: false, onnotice: () => undefined,
+      max: 1,
+      prepare: false,
+      onnotice: () => undefined,
     });
     secondClient = postgres(concurrencyDatabaseUrl ?? databaseUrl, {
-      max: 1, prepare: false, onnotice: () => undefined,
+      max: 1,
+      prepare: false,
+      onnotice: () => undefined,
     });
     await Promise.all([
       firstClient.unsafe(`set search_path to ${quoteIdentifier(schemaName)}`),
@@ -95,11 +98,14 @@ describe.runIf(Boolean(databaseUrl))("last owner concurrency", () => {
     const organizationId = randomUUID();
     const firstUserId = randomUUID();
     const secondUserId = randomUUID();
+    const adminUserId = randomUUID();
     const firstMembershipId = randomUUID();
     const secondMembershipId = randomUUID();
+    const adminMembershipId = randomUUID();
     await adminClient`
       insert into users (id, display_name) values
-      (${firstUserId}, 'First owner'), (${secondUserId}, 'Second member')
+      (${firstUserId}, 'First owner'), (${secondUserId}, 'Second member'),
+      (${adminUserId}, 'Race administrator')
     `;
     await adminClient`
       insert into organizations (id, slug, name)
@@ -109,9 +115,10 @@ describe.runIf(Boolean(databaseUrl))("last owner concurrency", () => {
       insert into organization_memberships (id, organization_id, user_id, role, status)
       values
         (${firstMembershipId}, ${organizationId}, ${firstUserId}, 'owner', 'active'),
-        (${secondMembershipId}, ${organizationId}, ${secondUserId}, ${ownerCount === 2 ? "owner" : "member"}, 'active')
+        (${secondMembershipId}, ${organizationId}, ${secondUserId}, ${ownerCount === 2 ? "owner" : "member"}, 'active'),
+        (${adminMembershipId}, ${organizationId}, ${adminUserId}, 'admin', 'active')
     `;
-    return { organizationId, firstMembershipId, secondMembershipId };
+    return { organizationId, firstMembershipId, secondMembershipId, adminMembershipId };
   }
 
   const mutationMeta = (reason: string) => ({
@@ -132,7 +139,7 @@ describe.runIf(Boolean(databaseUrl))("last owner concurrency", () => {
           tx,
           seeded.organizationId,
           seeded.firstMembershipId,
-          seeded.secondMembershipId,
+          seeded.adminMembershipId,
           mutationMeta("concurrent removal of first owner"),
         );
       }),
@@ -142,15 +149,12 @@ describe.runIf(Boolean(databaseUrl))("last owner concurrency", () => {
           tx,
           seeded.organizationId,
           seeded.secondMembershipId,
-          seeded.firstMembershipId,
+          seeded.adminMembershipId,
           mutationMeta("concurrent removal of second owner"),
         );
       }),
     ]);
-    expect(results.map((result) => result.status).toSorted()).toEqual([
-      "last-owner",
-      "revoked",
-    ]);
+    expect(results.map((result) => result.status).toSorted()).toEqual(["last-owner", "revoked"]);
     const [state] = await adminClient`
       select
         count(*) filter (where role = 'owner' and status = 'active')::int as owners,
