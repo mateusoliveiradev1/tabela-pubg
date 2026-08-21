@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import {
-  type AnyPgColumn,
   check,
   foreignKey,
   index,
@@ -103,10 +102,7 @@ export const invitations = pgTable(
     revokedAt: timestamptz("revoked_at"),
     revocationReason: text("revocation_reason"),
     supersededAt: timestamptz("superseded_at"),
-    supersededByInvitationId: uuid("superseded_by_invitation_id").references(
-      (): AnyPgColumn => invitations.id,
-      { onDelete: "restrict" },
-    ),
+    supersededByInvitationId: uuid("superseded_by_invitation_id"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
@@ -127,6 +123,11 @@ export const invitations = pgTable(
       name: "invitations_organization_accepted_membership_fk",
       columns: [table.organizationId, table.acceptedByMembershipId],
       foreignColumns: [organizationMemberships.organizationId, organizationMemberships.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "invitations_organization_superseding_invitation_fk",
+      columns: [table.organizationId, table.supersededByInvitationId],
+      foreignColumns: [table.organizationId, table.id],
     }).onDelete("restrict"),
     index("invitations_organization_status_idx").on(
       table.organizationId,
@@ -156,6 +157,10 @@ export const invitations = pgTable(
     check(
       "invitations_supersession_pair_check",
       sql`(${table.supersededAt} is null and ${table.supersededByInvitationId} is null) or (${table.supersededAt} is not null and ${table.supersededByInvitationId} is not null)`,
+    ),
+    check(
+      "invitations_no_self_supersession_check",
+      sql`${table.supersededByInvitationId} is null or ${table.supersededByInvitationId} <> ${table.id}`,
     ),
   ],
 );

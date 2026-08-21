@@ -98,7 +98,8 @@ CREATE TABLE "identities" (
 	"linked_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"verified_at" timestamp with time zone,
 	"revoked_at" timestamp with time zone,
-	CONSTRAINT "identities_provider_subject_unique" UNIQUE("provider","provider_subject")
+	CONSTRAINT "identities_provider_subject_unique" UNIQUE("provider","provider_subject"),
+	CONSTRAINT "identities_user_id_id_unique" UNIQUE("user_id","id")
 );
 --> statement-breakpoint
 CREATE TABLE "oauth_transactions" (
@@ -113,7 +114,8 @@ CREATE TABLE "oauth_transactions" (
 	"consumed_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "oauth_transactions_state_digest_unique" UNIQUE("state_digest"),
-	CONSTRAINT "oauth_transactions_expiry_check" CHECK ("oauth_transactions"."expires_at" > "oauth_transactions"."created_at")
+	CONSTRAINT "oauth_transactions_expiry_check" CHECK ("oauth_transactions"."expires_at" > "oauth_transactions"."created_at"),
+	CONSTRAINT "oauth_transactions_session_user_check" CHECK ("oauth_transactions"."session_id" is null or "oauth_transactions"."user_id" is not null)
 );
 --> statement-breakpoint
 CREATE TABLE "session_alert_contexts" (
@@ -218,7 +220,8 @@ CREATE TABLE "invitations" (
 	CONSTRAINT "invitations_terminal_state_check" CHECK (num_nonnulls("invitations"."accepted_at", "invitations"."revoked_at", "invitations"."superseded_at") <= 1),
 	CONSTRAINT "invitations_acceptance_pair_check" CHECK (("invitations"."accepted_at" is null and "invitations"."accepted_by_membership_id" is null) or ("invitations"."accepted_at" is not null and "invitations"."accepted_by_membership_id" is not null)),
 	CONSTRAINT "invitations_revocation_pair_check" CHECK (("invitations"."revoked_at" is null and "invitations"."revocation_reason" is null) or ("invitations"."revoked_at" is not null and "invitations"."revocation_reason" is not null)),
-	CONSTRAINT "invitations_supersession_pair_check" CHECK (("invitations"."superseded_at" is null and "invitations"."superseded_by_invitation_id" is null) or ("invitations"."superseded_at" is not null and "invitations"."superseded_by_invitation_id" is not null))
+	CONSTRAINT "invitations_supersession_pair_check" CHECK (("invitations"."superseded_at" is null and "invitations"."superseded_by_invitation_id" is null) or ("invitations"."superseded_at" is not null and "invitations"."superseded_by_invitation_id" is not null)),
+	CONSTRAINT "invitations_no_self_supersession_check" CHECK ("invitations"."superseded_by_invitation_id" is null or "invitations"."superseded_by_invitation_id" <> "invitations"."id")
 );
 --> statement-breakpoint
 CREATE TABLE "organization_memberships" (
@@ -260,17 +263,17 @@ ALTER TABLE "auth_challenges" ADD CONSTRAINT "auth_challenges_user_id_users_id_f
 ALTER TABLE "devices" ADD CONSTRAINT "devices_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "identities" ADD CONSTRAINT "identities_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_transactions" ADD CONSTRAINT "oauth_transactions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "oauth_transactions" ADD CONSTRAINT "oauth_transactions_session_id_sessions_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "oauth_transactions" ADD CONSTRAINT "oauth_transactions_user_session_fk" FOREIGN KEY ("user_id","session_id") REFERENCES "public"."sessions"("user_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session_alert_contexts" ADD CONSTRAINT "session_alert_contexts_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session_alert_contexts" ADD CONSTRAINT "session_alert_contexts_user_session_fk" FOREIGN KEY ("user_id","session_id") REFERENCES "public"."sessions"("user_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_device_fk" FOREIGN KEY ("user_id","device_id") REFERENCES "public"."devices"("user_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "verified_emails" ADD CONSTRAINT "verified_emails_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "verified_emails" ADD CONSTRAINT "verified_emails_identity_id_identities_id_fk" FOREIGN KEY ("identity_id") REFERENCES "public"."identities"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "verified_emails" ADD CONSTRAINT "verified_emails_user_identity_fk" FOREIGN KEY ("user_id","identity_id") REFERENCES "public"."identities"("user_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invitations" ADD CONSTRAINT "invitations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "invitations" ADD CONSTRAINT "invitations_superseded_by_invitation_id_invitations_id_fk" FOREIGN KEY ("superseded_by_invitation_id") REFERENCES "public"."invitations"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invitations" ADD CONSTRAINT "invitations_organization_inviter_fk" FOREIGN KEY ("organization_id","invited_by_membership_id") REFERENCES "public"."organization_memberships"("organization_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invitations" ADD CONSTRAINT "invitations_organization_accepted_membership_fk" FOREIGN KEY ("organization_id","accepted_by_membership_id") REFERENCES "public"."organization_memberships"("organization_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "invitations" ADD CONSTRAINT "invitations_organization_superseding_invitation_fk" FOREIGN KEY ("organization_id","superseded_by_invitation_id") REFERENCES "public"."invitations"("organization_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "organization_memberships" ADD CONSTRAINT "organization_memberships_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "organization_memberships" ADD CONSTRAINT "organization_memberships_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "audit_events_organization_occurred_idx" ON "audit_events" USING btree ("organization_id","occurred_at");--> statement-breakpoint

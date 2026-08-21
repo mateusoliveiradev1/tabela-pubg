@@ -1,5 +1,5 @@
 {
-  "id": "1b19c360-406f-45dc-8960-9a4e0caffe79",
+  "id": "886b0e14-ae51-4503-b891-4471f32c5ca1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1147,6 +1147,14 @@
             "provider",
             "provider_subject"
           ]
+        },
+        "identities_user_id_id_unique": {
+          "name": "identities_user_id_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "id"
+          ]
         }
       },
       "policies": {},
@@ -1272,14 +1280,16 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "oauth_transactions_session_id_sessions_id_fk": {
-          "name": "oauth_transactions_session_id_sessions_id_fk",
+        "oauth_transactions_user_session_fk": {
+          "name": "oauth_transactions_user_session_fk",
           "tableFrom": "oauth_transactions",
           "tableTo": "sessions",
           "columnsFrom": [
+            "user_id",
             "session_id"
           ],
           "columnsTo": [
+            "user_id",
             "id"
           ],
           "onDelete": "cascade",
@@ -1301,6 +1311,10 @@
         "oauth_transactions_expiry_check": {
           "name": "oauth_transactions_expiry_check",
           "value": "\"oauth_transactions\".\"expires_at\" > \"oauth_transactions\".\"created_at\""
+        },
+        "oauth_transactions_session_user_check": {
+          "name": "oauth_transactions_session_user_check",
+          "value": "\"oauth_transactions\".\"session_id\" is null or \"oauth_transactions\".\"user_id\" is not null"
         }
       },
       "isRLSEnabled": false
@@ -1783,14 +1797,16 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "verified_emails_identity_id_identities_id_fk": {
-          "name": "verified_emails_identity_id_identities_id_fk",
+        "verified_emails_user_identity_fk": {
+          "name": "verified_emails_user_identity_fk",
           "tableFrom": "verified_emails",
           "tableTo": "identities",
           "columnsFrom": [
+            "user_id",
             "identity_id"
           ],
           "columnsTo": [
+            "user_id",
             "id"
           ],
           "onDelete": "cascade",
@@ -2235,19 +2251,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "invitations_superseded_by_invitation_id_invitations_id_fk": {
-          "name": "invitations_superseded_by_invitation_id_invitations_id_fk",
-          "tableFrom": "invitations",
-          "tableTo": "invitations",
-          "columnsFrom": [
-            "superseded_by_invitation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
         "invitations_organization_inviter_fk": {
           "name": "invitations_organization_inviter_fk",
           "tableFrom": "invitations",
@@ -2270,6 +2273,21 @@
           "columnsFrom": [
             "organization_id",
             "accepted_by_membership_id"
+          ],
+          "columnsTo": [
+            "organization_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "invitations_organization_superseding_invitation_fk": {
+          "name": "invitations_organization_superseding_invitation_fk",
+          "tableFrom": "invitations",
+          "tableTo": "invitations",
+          "columnsFrom": [
+            "organization_id",
+            "superseded_by_invitation_id"
           ],
           "columnsTo": [
             "organization_id",
@@ -2322,6 +2340,10 @@
         "invitations_supersession_pair_check": {
           "name": "invitations_supersession_pair_check",
           "value": "(\"invitations\".\"superseded_at\" is null and \"invitations\".\"superseded_by_invitation_id\" is null) or (\"invitations\".\"superseded_at\" is not null and \"invitations\".\"superseded_by_invitation_id\" is not null)"
+        },
+        "invitations_no_self_supersession_check": {
+          "name": "invitations_no_self_supersession_check",
+          "value": "\"invitations\".\"superseded_by_invitation_id\" is null or \"invitations\".\"superseded_by_invitation_id\" <> \"invitations\".\"id\""
         }
       },
       "isRLSEnabled": false

@@ -55,6 +55,7 @@ export const identities = pgTable(
   },
   (table) => [
     unique("identities_provider_subject_unique").on(table.provider, table.providerSubject),
+    unique("identities_user_id_id_unique").on(table.userId, table.id),
     index("identities_user_status_idx").on(table.userId, table.status),
   ],
 );
@@ -66,9 +67,7 @@ export const verifiedEmails = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    identityId: uuid("identity_id")
-      .notNull()
-      .references(() => identities.id, { onDelete: "cascade" }),
+    identityId: uuid("identity_id").notNull(),
     normalizedEmail: text("normalized_email").notNull(),
     verifiedAt: timestamptz("verified_at").notNull(),
     revokedAt: timestamptz("revoked_at"),
@@ -77,6 +76,11 @@ export const verifiedEmails = pgTable(
   (table) => [
     unique("verified_emails_normalized_email_unique").on(table.normalizedEmail),
     unique("verified_emails_identity_unique").on(table.identityId),
+    foreignKey({
+      name: "verified_emails_user_identity_fk",
+      columns: [table.userId, table.identityId],
+      foreignColumns: [identities.userId, identities.id],
+    }).onDelete("cascade"),
     uniqueIndex("verified_emails_active_user_unique")
       .on(table.userId)
       .where(sql`${table.revokedAt} is null`),
@@ -186,7 +190,7 @@ export const oauthTransactions = pgTable(
   {
     id: uuid("id").primaryKey(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
-    sessionId: uuid("session_id").references(() => sessions.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id"),
     purpose: oauthPurpose("purpose").notNull(),
     stateDigest: text("state_digest").notNull().unique("oauth_transactions_state_digest_unique"),
     browserBindingDigest: text("browser_binding_digest").notNull(),
@@ -196,9 +200,18 @@ export const oauthTransactions = pgTable(
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
   (table) => [
+    foreignKey({
+      name: "oauth_transactions_user_session_fk",
+      columns: [table.userId, table.sessionId],
+      foreignColumns: [sessions.userId, sessions.id],
+    }).onDelete("cascade"),
     index("oauth_transactions_binding_expiry_idx").on(table.browserBindingDigest, table.expiresAt),
     index("oauth_transactions_expiry_idx").on(table.expiresAt),
     check("oauth_transactions_expiry_check", sql`${table.expiresAt} > ${table.createdAt}`),
+    check(
+      "oauth_transactions_session_user_check",
+      sql`${table.sessionId} is null or ${table.userId} is not null`,
+    ),
   ],
 );
 
