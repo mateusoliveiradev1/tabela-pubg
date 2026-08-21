@@ -107,5 +107,3 @@ export function createStorage(config: StorageConfig) {
     },
   };
 }
-
-export * from "./organization-logo.js";

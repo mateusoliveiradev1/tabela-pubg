@@ -59,6 +59,17 @@ function logoInput(organizationId: string, createdByMembershipId: string) {
   };
 }
 
+async function connectToSchema(databaseUrlValue: string, schemaName: string): Promise<Sql> {
+  const connection = postgres(databaseUrlValue, {
+    max: 1,
+    connect_timeout: 5,
+    prepare: false,
+    onnotice: () => undefined,
+  });
+  await connection.unsafe(`set search_path to ${quoteIdentifier(schemaName)}`);
+  return connection;
+}
+
 describe.runIf(Boolean(databaseUrl))("organization logo repositories", () => {
   let client: Sql;
   let db: PostgresJsDatabase<typeof schemaType>;
@@ -139,9 +150,10 @@ describe.runIf(Boolean(databaseUrl))("organization logo repositories", () => {
     await expect(
       db.transaction((tx) => createPendingLogo(tx, organizationA, crossTenant)),
     ).rejects.toThrow();
-    const missingOrganization = logoInput(randomUUID(), ownerMembershipA);
+    const missingOrganizationId = randomUUID();
+    const missingOrganization = logoInput(missingOrganizationId, ownerMembershipA);
     await expect(
-      db.transaction((tx) => createPendingLogo(tx, randomUUID(), missingOrganization)),
+      db.transaction((tx) => createPendingLogo(tx, missingOrganizationId, missingOrganization)),
     ).rejects.toThrow();
 
     const second = logoInput(organizationA, ownerMembershipA);
@@ -159,6 +171,31 @@ describe.runIf(Boolean(databaseUrl))("organization logo repositories", () => {
     );
     expect(previous?.id).toBe(first.id);
     await expect(getActiveLogo(db, organizationA)).resolves.toMatchObject({ id: second.id });
+
+    if (!databaseUrl) throw new Error("DATABASE_URL is required for concurrent logo activation");
+    const concurrentA = logoInput(organizationA, ownerMembershipA);
+    const concurrentB = logoInput(organizationA, ownerMembershipA);
+    await db.transaction(async (tx) => {
+      await createPendingLogo(tx, organizationA, concurrentA);
+      await createPendingLogo(tx, organizationA, concurrentB);
+    });
+    const connectionA = await connectToSchema(databaseUrl, schemaName);
+    const connectionB = await connectToSchema(databaseUrl, schemaName);
+    try {
+      const databaseA = drizzle(connectionA, { schema });
+      const databaseB = drizzle(connectionB, { schema });
+      await Promise.all([
+        databaseA.transaction((tx) =>
+          activateLogo(tx, organizationA, concurrentA.id, new Date("2026-08-21T05:04:00.000Z")),
+        ),
+        databaseB.transaction((tx) =>
+          activateLogo(tx, organizationA, concurrentB.id, new Date("2026-08-21T05:05:00.000Z")),
+        ),
+      ]);
+    } finally {
+      await Promise.all([connectionA.end({ timeout: 5 }), connectionB.end({ timeout: 5 })]);
+    }
+
     const [{ activeCount }] = await client`
       select count(*)::int as "activeCount" from organization_logo_assets
       where organization_id = ${organizationA} and status = 'active'
@@ -186,18 +223,28 @@ describe.runIf(Boolean(databaseUrl))("organization logo repositories", () => {
     expect(outbox?.payload).toEqual({ cleanupId });
     expect(Object.keys(outbox?.payload as object)).toEqual(["cleanupId"]);
 
-    const firstClaim = await Promise.all([
-      StorageCleanupRepository.claimOrphanCleanup(
-        db,
-        cleanupId,
-        new Date("2026-08-21T06:01:00.000Z"),
-      ),
-      StorageCleanupRepository.claimOrphanCleanup(
-        db,
-        cleanupId,
-        new Date("2026-08-21T06:01:00.000Z"),
-      ),
-    ]);
+    if (!databaseUrl) throw new Error("DATABASE_URL is required for concurrent cleanup claim");
+    const connectionA = await connectToSchema(databaseUrl, schemaName);
+    const connectionB = await connectToSchema(databaseUrl, schemaName);
+    let firstClaim: Array<schemaType.OrphanStorageCleanupRow | null> = [];
+    try {
+      const databaseA = drizzle(connectionA, { schema });
+      const databaseB = drizzle(connectionB, { schema });
+      firstClaim = await Promise.all([
+        StorageCleanupRepository.claimOrphanCleanup(
+          databaseA,
+          cleanupId,
+          new Date("2026-08-21T06:01:00.000Z"),
+        ),
+        StorageCleanupRepository.claimOrphanCleanup(
+          databaseB,
+          cleanupId,
+          new Date("2026-08-21T06:01:00.000Z"),
+        ),
+      ]);
+    } finally {
+      await Promise.all([connectionA.end({ timeout: 5 }), connectionB.end({ timeout: 5 })]);
+    }
     expect(firstClaim.filter(Boolean)).toHaveLength(1);
 
     await expect(

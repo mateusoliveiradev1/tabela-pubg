@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { EventEnvelope } from "@pubg-camp/contracts";
-import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { ObjectKeySchema } from "@pubg-camp/storage";
+import { and, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { appendOutboxEvent } from "../outbox.js";
 import type * as databaseSchema from "../schema.js";
@@ -8,9 +9,12 @@ import {
   authorizationScopes,
   type InvitationRolePayloadEntry,
   invitations,
+  type OrganizationLogoAssetRow,
   type OrganizationMembershipRow,
+  organizationLogoAssets,
   organizationMemberships,
   organizations,
+  orphanStorageCleanupLedger,
   roleAssignments,
   verifiedEmails,
 } from "../schema.js";
@@ -20,6 +24,137 @@ export type OrganizationRepositoryExecutor = Pick<
   PostgresJsDatabase<typeof databaseSchema>,
   "execute" | "insert" | "select" | "update"
 >;
+
+export type LogoActivationExecutor = OrganizationRepositoryExecutor & {
+  rollback(): never;
+};
+
+export interface CreatePendingLogoInput {
+  id: string;
+  objectKey: string;
+  detectedMime: "image/png" | "image/jpeg" | "image/webp";
+  byteSize: number;
+  sha256: string;
+  createdByMembershipId: string;
+  createdAt: Date;
+}
+
+function validateLogoMetadata(
+  organizationId: string,
+  input: CreatePendingLogoInput,
+): CreatePendingLogoInput {
+  const objectKey = ObjectKeySchema.parse(input.objectKey);
+  if (!objectKey.startsWith(`branding/${organizationId}/`)) {
+    throw new Error("organization logo object key is outside the organization namespace");
+  }
+  if (!(["image/png", "image/jpeg", "image/webp"] as const).includes(input.detectedMime)) {
+    throw new Error("organization logo detected MIME is not allowed");
+  }
+  if (
+    !Number.isInteger(input.byteSize) ||
+    input.byteSize <= 0 ||
+    input.byteSize > 2 * 1024 * 1024
+  ) {
+    throw new Error("organization logo byte size is outside the allowed range");
+  }
+  if (!/^[0-9a-f]{64}$/.test(input.sha256)) {
+    throw new Error("organization logo digest must be lowercase SHA-256");
+  }
+  return { ...input, objectKey };
+}
+
+export async function createPendingLogo(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  input: CreatePendingLogoInput,
+): Promise<OrganizationLogoAssetRow> {
+  const metadata = validateLogoMetadata(organizationId, input);
+  const [created] = await executor
+    .insert(organizationLogoAssets)
+    .values({
+      ...metadata,
+      organizationId,
+      status: "pending",
+      updatedAt: metadata.createdAt,
+    })
+    .returning();
+  if (!created) throw new Error("organization logo metadata was not persisted");
+  return created;
+}
+
+export async function getActiveLogo(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+): Promise<OrganizationLogoAssetRow | null> {
+  const [active] = await executor
+    .select()
+    .from(organizationLogoAssets)
+    .where(
+      and(
+        eq(organizationLogoAssets.organizationId, organizationId),
+        eq(organizationLogoAssets.status, "active"),
+      ),
+    )
+    .limit(1);
+  return active ?? null;
+}
+
+export async function activateLogo(
+  executor: LogoActivationExecutor,
+  organizationId: string,
+  logoAssetId: string,
+  activatedAt: Date,
+): Promise<OrganizationLogoAssetRow | null> {
+  if (!(await lockOrganization(executor, organizationId))) {
+    throw new Error("organization logo tenant does not exist");
+  }
+
+  const [pending] = await executor
+    .select({ id: organizationLogoAssets.id })
+    .from(organizationLogoAssets)
+    .where(
+      and(
+        eq(organizationLogoAssets.organizationId, organizationId),
+        eq(organizationLogoAssets.id, logoAssetId),
+        eq(organizationLogoAssets.status, "pending"),
+      ),
+    )
+    .limit(1);
+  if (!pending) throw new Error("pending organization logo is unavailable");
+
+  const previous = await getActiveLogo(executor, organizationId);
+  if (previous) {
+    await executor
+      .update(organizationLogoAssets)
+      .set({
+        status: "delete_pending",
+        deletePendingAt: activatedAt,
+        updatedAt: activatedAt,
+      })
+      .where(
+        and(
+          eq(organizationLogoAssets.organizationId, organizationId),
+          eq(organizationLogoAssets.id, previous.id),
+          eq(organizationLogoAssets.status, "active"),
+        ),
+      );
+  }
+
+  const [activated] = await executor
+    .update(organizationLogoAssets)
+    .set({ status: "active", activatedAt, updatedAt: activatedAt })
+    .where(
+      and(
+        eq(organizationLogoAssets.organizationId, organizationId),
+        eq(organizationLogoAssets.id, logoAssetId),
+        eq(organizationLogoAssets.status, "pending"),
+      ),
+    )
+    .returning({ id: organizationLogoAssets.id });
+  if (!activated)
+    throw new Error("organization logo changed while locked; transaction must roll back");
+  return previous;
+}
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60_000;
 
@@ -584,5 +719,178 @@ export async function transferOwnership(
   });
   return { status: "transferred" };
 }
+
+export interface EnqueueOrphanCleanupInput {
+  cleanupId: string;
+  provider: "s3";
+  objectKey: string;
+  outboxEventId: string;
+  occurredAt: Date;
+  nextAttemptAt?: Date;
+}
+
+export interface RetryOrphanCleanupInput {
+  now: Date;
+  nextAttemptAt: Date;
+  error: string;
+}
+
+const CLEANUP_LEASE_MS = 5 * 60_000;
+
+export const StorageCleanupRepository = {
+  async enqueueOrphanCleanup(
+    database: PostgresJsDatabase<typeof databaseSchema>,
+    input: EnqueueOrphanCleanupInput,
+  ): Promise<string> {
+    const objectKey = ObjectKeySchema.parse(input.objectKey);
+    if (!objectKey.startsWith("branding/")) {
+      throw new Error("orphan cleanup accepts only server-generated branding keys");
+    }
+    const objectKeyDigest = digestToken(objectKey);
+
+    return database.transaction(async (transaction) => {
+      const [inserted] = await transaction
+        .insert(orphanStorageCleanupLedger)
+        .values({
+          cleanupId: input.cleanupId,
+          provider: input.provider,
+          objectKey,
+          objectKeyDigest,
+          status: "pending",
+          attempts: 0,
+          nextAttemptAt: input.nextAttemptAt ?? input.occurredAt,
+          createdAt: input.occurredAt,
+          updatedAt: input.occurredAt,
+        })
+        .onConflictDoNothing({
+          target: [orphanStorageCleanupLedger.provider, orphanStorageCleanupLedger.objectKeyDigest],
+        })
+        .returning({ cleanupId: orphanStorageCleanupLedger.cleanupId });
+
+      if (!inserted) {
+        const [existing] = await transaction
+          .select({ cleanupId: orphanStorageCleanupLedger.cleanupId })
+          .from(orphanStorageCleanupLedger)
+          .where(
+            and(
+              eq(orphanStorageCleanupLedger.provider, input.provider),
+              eq(orphanStorageCleanupLedger.objectKeyDigest, objectKeyDigest),
+            ),
+          )
+          .limit(1);
+        if (!existing) throw new Error("orphan cleanup idempotency lookup failed");
+        return existing.cleanupId;
+      }
+
+      await appendOutboxEvent(transaction, {
+        id: input.outboxEventId,
+        type: "storage.logo.cleanup",
+        version: 1,
+        occurredAt: input.occurredAt.toISOString(),
+        aggregate: { type: "storage-cleanup", id: inserted.cleanupId },
+        payload: { cleanupId: inserted.cleanupId },
+      });
+      return inserted.cleanupId;
+    });
+  },
+
+  async claimOrphanCleanup(
+    executor: OrganizationRepositoryExecutor,
+    cleanupId: string,
+    now: Date,
+    leaseMs = CLEANUP_LEASE_MS,
+  ) {
+    const staleClaimedAt = new Date(now.getTime() - leaseMs);
+    const [claimed] = await executor
+      .update(orphanStorageCleanupLedger)
+      .set({ status: "claimed", claimedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(orphanStorageCleanupLedger.cleanupId, cleanupId),
+          or(
+            and(
+              or(
+                eq(orphanStorageCleanupLedger.status, "pending"),
+                eq(orphanStorageCleanupLedger.status, "failed"),
+              ),
+              lte(orphanStorageCleanupLedger.nextAttemptAt, now),
+            ),
+            and(
+              eq(orphanStorageCleanupLedger.status, "claimed"),
+              lte(orphanStorageCleanupLedger.claimedAt, staleClaimedAt),
+            ),
+          ),
+        ),
+      )
+      .returning();
+    return claimed ?? null;
+  },
+
+  async completeOrphanCleanup(
+    executor: OrganizationRepositoryExecutor,
+    cleanupId: string,
+    now: Date,
+  ): Promise<boolean> {
+    const [completed] = await executor
+      .update(orphanStorageCleanupLedger)
+      .set({
+        status: "completed",
+        attempts: sql`${orphanStorageCleanupLedger.attempts} + 1`,
+        completedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(orphanStorageCleanupLedger.cleanupId, cleanupId),
+          eq(orphanStorageCleanupLedger.status, "claimed"),
+        ),
+      )
+      .returning({ cleanupId: orphanStorageCleanupLedger.cleanupId });
+    if (completed) return true;
+    const [existing] = await executor
+      .select({ status: orphanStorageCleanupLedger.status })
+      .from(orphanStorageCleanupLedger)
+      .where(eq(orphanStorageCleanupLedger.cleanupId, cleanupId))
+      .limit(1);
+    return existing?.status === "completed";
+  },
+
+  async retryOrphanCleanup(
+    executor: OrganizationRepositoryExecutor,
+    cleanupId: string,
+    input: RetryOrphanCleanupInput,
+  ): Promise<boolean> {
+    if (input.nextAttemptAt <= input.now) {
+      throw new Error("orphan cleanup retry must be scheduled in the future");
+    }
+    const lastError = input.error.trim().slice(0, 500);
+    if (!lastError) throw new Error("orphan cleanup retry requires a failure reason");
+
+    const [retried] = await executor
+      .update(orphanStorageCleanupLedger)
+      .set({
+        status: "failed",
+        attempts: sql`${orphanStorageCleanupLedger.attempts} + 1`,
+        nextAttemptAt: input.nextAttemptAt,
+        claimedAt: null,
+        lastError,
+        updatedAt: input.now,
+      })
+      .where(
+        and(
+          eq(orphanStorageCleanupLedger.cleanupId, cleanupId),
+          eq(orphanStorageCleanupLedger.status, "claimed"),
+        ),
+      )
+      .returning({ cleanupId: orphanStorageCleanupLedger.cleanupId });
+    if (retried) return true;
+    const [existing] = await executor
+      .select({ status: orphanStorageCleanupLedger.status })
+      .from(orphanStorageCleanupLedger)
+      .where(eq(orphanStorageCleanupLedger.cleanupId, cleanupId))
+      .limit(1);
+    return existing?.status === "failed";
+  },
+};
 
 export const invitationDurations = { ttlMs: INVITATION_TTL_MS };

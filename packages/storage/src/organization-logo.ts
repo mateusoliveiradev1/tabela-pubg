@@ -1,12 +1,17 @@
 import { createHash } from "node:crypto";
-import { createObjectKey, type PutObjectInput, validateUpload } from "./index.js";
+import {
+  createObjectKey,
+  type PutObjectInput,
+  type UploadPolicy,
+  validateUpload,
+} from "./index.js";
 
-export const ORGANIZATION_LOGO_POLICY = {
+export type OrganizationLogoMime = "image/png" | "image/jpeg" | "image/webp";
+
+export const ORGANIZATION_LOGO_POLICY: UploadPolicy = {
   maxBytes: 2 * 1024 * 1024,
   allowedMimeTypes: ["image/png", "image/jpeg", "image/webp"],
-} as const;
-
-export type OrganizationLogoMime = (typeof ORGANIZATION_LOGO_POLICY.allowedMimeTypes)[number];
+};
 
 export interface OrganizationLogoInspection {
   detectedMime: OrganizationLogoMime;
