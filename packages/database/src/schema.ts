@@ -1,7 +1,10 @@
 import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
+export * from "./schema/audit.js";
+export * from "./schema/authorization.js";
 export * from "./schema/identity.js";
 export * from "./schema/notifications.js";
+export * from "./schema/organizations.js";
 
 export const outboxStatus = pgEnum("outbox_status", [
   "pending",

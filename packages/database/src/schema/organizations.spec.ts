@@ -24,10 +24,7 @@ describe("organization persistence schema", () => {
       "organization_id",
       "user_id",
     ]);
-    expect(uniqueColumnSets(organizationMemberships)).toContainEqual([
-      "organization_id",
-      "id",
-    ]);
+    expect(uniqueColumnSets(organizationMemberships)).toContainEqual(["organization_id", "id"]);
     expect(columnsOf(organizations)).toEqual(expect.arrayContaining(["id", "slug", "name"]));
   });
 
