@@ -52,8 +52,183 @@ body {
 }
 
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
+}
+
+.member-management,
+.management-table,
+.scope-role-editor,
+.sensitive-action-dialog__step-up {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.management-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.management-summary p,
+.management-note {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.management-table {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+
+.management-table__header,
+.management-table__row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.4fr) minmax(150px, 0.8fr) minmax(220px, 1.3fr) minmax(
+      110px,
+      0.5fr
+    ) minmax(180px, 1fr);
+  gap: var(--space-md);
+  align-items: center;
+  padding: var(--space-md);
+}
+
+.management-table__header {
+  border-block-end: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--font-label);
+  font-weight: 600;
+}
+
+.management-table__row + .management-table__row {
+  border-block-start: 1px solid var(--color-border);
+}
+
+.management-person,
+.management-actions,
+.management-badges {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.management-person {
+  flex-direction: column;
+}
+
+.management-person strong,
+.management-person span {
+  overflow-wrap: anywhere;
+}
+
+.management-person span,
+.management-rule,
+.management-badges > span {
+  color: var(--color-text-secondary);
+  font-size: var(--font-label);
+}
+
+.management-rule {
+  flex-basis: 100%;
+}
+
+.management-fieldset {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.management-fieldset legend {
+  padding-inline: var(--space-xs);
+  font-weight: 600;
+}
+
+.management-fieldset label,
+.scope-role-editor__checks {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.scope-role-editor__scope {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.scope-role-editor__scope h3,
+.scope-role-editor__capabilities h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.scope-role-editor__capabilities {
+  padding: var(--space-md);
+  border-inline-start: 3px solid var(--color-accent);
+  background: var(--color-canvas);
+}
+
+.scope-role-editor__capabilities ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0 0;
+}
+
+.scope-role-editor__capabilities li {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.management-textarea {
+  min-height: 112px;
+  padding: var(--space-md);
+  resize: vertical;
+}
+
+@media (max-width: 767px) {
+  .management-table {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .management-table__header {
+    display: none;
+  }
+
+  .management-table__row {
+    grid-template-columns: 1fr;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-panel);
+    background: var(--color-surface);
+  }
+
+  .management-table__row + .management-table__row {
+    border-block-start: 1px solid var(--color-border);
+  }
+
+  .management-table__row > [data-label]::before {
+    display: block;
+    margin-block-end: var(--space-xs);
+    color: var(--color-text-secondary);
+    content: attr(data-label);
+    font-size: var(--font-label);
+    font-weight: 600;
+  }
+
+  .management-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 button,

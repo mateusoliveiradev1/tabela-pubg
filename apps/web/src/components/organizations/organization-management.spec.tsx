@@ -43,11 +43,15 @@ describe("membros e permissões autoritativas", () => {
     expect(row.textContent).toContain("Proprietário");
     expect(row.textContent).toContain("Ativo");
     expect(screen.getByText("1 membro")).toBeTruthy();
-    expect(screen.getByText("Nenhum campeonato disponível para atribuir cargos operacionais."))
-      .toBeTruthy();
     expect(
-      (screen.getByRole("button", { name: "Editar permissões de Proprietária da Liga com um nome suficientemente longo para quebrar linhas" }) as HTMLButtonElement)
-        .disabled,
+      screen.getByText("Nenhum campeonato disponível para atribuir cargos operacionais."),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Editar permissões de Proprietária da Liga com um nome suficientemente longo para quebrar linhas",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     expect(document.body.textContent).toContain(
       "Transfira a propriedade antes de alterar este membro.",
@@ -104,6 +108,23 @@ describe("membros e permissões autoritativas", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "accepted", retryAfterSeconds: 60 }), {
+          status: 202,
+          headers: { "x-otp-challenge-id": "00000000-0000-4000-8000-000000000099" },
+        }),
+      )
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: "step-up-confirmed",
+            validUntil: "2026-08-21T10:10:00.000Z",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(csrfResponse())
       .mockImplementationOnce(
         () =>
           new Promise<Response>((resolve) => {
@@ -131,12 +152,16 @@ describe("membros e permissões autoritativas", () => {
     await user.click(screen.getByRole("button", { name: "Continuar" }));
     expect(screen.getByRole("heading", { name: "Confirme que é você" })).toBeTruthy();
     expect((reason as HTMLTextAreaElement).value).toBe("Mudança na equipe de organização");
+    await user.type(screen.getByRole("textbox", { name: "E-mail da conta" }), "liga@example.com");
     await user.click(screen.getByRole("button", { name: "Confirmar por e-mail" }));
+    await user.type(screen.getByRole("textbox", { name: "Código de 8 dígitos" }), "12345678");
+    await user.click(screen.getByRole("button", { name: "Validar código" }));
+    expect(await screen.findByText("Identidade confirmada há menos de 10 minutos")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Salvar permissões" }));
     await user.click(screen.getByRole("button", { name: "Salvando…" }));
 
     expect(refreshed).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     finishMutation?.(
       new Response(JSON.stringify({ status: "updated", membership: owner }), {
         status: 200,
@@ -152,6 +177,51 @@ describe("membros e permissões autoritativas", () => {
         headers: expect.objectContaining({ "x-csrf-token": "csrf-token-with-safe-length" }),
       }),
     );
+  });
+
+  it("cancela por teclado sem enviar mutação e exige confirmação exata na transferência", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const target = {
+      ...owner,
+      id: "00000000-0000-4000-8000-000000000020",
+      organizationRole: "member" as const,
+      user: { ...owner.user, displayName: "Nova proprietária" },
+    };
+
+    render(
+      <MemberList
+        organizationId={organizationId}
+        organizationName="Liga Central"
+        members={[owner, target]}
+        capabilities={["members:view", "members:manage", "organization:ownership:transfer"]}
+        scopes={[]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Transferir propriedade" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Novo proprietário" }),
+      target.id,
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Digite o nome da organização" }),
+      "Nome incorreto",
+    );
+    expect(
+      (screen.getByRole("button", { name: "Revisar transferência" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+
+    await user.click(
+      screen.getByRole("button", { name: /Editar permissões de Nova proprietária/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Revisar alteração" }));
+    await user.type(screen.getByRole("textbox", { name: "Motivo da alteração" }), "Ajuste seguro");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("heading", { name: "Revise o impacto" })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
