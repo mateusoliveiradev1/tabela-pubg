@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T08:22:18.195Z"
+last_updated: "2026-08-21T08:40:30.762Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 18
-  percent: 50
+  completed_plans: 19
+  percent: 70
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 15 de 24 concluídos
-- Status: execução em andamento; BFF same-origin seguro e ciclo CSRF completo concluídos
-- Progresso: 67% do milestone (18 de 27 planos)
+- Plano: 16 de 24 concluídos
+- Status: execução em andamento; login público, OTP, callback e convite seguros concluídos
+- Progresso: 70% do milestone (19 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -53,6 +53,9 @@ progress:
 - O BFF aceita somente combinações path/method allowlisted e um `API_INTERNAL_ORIGIN` server-only sem credenciais ou path.
 - O token CSRF retorna em header same-origin, é readquirido com os cookies rotacionados após autenticação e descartado no logout.
 - O Next encaminha 401/403/404 e capabilities sem interpretar autorização; o Nest permanece a única autoridade RBAC.
+- O desafio OTP permanece fora do JSON público e cruza o BFF apenas em header opaco allowlisted.
+- Callback OAuth público é POST-only com CSRF; GET não processa `code` ou `state`.
+- Contexto de convite sai da URL antes do preview e permanece em custódia HttpOnly curta até o POST explícito de aceite.
 
 ## Bloqueadores
 
@@ -60,6 +63,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: BFF same-origin seguro concluído no plano 02-19.
-- Próxima ação: executar os planos 02-12 e 02-22 da próxima wave.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-12-PLAN.md`
+- Última ação: login, OTP, callback e convite públicos concluídos no plano 02-12.
+- Próxima ação: executar o plano 02-22 da wave atual.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-22-PLAN.md`
