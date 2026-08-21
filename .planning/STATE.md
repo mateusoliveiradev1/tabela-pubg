@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T05:06:34.883Z"
+last_updated: "2026-08-21T05:23:47.021Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 10
-  percent: 37
+  completed_plans: 11
+  percent: 41
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 7 de 24 concluídos
-- Status: execução em andamento; organizações, convites e ownership concorrente concluídos
-- Progresso: 37% do milestone (10 de 27 planos)
+- Plano: 8 de 24 concluídos
+- Status: execução em andamento; services modulares de OAuth, OTP e sessões concluídos
+- Progresso: 41% do milestone (11 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -34,6 +34,7 @@ progress:
 - Repositories tenant-owned exigem `organizationId` junto do recurso e gravam mutação, audit sanitizado e outbox no mesmo executor transacional.
 - Convites e ownership serializam na linha da organização; as corridas usam duas conexões Neon diretas e nunca mock/PGlite.
 - A matrix CI da Fase 2 redige logs e produz artifact por suite, mas sua execução remota continua reservada ao plano 02-24.
+- OAuth, OTP e sessões dependem apenas de ports, Clock e RNG injetados; linking exige confirmação dual/step-up e alert context permanece read-only.
 
 ## Bloqueadores
 
@@ -41,6 +42,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: repositories tenant-aware, convite single-use e último owner aprovados contra PostgreSQL/Redis reais no plano 02-05.
-- Próxima ação: executar casos de uso e serviços de identidade/organizações no plano 02-06.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-06-PLAN.md`
+- Última ação: services OAuth/Identity/OTP/Session aprovados com 27 testes fonte, boundaries, typecheck e build no plano 02-06.
+- Próxima ação: implementar pipeline seguro e tenant-aware de logos de organização no plano 02-21.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-21-PLAN.md`
