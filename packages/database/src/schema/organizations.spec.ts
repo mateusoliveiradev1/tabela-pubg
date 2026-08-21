@@ -1,6 +1,12 @@
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
-import { invitations, organizationMemberships, organizations } from "../schema.js";
+import {
+  invitations,
+  orphanStorageCleanupLedger,
+  organizationLogoAssets,
+  organizationMemberships,
+  organizations,
+} from "../schema.js";
 
 function columnsOf(table: PgTable): string[] {
   return getTableConfig(table).columns.map((column) => column.name);
@@ -56,5 +62,48 @@ describe("organization persistence schema", () => {
         ["organization_id", "superseded_by_invitation_id"],
       ]),
     );
+  });
+
+  it("stores tenant-aware logo metadata without bytes or signed URLs", () => {
+    expect(columnsOf(organizationLogoAssets)).toEqual(
+      expect.arrayContaining([
+        "id",
+        "organization_id",
+        "object_key",
+        "detected_mime",
+        "byte_size",
+        "sha256",
+        "created_by_membership_id",
+        "status",
+        "activated_at",
+      ]),
+    );
+    expect(columnsOf(organizationLogoAssets)).not.toEqual(
+      expect.arrayContaining(["bytes", "signed_url", "url"]),
+    );
+    expect(uniqueColumnSets(organizationLogoAssets)).toContainEqual(["organization_id", "id"]);
+    expect(compositeForeignKeysOf(organizationLogoAssets)).toEqual(
+      expect.arrayContaining([["organization_id", "created_by_membership_id"]]),
+    );
+  });
+
+  it("keeps orphan cleanup independent from organization lifetime", () => {
+    expect(columnsOf(orphanStorageCleanupLedger)).toEqual(
+      expect.arrayContaining([
+        "cleanup_id",
+        "provider",
+        "object_key",
+        "object_key_digest",
+        "status",
+        "attempts",
+        "next_attempt_at",
+        "claimed_at",
+        "completed_at",
+        "created_at",
+        "updated_at",
+      ]),
+    );
+    expect(columnsOf(orphanStorageCleanupLedger)).not.toContain("organization_id");
+    expect(getTableConfig(orphanStorageCleanupLedger).foreignKeys).toHaveLength(0);
   });
 });
