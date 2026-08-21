@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T05:55:28.094Z"
+last_updated: "2026-08-21T06:15:16.212Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 12
-  percent: 44
+  completed_plans: 13
+  percent: 48
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 9 de 24 concluídos
-- Status: execução em andamento; pipeline seguro e tenant-aware de logos concluído
-- Progresso: 44% do milestone (12 de 27 planos)
+- Plano: 10 de 24 concluídos
+- Status: execução em andamento; adapters Discord/Redis e borda HTTP de identidade concluídos
+- Progresso: 48% do milestone (13 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -37,6 +37,8 @@ progress:
 - OAuth, OTP e sessões dependem apenas de ports, Clock e RNG injetados; linking exige confirmação dual/step-up e alert context permanece read-only.
 - Logos validam assinatura/estrutura PNG, JPEG e WebP antes do upload; banco guarda apenas metadata e key server-side.
 - Cleanup de storage usa ledger sem FK de organização, outbox somente com `cleanupId` e claim com lease/retry idempotente.
+- Verifier PKCE é one-use no Redis, indexado somente pelo digest do state; `documented-exception` exige evidence ID e repara para `required` sem migration.
+- OAuth externo usa HTTP capturado nos testes e nunca devolve authorization URL, challengeId, sessionId ou provider token no JSON público.
 
 ## Bloqueadores
 
@@ -44,6 +46,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: logos aprovados com migrations 0000→0002, 17 integrações reais, tests/build/boundaries e secret scan no plano 02-21.
-- Próxima ação: implementar guards e fronteira HTTP segura do plano 02-07.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-07-PLAN.md`
+- Última ação: OAuth Discord PKCE, limiter Redis distribuído e endpoints de identidade aprovados com preflight Neon/Redis, 73 testes API e gates estáticos no plano 02-07.
+- Próxima ação: implementar CSRF, guards default-deny e bootstrap seguro do plano 02-16.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-16-PLAN.md`
