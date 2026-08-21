@@ -56,7 +56,7 @@ completed: 2026-08-21
 1. **Task 1: Aprovar e executar disponibilidade inicial real**
    - `c634f18` — corrige o key link do plano para o comando real de preflight antes da validação.
 
-**Plan metadata:** registrado no commit de conclusão deste resumo.
+**Plan metadata:** `56d8fa0` (docs: registra a aprovação redigida do checkpoint).
 
 ## Files Created/Modified
 
@@ -81,9 +81,17 @@ completed: 2026-08-21
 - **Verification:** diff do commit e execução verde de `phase2:integration:preflight`.
 - **Committed in:** `c634f18`
 
+**2. [Rule 3 - Blocking] Atualizado STATE localizado após incompatibilidade parcial dos handlers**
+- **Found during:** atualização dos metadados de conclusão.
+- **Issue:** os handlers oficiais recalcularam o frontmatter, mas não reconheceram os títulos portugueses de posição, decisões e continuidade no corpo de `STATE.md`.
+- **Fix:** os handlers foram executados e o corpo localizado foi sincronizado diretamente com a posição 02-17, decisões e próximo plano 02-04.
+- **Files modified:** `.planning/STATE.md`.
+- **Verification:** `state.load` e diff final mostram 8/27 planos, 30% e continuidade na Fase 2.
+- **Committed in:** commit final de tracking do plano.
+
 ---
 
-**Total deviations:** 1 auto-fixed (1 bug). **Impact:** a correção torna o vínculo verificável sem ampliar o escopo do checkpoint.
+**Total deviations:** 2 auto-fixed (1 bug, 1 blocking). **Impact:** as correções tornam o vínculo verificável e mantêm o estado localizado coerente, sem ampliar o escopo do checkpoint.
 
 ## Issues Encountered
 
