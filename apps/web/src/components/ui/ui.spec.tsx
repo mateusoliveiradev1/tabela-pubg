@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { Button } from "./button";
@@ -15,7 +15,7 @@ import {
 } from "./feedback";
 import { Input } from "./input";
 import { DropdownMenu, Tabs, Tooltip } from "./menu";
-import { ToastProvider, ToastViewport, Toast } from "./toast";
+import { Toast, ToastProvider, ToastViewport } from "./toast";
 
 afterEach(() => cleanup());
 
@@ -106,6 +106,10 @@ describe("keyboard navigation", () => {
     const trigger = screen.getByRole("button", { name: "Mais ações" });
     await user.click(trigger);
     await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: "Editar permissões" }),
+    );
+    await user.keyboard("{ArrowDown}");
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Revogar acesso" }));
     await user.keyboard("{Escape}");
     expect(document.activeElement).toBe(trigger);
@@ -176,7 +180,7 @@ describe("feedback", () => {
           title="Você ainda não participa de uma organização"
           description="Crie uma organização para sua comunidade ou aceite um convite para colaborar."
         />
-        <div aria-label="Carregando membros">
+        <div aria-label="Carregando membros" role="status">
           <Skeleton width="100%" height={48} />
         </div>
       </>,
@@ -191,7 +195,9 @@ describe("feedback", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText("Sua sessão expirou")).toBeTruthy();
-    expect(screen.getByLabelText("Carregando membros").querySelector("[aria-hidden='true']")).toBeTruthy();
+    expect(
+      screen.getByLabelText("Carregando membros").querySelector("[aria-hidden='true']"),
+    ).toBeTruthy();
   });
 });
 
@@ -210,7 +216,14 @@ describe("visual contract", () => {
   });
 
   it("does not hardcode hexadecimal colors inside primitives", () => {
-    const primitiveFiles = ["button.tsx", "input.tsx", "dialog.tsx", "menu.tsx", "toast.tsx", "feedback.tsx"];
+    const primitiveFiles = [
+      "button.tsx",
+      "input.tsx",
+      "dialog.tsx",
+      "menu.tsx",
+      "toast.tsx",
+      "feedback.tsx",
+    ];
     for (const file of primitiveFiles) {
       const source = readFileSync(resolve(process.cwd(), "src/components/ui", file), "utf8");
       expect(source).not.toMatch(/#[0-9a-f]{3,8}\b/i);
