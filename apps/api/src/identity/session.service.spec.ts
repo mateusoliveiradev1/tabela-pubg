@@ -30,6 +30,8 @@ function setup(options?: {
   sessions?: readonly SessionRecord[];
   alertStatus?: Awaited<ReturnType<SessionRepositoryPort["resolveAlertContextReadOnly"]>>;
 }) {
+  const alertStatus: Awaited<ReturnType<SessionRepositoryPort["resolveAlertContextReadOnly"]>> =
+    options?.alertStatus ?? { status: "active", sessionId: "session-alerted" };
   const repository: SessionRepositoryPort = {
     issue: vi.fn(async (input) => ({ sessionId: input.id })),
     issueForDevice: vi.fn(async (input) => ({
@@ -45,9 +47,7 @@ function setup(options?: {
       session({ reauthenticatedAt: new Date(now.getTime() - 9 * 60_000) }),
     ),
     markStepUp: vi.fn(async () => true),
-    resolveAlertContextReadOnly: vi.fn(
-      async () => options?.alertStatus ?? { status: "active", sessionId: "session-alerted" },
-    ),
+    resolveAlertContextReadOnly: vi.fn(async () => alertStatus),
   };
   let idSequence = 0;
   let opaqueSequence = 0;
