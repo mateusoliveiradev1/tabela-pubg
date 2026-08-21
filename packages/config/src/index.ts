@@ -52,7 +52,7 @@ export const Phase2EnvSchema = BaseEnvSchema.extend({
     .regex(/^__Host-[A-Za-z0-9_-]+$/)
     .default("__Host-session"),
   SESSION_COOKIE_SECRET: strongSecret("SESSION_COOKIE_SECRET"),
-  SESSION_COOKIE_SECURE: StringBooleanSchema.default("false"),
+  SESSION_COOKIE_SECURE: StringBooleanSchema.default(false),
   SESSION_IDLE_TTL_SECONDS: z.coerce.number().int().min(300).max(2_592_000).default(2_592_000),
   SESSION_ABSOLUTE_TTL_SECONDS: z.coerce
     .number()
