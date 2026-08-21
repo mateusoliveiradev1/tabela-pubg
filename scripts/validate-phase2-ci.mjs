@@ -21,6 +21,8 @@ for (let index = jobStart + 1; index < lines.length; index += 1) {
 const job = lines.slice(jobStart, jobEnd).join("\n");
 const requiredPatterns = [
   [/^ {4}services:\s*$/m, "services block"],
+  [/^ {4}strategy:\s*$/m, "matrix strategy"],
+  [/^ {8}suite:\s*\[integration, concurrent\]\s*$/m, "integration and concurrent matrix"],
   [/^ {6}postgres:\s*$/m, "PostgreSQL service"],
   [/^ {6}redis:\s*$/m, "Redis service"],
   [/--health-cmd[^\n]*pg_isready/i, "PostgreSQL healthcheck"],
@@ -30,8 +32,12 @@ const requiredPatterns = [
   [/^ {6}REDIS_URL:\s*\S+/m, "REDIS_URL"],
   [/pnpm install --frozen-lockfile/, "frozen dependency install"],
   [/pnpm phase2:integration:preflight/, "explicit preflight"],
-  [/pnpm phase2:integration\s*$/m, "integration suite"],
-  [/pnpm phase2:concurrent\s*$/m, "concurrent suite"],
+  [/pnpm phase2:integration(?=\s|$)/m, "integration suite"],
+  [/pnpm phase2:concurrent\b/m, "concurrent suite"],
+  [/set -o pipefail/, "pipeline failure propagation"],
+  [/\[REDACTED\]/, "credential redaction"],
+  [/actions\/upload-artifact@v\d+/, "redacted log artifact upload"],
+  [/name:\s*phase2-\$\{\{ matrix\.suite \}\}-logs/, "per-suite artifact name"],
 ];
 
 for (const [pattern, description] of requiredPatterns) {
@@ -54,7 +60,7 @@ for (const [pattern, description] of forbiddenPatterns) {
 }
 
 const preflightIndex = job.indexOf("pnpm phase2:integration:preflight");
-const integrationIndex = job.search(/pnpm phase2:integration\s*(?:\r?\n|$)/);
+const integrationIndex = job.search(/pnpm phase2:integration(?=\s|$)/);
 const concurrentIndex = job.indexOf("pnpm phase2:concurrent");
 
 if (!(preflightIndex < integrationIndex && integrationIndex < concurrentIndex)) {

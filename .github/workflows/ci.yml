@@ -35,10 +35,14 @@ jobs:
         run: pnpm turbo run lint typecheck test build --affected
 
   phase2-integration:
-    name: Phase 2 PostgreSQL and Redis integration
+    name: Phase 2 ${{ matrix.suite }}
     needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [integration, concurrent]
     services:
       postgres:
         image: postgres:18-alpine
@@ -80,10 +84,30 @@ jobs:
         run: pnpm verify:phase2-ci
       - name: Run PostgreSQL and Redis preflight
         run: pnpm phase2:integration:preflight
-      - name: Run phase 2 integration suite
-        run: pnpm phase2:integration
-      - name: Run phase 2 concurrency suite
-        run: pnpm phase2:concurrent
+      - name: Run phase 2 integration suite with redacted output
+        if: matrix.suite == 'integration'
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm phase2:integration 2>&1 \
+            | sed -E 's#(postgres(ql)?://)[^@[:space:]]+@#\1[REDACTED]@#g; s#(redis(s)?://)[^@[:space:]]+@#\1[REDACTED]@#g' \
+            | tee phase2-integration.log
+      - name: Run phase 2 concurrency suite with redacted output
+        if: matrix.suite == 'concurrent'
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm phase2:concurrent 2>&1 \
+            | sed -E 's#(postgres(ql)?://)[^@[:space:]]+@#\1[REDACTED]@#g; s#(redis(s)?://)[^@[:space:]]+@#\1[REDACTED]@#g' \
+            | tee phase2-concurrent.log
+      - name: Upload redacted phase 2 logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: phase2-${{ matrix.suite }}-logs
+          path: phase2-${{ matrix.suite }}.log
+          if-no-files-found: error
+          retention-days: 7
 
   images:
     name: Image ${{ matrix.app }}
