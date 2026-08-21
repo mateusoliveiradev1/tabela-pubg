@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T06:33:45.634Z"
+last_updated: "2026-08-21T07:00:08.865Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 14
-  percent: 52
+  completed_plans: 15
+  percent: 56
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 11 de 24 concluídos
-- Status: execução em andamento; worker de e-mail transacional cifrado e idempotente concluído
-- Progresso: 52% do milestone (14 de 27 planos)
+- Plano: 12 de 24 concluídos
+- Status: execução em andamento; CSRF completo e autorização global default-deny concluídos
+- Progresso: 56% do milestone (15 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -41,6 +41,9 @@ progress:
 - OAuth externo usa HTTP capturado nos testes e nunca devolve authorization URL, challengeId, sessionId ou provider token no JSON público.
 - Jobs de notificação carregam somente `deliveryId`; recipient, OTP, convite e alert context permanecem cifrados até o worker e são apagados após entrega/expiração.
 - Retry reutiliza a idempotency key da delivery; um resend de convite nasce como nova delivery com chave e token próprios.
+- CSRF usa binding HMAC distinto para pre-auth e sessão, com rotação em autenticação e invalidação no logout.
+- A API aplica SessionGuard, CsrfGuard e PermissionGuard globais; somente `@Public` pula sessão e ausência de permission metadata nega.
+- Autorização resolve sessão e carrega snapshot tenant-aware diretamente do PostgreSQL em cada request, sem roles em cookie ou cache.
 
 ## Bloqueadores
 
@@ -48,6 +51,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: processor BullMQ, templates OTP/convite/novo dispositivo e adapter Resend 6.21.0 aprovados com 12 testes, captura HTTP e cleanup AES-GCM no plano 02-08.
-- Próxima ação: implementar CSRF, guards default-deny e bootstrap seguro do plano 02-16.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-16-PLAN.md`
+- Última ação: lifecycle CSRF, guards globais, snapshot PostgreSQL ao vivo e erros uniformes concluídos no plano 02-16.
+- Próxima ação: executar os planos 02-09, 02-11 e 02-19 da próxima wave.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-09-PLAN.md`
