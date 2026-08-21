@@ -93,7 +93,10 @@ const e2eRequirements = [
     /E2E_RUN_ID:\s*run-ci-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-phase2/,
     "run-scoped E2E id",
   ],
-  [/pnpm --filter @pubg-camp\/storage build/, "fresh-checkout browser storage build"],
+  [
+    /pnpm turbo run build --filter=@pubg-camp\/web\^\.\.\./,
+    "fresh-checkout browser dependency build",
+  ],
   [/playwright install --with-deps chromium/, "official Chromium install"],
   [/test:e2e:smoke/, "browser smoke"],
   [/test:e2e(?=\s|$)/m, "complete browser suite"],
@@ -103,10 +106,12 @@ for (const [pattern, description] of e2eRequirements) {
   if (!pattern.test(e2eJob)) throw new Error(`phase2-e2e job is missing ${description}`);
 }
 if (
-  e2eJob.indexOf("pnpm --filter @pubg-camp/storage build") >=
+  e2eJob.indexOf("pnpm turbo run build --filter=@pubg-camp/web^...") >=
   e2eJob.indexOf("pnpm phase2:integration:preflight")
 ) {
-  throw new Error("phase 2 browser CI must build storage before preflight and browser suites");
+  throw new Error(
+    "phase 2 browser CI must build web workspace dependencies before preflight and browser suites",
+  );
 }
 if (e2eJob.indexOf("test:e2e:smoke") >= e2eJob.search(/test:e2e(?=\s|$)/m)) {
   throw new Error("phase 2 browser smoke must run before the complete E2E suite");
