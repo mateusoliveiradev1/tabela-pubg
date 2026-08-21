@@ -13,11 +13,17 @@ import {
   linkIdentity,
   replaceAuthChallenge,
 } from "../src/repositories/identity.js";
+import { AuditWriter } from "../src/repositories/audit.js";
+import { loadAuthorizationSnapshot } from "../src/repositories/authorization.js";
 import {
   clearNotificationPayload,
   createEncryptedNotificationDelivery,
   decryptNotificationPayload,
 } from "../src/repositories/notifications.js";
+import {
+  createOrganization,
+  findMembershipById,
+} from "../src/repositories/organizations.js";
 import * as schema from "../src/schema.js";
 import { notificationDeliveries } from "../src/schema.js";
 
@@ -329,5 +335,223 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     `;
     expect(delivery?.count).toBe(0);
     expect(outbox?.count).toBe(0);
+  });
+
+  it("creates independent organizations with owner, audit and outbox in one transaction", async () => {
+    const userId = randomUUID();
+    const now = new Date("2026-08-21T08:00:00.000Z");
+    await client`insert into users (id, display_name) values (${userId}, 'Multi org owner')`;
+
+    const organizationsToCreate = [
+      { id: randomUUID(), membershipId: randomUUID(), slug: `alpha-${randomUUID()}` },
+      { id: randomUUID(), membershipId: randomUUID(), slug: `bravo-${randomUUID()}` },
+    ];
+
+    for (const organization of organizationsToCreate) {
+      await db.transaction((tx) =>
+        createOrganization(tx, {
+          id: organization.id,
+          slug: organization.slug,
+          name: `Camp ${organization.slug}`,
+          ownerUserId: userId,
+          ownerMembershipId: organization.membershipId,
+          auditEventId: randomUUID(),
+          outboxEventId: randomUUID(),
+          correlationId: randomUUID(),
+          occurredAt: now,
+        }),
+      );
+    }
+
+    const memberships = await client`
+      select organization_id, user_id, role, status
+      from organization_memberships
+      where user_id = ${userId}
+      order by organization_id
+    `;
+    expect(memberships).toHaveLength(2);
+    expect(memberships.every((row) => row.role === "owner" && row.status === "active")).toBe(true);
+
+    const audits = await client`
+      select organization_id, action, actor_membership_id
+      from audit_events
+      where organization_id = any(${organizationsToCreate.map((organization) => organization.id)})
+    `;
+    const outbox = await client`
+      select aggregate_id, event_type, payload
+      from outbox_events
+      where aggregate_id = any(${organizationsToCreate.map((organization) => organization.id)})
+    `;
+    expect(audits).toHaveLength(2);
+    expect(audits.every((row) => row.action === "organization.created")).toBe(true);
+    expect(outbox).toHaveLength(2);
+    expect(outbox.every((row) => row.event_type === "organization.created")).toBe(true);
+    expect(JSON.stringify(outbox)).not.toContain(userId);
+  });
+
+  it("requires organization context for tenant resources and loads only current assignments", async () => {
+    const userId = randomUUID();
+    const organizationA = randomUUID();
+    const organizationB = randomUUID();
+    const membershipA = randomUUID();
+    const membershipB = randomUUID();
+    const scopeA = randomUUID();
+    const scopeB = randomUUID();
+    const now = new Date("2026-08-21T08:30:00.000Z");
+
+    await client`insert into users (id, display_name) values (${userId}, 'Scoped operator')`;
+    for (const input of [
+      { id: organizationA, membershipId: membershipA, slug: `scope-a-${randomUUID()}` },
+      { id: organizationB, membershipId: membershipB, slug: `scope-b-${randomUUID()}` },
+    ]) {
+      await db.transaction((tx) =>
+        createOrganization(tx, {
+          id: input.id,
+          slug: input.slug,
+          name: input.slug,
+          ownerUserId: userId,
+          ownerMembershipId: input.membershipId,
+          auditEventId: randomUUID(),
+          outboxEventId: randomUUID(),
+          correlationId: randomUUID(),
+          occurredAt: now,
+        }),
+      );
+    }
+    await client`
+      insert into authorization_scopes (id, organization_id, label) values
+      (${scopeA}, ${organizationA}, 'Tournament A'),
+      (${scopeB}, ${organizationB}, 'Tournament B')
+    `;
+    await client`
+      insert into role_assignments
+        (id, organization_id, membership_id, authorization_scope_id, role, status,
+         assigned_by_membership_id, assignment_reason, assigned_at)
+      values
+        (${randomUUID()}, ${organizationA}, ${membershipA}, ${scopeA}, 'broadcast', 'active',
+         ${membershipA}, 'initial assignment', ${now}),
+        (${randomUUID()}, ${organizationB}, ${membershipB}, ${scopeB}, 'analyst', 'revoked',
+         ${membershipB}, 'revoked assignment', ${now})
+    `;
+
+    await expect(findMembershipById(db, organizationA, membershipB)).resolves.toBeNull();
+    await expect(findMembershipById(db, organizationA, membershipA)).resolves.toMatchObject({
+      id: membershipA,
+      organizationId: organizationA,
+    });
+
+    const snapshot = await loadAuthorizationSnapshot(db, organizationA, userId);
+    expect(snapshot).toMatchObject({
+      actorId: userId,
+      organizationId: organizationA,
+      membershipStatus: "active",
+      organizationRole: "owner",
+    });
+    expect(snapshot?.assignments).toEqual([
+      {
+        organizationId: organizationA,
+        authorizationScopeId: scopeA,
+        role: "broadcast",
+        status: "active",
+      },
+    ]);
+  });
+
+  it("shows complete audit to owner/admin and only self actions to members", async () => {
+    const organizationId = randomUUID();
+    const ownerUserId = randomUUID();
+    const adminUserId = randomUUID();
+    const memberUserId = randomUUID();
+    const ownerMembershipId = randomUUID();
+    const adminMembershipId = randomUUID();
+    const memberMembershipId = randomUUID();
+    const now = new Date("2026-08-21T09:00:00.000Z");
+    await client`
+      insert into users (id, display_name) values
+      (${ownerUserId}, 'Owner'), (${adminUserId}, 'Admin'), (${memberUserId}, 'Member')
+    `;
+    await db.transaction((tx) =>
+      createOrganization(tx, {
+        id: organizationId,
+        slug: `audit-${randomUUID()}`,
+        name: "Audit visibility",
+        ownerUserId,
+        ownerMembershipId,
+        auditEventId: randomUUID(),
+        outboxEventId: randomUUID(),
+        correlationId: randomUUID(),
+        occurredAt: now,
+      }),
+    );
+    await client`
+      insert into organization_memberships (id, organization_id, user_id, role, status, joined_at)
+      values
+        (${adminMembershipId}, ${organizationId}, ${adminUserId}, 'admin', 'active', ${now}),
+        (${memberMembershipId}, ${organizationId}, ${memberUserId}, 'member', 'active', ${now})
+    `;
+
+    for (const [actorMembershipId, action] of [
+      [ownerMembershipId, "organization.updated"],
+      [adminMembershipId, "invitation.created"],
+      [memberMembershipId, "invitation.accepted"],
+    ] as const) {
+      await AuditWriter.append(db, {
+        id: randomUUID(),
+        organizationId,
+        actorMembershipId,
+        action,
+        targetType: "organization-membership",
+        targetId: actorMembershipId,
+        reason: "visibility test",
+        before: { membershipStatus: "pending", emailAddress: "secret@example.test" },
+        after: { membershipStatus: "active", inviteToken: "must-not-persist" },
+        correlationId: randomUUID(),
+        occurredAt: now,
+      });
+    }
+
+    await expect(
+      AuditWriter.listVisible(db, organizationId, ownerMembershipId),
+    ).resolves.toHaveLength(4);
+    await expect(
+      AuditWriter.listVisible(db, organizationId, adminMembershipId),
+    ).resolves.toHaveLength(4);
+    const memberAudit = await AuditWriter.listVisible(db, organizationId, memberMembershipId);
+    expect(memberAudit).toHaveLength(1);
+    expect(memberAudit[0]?.actorMembershipId).toBe(memberMembershipId);
+    expect(JSON.stringify(memberAudit)).not.toContain("secret@example.test");
+    expect(JSON.stringify(memberAudit)).not.toContain("must-not-persist");
+  });
+
+  it("rolls organization, owner, audit and outbox back together", async () => {
+    const organizationId = randomUUID();
+    const userId = randomUUID();
+    await client`insert into users (id, display_name) values (${userId}, 'Rollback owner')`;
+
+    await expect(
+      db.transaction(async (tx) => {
+        await createOrganization(tx, {
+          id: organizationId,
+          slug: `rollback-${randomUUID()}`,
+          name: "Rollback organization",
+          ownerUserId: userId,
+          ownerMembershipId: randomUUID(),
+          auditEventId: randomUUID(),
+          outboxEventId: randomUUID(),
+          correlationId: randomUUID(),
+          occurredAt: new Date("2026-08-21T09:30:00.000Z"),
+        });
+        throw new Error("force organization rollback");
+      }),
+    ).rejects.toThrow("force organization rollback");
+
+    const [counts] = await client`
+      select
+        (select count(*)::int from organizations where id = ${organizationId}) as organizations,
+        (select count(*)::int from organization_memberships where organization_id = ${organizationId}) as memberships,
+        (select count(*)::int from audit_events where organization_id = ${organizationId}) as audits,
+        (select count(*)::int from outbox_events where aggregate_id = ${organizationId}) as outbox
+    `;
+    expect(counts).toEqual({ organizations: 0, memberships: 0, audits: 0, outbox: 0 });
   });
 });
