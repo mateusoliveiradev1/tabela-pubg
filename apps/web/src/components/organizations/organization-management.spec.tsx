@@ -1,7 +1,9 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AuditEvent, AuditTimeline } from "../audit/audit-event";
 import { ScopeRoleEditor } from "../authorization/scope-role-editor";
+import { InvitationList } from "./invitation-list";
 import { MemberList } from "./member-list";
 
 const organizationId = "00000000-0000-4000-8000-000000000001";
@@ -225,9 +227,185 @@ describe("membros e permissões autoritativas", () => {
   });
 });
 
+describe("convites operacionais", () => {
+  it("separa ativos e histórico, sem expor token ou link persistido", async () => {
+    const user = userEvent.setup();
+    render(
+      <InvitationList
+        organizationId={organizationId}
+        capabilities={["invitations:manage"]}
+        invitations={[
+          invitation("active"),
+          invitation("accepted", "00000000-0000-4000-8000-000000000006"),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("li•••@example.com")).toBeTruthy();
+    expect(screen.getByText(/Uso único/)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/https?:\/\/|token=/i);
+    await user.click(screen.getByRole("tab", { name: "Histórico" }));
+    expect(screen.getByText("Aceito")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Revogar convite/ })).toBeNull();
+  });
+
+  it("explica reenvio, usa CSRF e não altera a lista antes da resposta", async () => {
+    const user = userEvent.setup();
+    let finish: ((response: Response) => void) | undefined;
+    const refreshed = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse())
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <InvitationList
+        organizationId={organizationId}
+        capabilities={["invitations:manage"]}
+        invitations={[invitation("active")]}
+        onAuthoritativeRefresh={refreshed}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Reenviar convite" }));
+    expect(screen.getByRole("dialog").textContent).toContain("invalida o anterior");
+    await user.type(
+      screen.getByRole("textbox", { name: "Motivo da alteração" }),
+      "Novo prazo solicitado",
+    );
+    await user.click(screen.getByRole("button", { name: "Enviar novo convite" }));
+    expect(screen.getByText("li•••@example.com")).toBeTruthy();
+    expect(refreshed).not.toHaveBeenCalled();
+    finish?.(
+      new Response(JSON.stringify({ status: "reissued" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await waitFor(() => expect(refreshed).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/platform/organizations/${organizationId}/invitations/${memberId}/resend`,
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("mostra vazio acionável e remove mutações quando a capability não existe", () => {
+    const { rerender } = render(
+      <InvitationList
+        organizationId={organizationId}
+        capabilities={["invitations:manage"]}
+        invitations={[]}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Nenhum convite ativo" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Convidar membro" })).toBeTruthy();
+
+    rerender(
+      <InvitationList
+        organizationId={organizationId}
+        capabilities={[]}
+        invitations={[invitation("active")]}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Revogar convite" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reenviar convite" })).toBeNull();
+  });
+});
+
+describe("auditoria redigida", () => {
+  it("traduz evento e pares antes/depois sem JSON, segredo ou e-mail completo", async () => {
+    const user = userEvent.setup();
+    render(<AuditEvent event={auditEvent()} />);
+
+    expect(screen.getByText("Permissões do membro atualizadas")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Ver alterações" }));
+    const changes = screen.getByRole("list", { name: "Alterações do evento" });
+    expect(within(changes).getByText("Antes")).toBeTruthy();
+    expect(within(changes).getByText("Depois")).toBeTruthy();
+    expect(changes.textContent).toContain("Cargos operacionais");
+    expect(document.body.textContent).not.toContain("correlationId");
+    expect(document.body.textContent).not.toContain("organizer@example.com");
+    expect(document.body.textContent).not.toContain("{");
+  });
+
+  it("mantém visibilidade própria, filtros na URL e paginação explícita", () => {
+    render(
+      <AuditTimeline
+        organizationSlug="liga-central"
+        visibility="self"
+        events={[auditEvent()]}
+        page={2}
+        totalPages={3}
+        filters={{ action: "membership.roles.updated", actorId: "actor-safe-id" }}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Minhas ações" })).toBeTruthy();
+    expect(screen.getByText("Você está vendo somente ações realizadas por você.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Limpar filtros" }).getAttribute("href")).toBe(
+      "/o/liga-central/auditoria",
+    );
+    const pagination = screen.getByRole("navigation", { name: "Paginação da auditoria" });
+    expect(within(pagination).getByRole("link", { name: "Página anterior" }).getAttribute("href"))
+      .toContain("page=1");
+    expect(within(pagination).getByRole("link", { name: "Próxima página" }).getAttribute("href"))
+      .toContain("page=3");
+    expect(document.body.textContent).not.toContain("Auditoria completa");
+  });
+
+  it("distingue vazio com filtros sem ampliar visibilidade", () => {
+    render(
+      <AuditTimeline
+        organizationSlug="liga-central"
+        visibility="self"
+        events={[]}
+        page={1}
+        totalPages={0}
+        filters={{ action: "session.revoked" }}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Nenhum evento corresponde aos filtros." }))
+      .toBeTruthy();
+    expect(screen.getByText("Você está vendo somente ações realizadas por você.")).toBeTruthy();
+  });
+});
+
 function csrfResponse() {
   return new Response(null, {
     status: 200,
     headers: { "x-csrf-token": "csrf-token-with-safe-length" },
   });
+}
+
+function invitation(status: "active" | "accepted" | "expired" | "revoked", id = memberId) {
+  return {
+    id,
+    maskedEmail: "li•••@example.com",
+    organizationRole: "member" as const,
+    assignments: [],
+    invitedBy: "Organizadora",
+    status,
+    createdAt: "2026-08-20T10:00:00.000Z",
+    expiresAt: "2026-08-27T10:00:00.000Z",
+  };
+}
+
+function auditEvent() {
+  return {
+    id: "00000000-0000-4000-8000-000000000009",
+    actor: { displayName: "Organizadora", maskedEmail: "or•••@example.com" },
+    action: "membership.roles.updated" as const,
+    targetLabel: "Membro da transmissão",
+    scopeLabel: "Camp da Comunidade",
+    authorizationScopeId: scopeId,
+    correlationId: "00000000-0000-4000-8000-000000000010",
+    reason: "Mudança de escala",
+    occurredAt: "2026-08-21T10:00:00.000Z",
+    changes: [{ field: "operationalRoles" as const, before: "Analista", after: "Transmissão" }],
+  };
 }
