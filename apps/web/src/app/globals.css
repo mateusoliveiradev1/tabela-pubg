@@ -494,6 +494,40 @@ main {
   gap: var(--space-md);
 }
 
+.invitation-preview__brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.invitation-preview__brand h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.invitation-preview__logo,
+.invitation-preview__logo-fallback {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+
+.invitation-preview__logo {
+  object-fit: cover;
+}
+
+.invitation-preview__logo-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--color-accent);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 .auth-result p,
 .invitation-preview p,
 .invitation-preview dd {

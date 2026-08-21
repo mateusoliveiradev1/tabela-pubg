@@ -127,7 +127,10 @@ export function InvitationAcceptForm() {
   return (
     <div className="invitation-preview">
       <span className="eyebrow">CONVITE</span>
-      <h2>{invitation.organization.name}</h2>
+      <div className="invitation-preview__brand">
+        <InvitationOrganizationLogo organization={invitation.organization} />
+        <h2>{invitation.organization.name}</h2>
+      </div>
       <p>
         Enviado por {invitation.invitedBy} para {invitation.maskedEmail}.
       </p>
@@ -153,6 +156,32 @@ export function InvitationAcceptForm() {
         Aceitar convite
       </Button>
     </div>
+  );
+}
+
+function InvitationOrganizationLogo({
+  organization,
+}: {
+  organization: ValidInvitation["organization"];
+}) {
+  const [failed, setFailed] = useState(false);
+  const safeUrl = safeInvitationLogoUrl(organization.logoUrl);
+  if (!safeUrl || failed) {
+    return (
+      <span className="invitation-preview__logo-fallback" aria-hidden="true">
+        {organizationInitials(organization.name)}
+      </span>
+    );
+  }
+  return (
+    // biome-ignore lint/performance/noImgElement: signed runtime URLs cannot be modeled by next/image.
+    <img
+      className="invitation-preview__logo"
+      src={safeUrl}
+      alt={`Logo da organização ${organization.name}`}
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />
   );
 }
 
@@ -227,16 +256,63 @@ function readFragmentToken(hash: string): string | null {
 
 function isValidInvitation(value: Record<string, unknown>): value is ValidInvitation {
   const organization = value.organization;
+  const logoUrl =
+    organization && typeof organization === "object"
+      ? (organization as Record<string, unknown>).logoUrl
+      : undefined;
   return Boolean(
     organization &&
       typeof organization === "object" &&
       typeof (organization as Record<string, unknown>).name === "string" &&
+      (logoUrl === null || (typeof logoUrl === "string" && logoUrl.length <= 2048)) &&
       typeof value.invitedBy === "string" &&
       typeof value.maskedEmail === "string" &&
       typeof value.organizationRole === "string" &&
       typeof value.expiresAt === "string" &&
       typeof value.emailMatches === "boolean",
   );
+}
+
+function safeInvitationLogoUrl(value: string | null): string | null {
+  if (!value) return null;
+  if (value.startsWith("/")) return value.startsWith("//") ? null : value;
+  try {
+    const url = new URL(value);
+    if (
+      url.username ||
+      url.password ||
+      (url.protocol !== "https:" && !isLocalDevelopmentOrigin(url))
+    ) {
+      return null;
+    }
+    const configuredOrigins = (process.env.NEXT_PUBLIC_ORGANIZATION_LOGO_ORIGINS ?? "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+    return configuredOrigins.includes(url.origin) ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function isLocalDevelopmentOrigin(url: URL): boolean {
+  return (
+    url.protocol === "http:" &&
+    (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]")
+  );
+}
+
+function organizationInitials(name: string): string {
+  const stopWords = new Set(["da", "das", "de", "do", "dos", "e"]);
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word && !stopWords.has(word.toLocaleLowerCase("pt-BR")));
+  const initials = words
+    .slice(0, 2)
+    .map((word) => word[0]?.toLocaleUpperCase("pt-BR") ?? "")
+    .join("");
+  return initials || "ORG";
 }
 
 function roleLabel(role: string): string {
