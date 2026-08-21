@@ -5,6 +5,8 @@ import { OrganizationOverview } from "../../app/(platform)/o/[slug]/page";
 import { FirstAccessChoices } from "../../app/(platform)/primeiro-acesso/page";
 import { AppShell, type ShellOrganization } from "../layout/app-shell";
 import { OrganizationSwitcher } from "../layout/organization-switcher";
+import { CreateOrganizationForm } from "../organizations/create-organization-form";
+import { IdentityCards } from "./identity-cards";
 
 const organizations: ShellOrganization[] = [
   {
@@ -121,3 +123,151 @@ describe("primeiro acesso e overview", () => {
     expect(document.body.textContent).not.toContain("organização inexistente");
   });
 });
+
+describe("criação de organização", () => {
+  it("valida logo, preserva o formulário em erro e só navega após confirmação", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(new Response(null, { status: 409 }))
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            organization: {
+              id: "00000000-0000-4000-8000-000000000008",
+              slug: "liga-do-bairro",
+              name: "Liga do Bairro",
+              logoUrl: null,
+              membershipRole: "owner",
+            },
+          }),
+          { status: 201, headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<CreateOrganizationForm onNavigate={navigate} />);
+    const name = screen.getByRole("textbox", { name: "Nome da organização" });
+    await user.type(name, "Liga do Bairro");
+    await user.upload(
+      screen.getByLabelText("Selecionar logo"),
+      new File([new Uint8Array(2 * 1024 * 1024 + 1)], "grande.png", { type: "image/png" }),
+    );
+    expect(screen.getByRole("alert").textContent).toContain("até 2 MiB");
+
+    await user.click(screen.getByRole("button", { name: "Criar organização" }));
+    expect(await screen.findByText("Este nome não está disponível ou é inválido.")).toBeTruthy();
+    expect((name as HTMLInputElement).value).toBe("Liga do Bairro");
+    expect(navigate).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Criar organização" }));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/o/liga-do-bairro/membros"));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/platform/organizations",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "x-csrf-token": "csrf-token-with-safe-length" }),
+      }),
+    );
+  });
+});
+
+describe("formas de acesso", () => {
+  it("não remove a última identidade e confirma vínculo explicitamente sem estado otimista", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ status: "linked", provider: "email", otherSessionsRevoked: 2 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <IdentityCards
+        identities={[
+          {
+            id: "00000000-0000-4000-8000-000000000010",
+            provider: "discord",
+            status: "verified",
+            displayIdentifier: "li•••a",
+            linkedAt: "2026-08-20T10:00:00.000Z",
+          },
+        ]}
+        pendingLink={{
+          id: "00000000-0000-4000-8000-000000000011",
+          provider: "email",
+          displayIdentifier: "l•••@example.com",
+        }}
+      />,
+    );
+
+    expect((screen.getByRole("button", { name: "Desvincular Discord" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    await user.click(screen.getByRole("button", { name: "Confirmar vínculo de e-mail" }));
+    expect(screen.getByRole("dialog").textContent).toContain("Contas nunca são unidas");
+    expect(document.body.textContent).toContain("l•••@example.com");
+    expect(document.body.textContent).not.toContain("00000000-0000-4000-8000-000000000011");
+
+    await user.click(screen.getByRole("button", { name: "Vincular identidade" }));
+    expect(screen.getByRole("button", { name: "Vinculando…" })).toBeTruthy();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Vínculo concluído. Encerramos 2 outras sessões por segurança.",
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/platform/identity/identities/link/confirm",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          candidateIdentityId: "00000000-0000-4000-8000-000000000011",
+          confirmation: true,
+        }),
+      }),
+    );
+  });
+
+  it("mantém conflito de vínculo não enumerável", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(csrfResponse()).mockResolvedValueOnce(new Response(null, { status: 409 })),
+    );
+    render(
+      <IdentityCards
+        identities={[
+          {
+            id: "00000000-0000-4000-8000-000000000010",
+            provider: "discord",
+            status: "verified",
+            displayIdentifier: "li•••a",
+            linkedAt: "2026-08-20T10:00:00.000Z",
+          },
+        ]}
+        pendingLink={{
+          id: "00000000-0000-4000-8000-000000000011",
+          provider: "email",
+          displayIdentifier: "l•••@example.com",
+        }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Confirmar vínculo de e-mail" }));
+    await user.click(screen.getByRole("button", { name: "Vincular identidade" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Esta forma de acesso já está vinculada a outra conta. Nenhuma conta foi unida.",
+    );
+    expect(document.body.textContent).not.toContain("usuário proprietário");
+  });
+});
+
+function csrfResponse(token = "csrf-token-with-safe-length") {
+  return new Response(null, { status: 200, headers: { "x-csrf-token": token } });
+}
