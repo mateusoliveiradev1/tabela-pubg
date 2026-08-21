@@ -1,5 +1,14 @@
 import { sql } from "drizzle-orm";
-import { foreignKey, index, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  check,
+  foreignKey,
+  index,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { authorizationScopes } from "./authorization.js";
 import { organizationMemberships, organizations } from "./organizations.js";
 
@@ -49,7 +58,7 @@ export const auditEvents = pgTable(
       table.occurredAt,
     ),
     index("audit_events_correlation_idx").on(table.correlationId),
-    sql`CONSTRAINT "audit_events_reason_check" CHECK (char_length(btrim(${table.reason})) >= 1)`,
+    check("audit_events_reason_check", sql`char_length(btrim(${table.reason})) >= 1`),
   ],
 );
 

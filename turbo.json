@@ -1,6 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalPassThroughEnv": ["PHASE2_SUITE"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

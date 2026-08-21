@@ -34,6 +34,57 @@ jobs:
       - name: Validate affected packages
         run: pnpm turbo run lint typecheck test build --affected
 
+  phase2-integration:
+    name: Phase 2 PostgreSQL and Redis integration
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: pubg_camp_test
+          POSTGRES_USER: pubg
+          POSTGRES_PASSWORD: pubg_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pubg -d pubg_camp_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:8.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://pubg:pubg_ci_only@127.0.0.1:5432/pubg_camp_test
+      REDIS_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@11.17.0 --activate
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate phase 2 workflow structure
+        run: pnpm verify:phase2-ci
+      - name: Run PostgreSQL and Redis preflight
+        run: pnpm phase2:integration:preflight
+      - name: Run phase 2 integration suite
+        run: pnpm phase2:integration
+      - name: Run phase 2 concurrency suite
+        run: pnpm phase2:concurrent
+
   images:
     name: Image ${{ matrix.app }}
     needs: quality

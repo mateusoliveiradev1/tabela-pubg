@@ -18,13 +18,17 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "clean": "turbo run clean && rimraf .turbo coverage",
-    "ci:verify": "pnpm verify:secrets && pnpm verify:migrations && pnpm verify:compose && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "ci:verify": "pnpm verify:secrets && pnpm verify:migrations && pnpm verify:compose && pnpm verify:phase2-ci && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "env:up": "docker compose up --build -d",
     "env:down": "docker compose down",
     "env:logs": "docker compose logs -f",
     "verify:compose": "node scripts/verify-compose.mjs",
     "verify:migrations": "node scripts/check-migrations.mjs && pnpm --filter @pubg-camp/database db:check",
-    "verify:secrets": "node scripts/check-secrets.mjs"
+    "verify:phase2-ci": "node scripts/validate-phase2-ci.mjs .github/workflows/ci.yml",
+    "verify:secrets": "node scripts/check-secrets.mjs",
+    "phase2:integration:preflight": "node scripts/run-phase2-integration.mjs --preflight-only",
+    "phase2:integration": "node scripts/run-phase2-integration.mjs --suite integration",
+    "phase2:concurrent": "node scripts/run-phase2-integration.mjs --suite concurrent"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.9",
