@@ -88,9 +88,9 @@ export class IdentityController {
     }
   }
 
-  @Get("oauth/discord/callback")
+  @Post("oauth/discord/callback")
   async callbackDiscord(
-    @Query() rawQuery: unknown,
+    @Body() rawQuery: unknown,
     @Headers("x-auth-browser-binding") browserBinding: string | undefined,
     @Req() request?: FastifyRequest,
     @Res({ passthrough: true }) reply?: FastifyReply,

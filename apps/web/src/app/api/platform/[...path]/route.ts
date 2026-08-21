@@ -21,6 +21,7 @@ const MULTIPART_BODY_LIMIT = 2 * 1024 * 1024 + 64 * 1024;
 const HEADER_LIMIT = 32 * 1024;
 const HEADER_COUNT_LIMIT = 64;
 const UPSTREAM_TIMEOUT_MS = 10_000;
+const INVITATION_CONTEXT_COOKIE = "__Host-invitation-context";
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
 
 const ROUTES: readonly RouteRule[] = [
@@ -33,7 +34,7 @@ const ROUTES: readonly RouteRule[] = [
   },
   {
     pattern: /^identity\/oauth\/discord\/callback$/,
-    methods: ["GET"],
+    methods: ["POST"],
     upstream: "root",
     csrfRotation: "reacquire",
     noReferrer: true,
@@ -180,6 +181,10 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
   const body = await readBoundedBody(request, resolved.rule.bodyLimit ?? JSON_BODY_LIMIT);
   if (body instanceof Response) return body;
 
+  const invitationContext =
+    resolved.path === "invitations/preview" ? readInvitationContext(body) : undefined;
+  if (resolved.path === "invitations/preview" && !invitationContext) return unavailable(400);
+
   const target = new URL(
     resolved.rule.upstream === "platform" ? `/platform/${resolved.path}` : `/${resolved.path}`,
     apiOrigin,
@@ -188,9 +193,21 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
 
   let upstream: Response;
   try {
+    const upstreamHeaders = forwardRequestHeaders(request.headers);
+    if (resolved.path === "invitations/accept") {
+      const storedContext = readCookie(request.headers.get("cookie"), INVITATION_CONTEXT_COOKIE);
+      if (!storedContext) return unavailable(400);
+      upstreamHeaders.set("x-invitation-context", storedContext);
+      const remainingCookies = removeCookie(
+        request.headers.get("cookie"),
+        INVITATION_CONTEXT_COOKIE,
+      );
+      if (remainingCookies) upstreamHeaders.set("cookie", remainingCookies);
+      else upstreamHeaders.delete("cookie");
+    }
     upstream = await fetch(target, {
       method,
-      headers: forwardRequestHeaders(request.headers),
+      headers: upstreamHeaders,
       body,
       cache: "no-store",
       redirect: "manual",
@@ -202,6 +219,16 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
 
   const upstreamCookies = getSetCookies(upstream.headers);
   const responseHeaders = forwardResponseHeaders(upstream.headers, resolved.rule);
+
+  if (resolved.path === "invitations/preview" && upstream.ok && invitationContext) {
+    responseHeaders.append("set-cookie", invitationContextCookie(invitationContext));
+  }
+  if (
+    resolved.path === "invitations/accept" &&
+    (upstream.ok || upstream.status === 409 || upstream.status === 410)
+  ) {
+    responseHeaders.append("set-cookie", clearInvitationContextCookie());
+  }
 
   if (resolved.path === "security/csrf" && upstream.ok) {
     const token = await readCsrfToken(upstream.clone());
@@ -418,6 +445,50 @@ function mergeCookies(incoming: string | null, setCookies: readonly string[]): s
     else cookies.set(name, value);
   }
   return [...cookies].map(([name, value]) => `${name}=${value}`).join("; ");
+}
+
+function readInvitationContext(body: ArrayBuffer | null): string | undefined {
+  if (!body) return undefined;
+  try {
+    const parsed = JSON.parse(new TextDecoder().decode(body)) as { context?: unknown };
+    return typeof parsed.context === "string" &&
+      parsed.context.length >= 16 &&
+      parsed.context.length <= 1024
+      ? parsed.context
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function invitationContextCookie(context: string): string {
+  return `${INVITATION_CONTEXT_COOKIE}=${encodeURIComponent(context)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=600`;
+}
+
+function clearInvitationContextCookie(): string {
+  return `${INVITATION_CONTEXT_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+}
+
+function readCookie(header: string | null, name: string): string | undefined {
+  const encoded = header
+    ?.split(";")
+    .map((pair) => pair.trim())
+    .find((pair) => pair.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+  if (!encoded) return undefined;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return undefined;
+  }
+}
+
+function removeCookie(header: string | null, name: string): string {
+  return (header ?? "")
+    .split(";")
+    .map((pair) => pair.trim())
+    .filter((pair) => pair && !pair.startsWith(`${name}=`))
+    .join("; ");
 }
 
 function unavailable(status: number): Response {

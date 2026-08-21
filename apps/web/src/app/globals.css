@@ -312,9 +312,37 @@ li {
 
 .auth-form,
 .auth-provider-stack,
-.otp-field {
+.otp-field,
+.auth-result,
+.invitation-preview {
   display: grid;
   gap: var(--space-md);
+}
+
+.auth-result p,
+.invitation-preview p,
+.invitation-preview dd {
+  color: var(--color-text-secondary);
+}
+
+.invitation-preview dl {
+  display: grid;
+  gap: var(--space-md);
+  margin: 0;
+}
+
+.invitation-preview dl div {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.invitation-preview dt {
+  font-size: var(--font-label);
+  font-weight: 600;
+}
+
+.invitation-preview dd {
+  margin: 0;
 }
 
 .auth-full-width {

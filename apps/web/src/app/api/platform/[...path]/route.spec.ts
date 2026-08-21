@@ -251,13 +251,69 @@ describe("same-origin platform BFF", () => {
       request("invitations/preview", {
         method: "POST",
         headers: { "content-type": "application/json", "x-csrf-token": "csrf" },
-        body: JSON.stringify({ context: "opaque" }),
+        body: JSON.stringify({ context: "opaque-invitation-context" }),
       }),
       context("invitations", "preview"),
     );
 
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(setCookies(response).join(";")).toContain("__Host-invitation-context=");
+    expect(setCookies(response).join(";")).toContain("HttpOnly");
+  });
+
+  it("keeps OAuth callback GET read-only and forwards callback POST with CSRF", async () => {
+    const getResponse = await GET(
+      request("identity/oauth/discord/callback?code=secret&state=opaque-state-with-safe-length"),
+      context("identity", "oauth", "discord", "callback"),
+    );
+    expect(getResponse.status).toBe(405);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ status: "authenticated", nextPath: "/" }))
+      .mockResolvedValueOnce(jsonResponse({ csrfToken: "rotated-csrf-token-with-safe-length" }));
+    const postResponse = await POST(
+      request("identity/oauth/discord/callback", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-csrf-token": "csrf" },
+        body: JSON.stringify({
+          code: "provider-secret",
+          state: "opaque-state-with-safe-length",
+          purpose: "sign-in",
+        }),
+      }),
+      context("identity", "oauth", "discord", "callback"),
+    );
+
+    expect(postResponse.status).toBe(200);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      `${API_ORIGIN}/identity/oauth/discord/callback`,
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+  });
+
+  it("injects invitation context from HttpOnly custody only on explicit acceptance", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: "accepted" }));
+    const stored = encodeURIComponent("opaque-invitation-context");
+    const response = await POST(
+      request("invitations/accept", {
+        method: "POST",
+        headers: {
+          cookie: `__Host-preauth=browser; __Host-invitation-context=${stored}`,
+          "content-type": "application/json",
+          "x-csrf-token": "csrf",
+        },
+        body: JSON.stringify({ confirmation: true }),
+      }),
+      context("invitations", "accept"),
+    );
+
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("x-invitation-context")).toBe("opaque-invitation-context");
+    expect(headers.get("cookie")).toBe("__Host-preauth=browser");
+    expect(setCookies(response).join(";")).toContain("__Host-invitation-context=");
+    expect(setCookies(response).join(";")).toContain("Max-Age=0");
   });
 
   it("enforces body limits before fetch and returns uniform errors without config secrets", async () => {

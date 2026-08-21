@@ -184,8 +184,7 @@ describe("callback OAuth seguro", () => {
         headers: expect.objectContaining({ "x-csrf-token": "csrf-token-with-safe-length" }),
       }),
     );
-    expect(await screen.findByRole("link", { name: "Continuar" })).toHaveAttribute(
-      "href",
+    expect((await screen.findByRole("link", { name: "Continuar" })).getAttribute("href")).toBe(
       "/primeiro-acesso",
     );
   });
@@ -240,7 +239,7 @@ describe("convite seguro", () => {
     expect(acceptInit?.method).toBe("POST");
     expect(String(acceptInit?.body)).toBe(JSON.stringify({ confirmation: true }));
     expect(String(acceptInit?.body)).not.toContain("invite-secret");
-    expect(await screen.findByRole("status")).toHaveTextContent("Convite aceito");
+    expect((await screen.findByRole("status")).textContent).toContain("Convite aceito");
   });
 
   it.each([
@@ -256,10 +255,13 @@ describe("convite seguro", () => {
         .fn()
         .mockResolvedValueOnce(csrfResponse())
         .mockResolvedValueOnce(
-          new Response(JSON.stringify({ status, ...(status === "used" ? { organizationSlug: "liga" } : {}) }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }),
+          new Response(
+            JSON.stringify({ status, ...(status === "used" ? { organizationSlug: "liga" } : {}) }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          ),
         ),
     );
 
