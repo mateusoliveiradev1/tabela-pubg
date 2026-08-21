@@ -6,6 +6,7 @@ import { FirstAccessChoices } from "../../app/(platform)/primeiro-acesso/page";
 import { AppShell, type ShellOrganization } from "../layout/app-shell";
 import { OrganizationSwitcher } from "../layout/organization-switcher";
 import { CreateOrganizationForm } from "../organizations/create-organization-form";
+import { SessionsPanel } from "./device-session-card";
 import { IdentityCards } from "./identity-cards";
 
 const organizations: ShellOrganization[] = [
@@ -282,6 +283,118 @@ describe("formas de acesso", () => {
     expect(document.body.textContent).not.toContain("usuário proprietário");
   });
 });
+
+describe("sessões e alertas de novo acesso", () => {
+  it("ordena a sessão atual, destaca alerta ativo e nunca mostra IP ou fingerprint", () => {
+    const sessions = [session(2), session(1, { isCurrent: true }), session(3)];
+    render(
+      <SessionsPanel
+        sessions={sessions}
+        alertStatus="active"
+        highlightedSessionId={sessions[0]?.id ?? null}
+      />,
+    );
+
+    const cards = screen.getAllByRole("article");
+    expect(cards[0]?.textContent).toContain("Este dispositivo");
+    expect(cards[1]?.textContent).toContain("Novo acesso");
+    expect(screen.getByRole("alert").textContent).toContain("Revise este dispositivo");
+    expect(document.body.textContent).not.toMatch(/192\.168|fingerprint|endereço IP/i);
+  });
+
+  it("mantém a sessão até o POST com CSRF ser confirmado pelo servidor", async () => {
+    const user = userEvent.setup();
+    const target = session(2);
+    const current = session(1, { isCurrent: true });
+    const changed = vi.fn();
+    let finishRevoke: ((response: Response) => void) | undefined;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse())
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishRevoke = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SessionsPanel sessions={[target, current]} onAuthoritativeChange={changed} />);
+
+    const targetCard = screen
+      .getByRole("heading", { name: target.device.label })
+      .closest("article") as HTMLElement;
+    await user.click(within(targetCard).getByRole("button", { name: "Encerrar sessão" }));
+    await user.click(screen.getByRole("button", { name: "Encerrar sessão agora" }));
+
+    expect(screen.getByRole("heading", { name: target.device.label })).toBeTruthy();
+    expect(changed).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Encerrando…" })).toBeTruthy();
+    finishRevoke?.(
+      new Response(JSON.stringify({ status: "revoked", revokedSessionId: target.id }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `/api/platform/identity/sessions/${target.id}/revoke`,
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "x-csrf-token": "csrf-token-with-safe-length" }),
+      }),
+    );
+  });
+
+  it.each([
+    ["revoked", "Esta sessão já foi encerrada."],
+    ["expired", "Não encontramos esta sessão. Ela pode ter expirado ou já ter sido removida."],
+    ["not-found", "Não encontramos esta sessão. Ela pode ter expirado ou já ter sido removida."],
+  ] as const)("apresenta alerta %s sem revelar identificador", (alertStatus, copy) => {
+    render(<SessionsPanel sessions={[session(1, { isCurrent: true })]} alertStatus={alertStatus} />);
+    expect(screen.getByText(copy)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("alert-context-secret");
+  });
+
+  it("trata zero sessões como inconsistência e suporta vinte dispositivos", () => {
+    const { rerender } = render(<SessionsPanel sessions={[]} />);
+    expect(screen.getByRole("heading", { name: "Não foi possível confirmar sua sessão" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Entrar novamente" })).toBeTruthy();
+
+    rerender(
+      <SessionsPanel
+        sessions={Array.from({ length: 20 }, (_, index) =>
+          session(index + 1, { isCurrent: index === 0 }),
+        )}
+      />,
+    );
+    expect(screen.getAllByRole("article")).toHaveLength(20);
+  });
+});
+
+function session(
+  index: number,
+  overrides: Partial<{
+    isCurrent: boolean;
+    status: "active" | "revoked" | "expired";
+  }> = {},
+) {
+  return {
+    id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    device: {
+      label: `Dispositivo ${index}`,
+      browser: index % 2 === 0 ? "Chrome" : "Firefox",
+      operatingSystem: index % 2 === 0 ? "Windows" : "Linux",
+    },
+    approximateLocation: index % 2 === 0 ? "São Paulo, Brasil" : null,
+    createdAt: "2026-08-20T10:00:00.000Z",
+    lastSeenAt: "2026-08-21T09:00:00.000Z",
+    idleExpiresAt: "2026-08-22T09:00:00.000Z",
+    absoluteExpiresAt: "2026-09-20T10:00:00.000Z",
+    isCurrent: overrides.isCurrent ?? false,
+    status: overrides.status ?? "active",
+  };
+}
 
 function csrfResponse(token = "csrf-token-with-safe-length") {
   return new Response(null, { status: 200, headers: { "x-csrf-token": token } });
