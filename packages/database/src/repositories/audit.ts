@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type * as databaseSchema from "../schema.js";
 import {
@@ -103,7 +103,73 @@ async function listVisible(
     .orderBy(desc(auditEvents.occurredAt));
 }
 
+export interface VisibleAuditPageInput {
+  organizationId: string;
+  viewerMembershipId: string;
+  actorMembershipId?: string;
+  action?: string;
+  authorizationScopeId?: string;
+  from?: Date;
+  to?: Date;
+  limit: number;
+  offset: number;
+}
+
+async function listVisiblePage(
+  executor: AuditRepositoryExecutor,
+  input: VisibleAuditPageInput,
+): Promise<{ rows: AuditEventRow[]; total: number }> {
+  const [viewer] = await executor
+    .select({ role: organizationMemberships.role })
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, input.organizationId),
+        eq(organizationMemberships.id, input.viewerMembershipId),
+        eq(organizationMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  if (!viewer) {
+    return { rows: [], total: 0 };
+  }
+
+  const visibility =
+    viewer.role === "owner" || viewer.role === "admin"
+      ? eq(auditEvents.organizationId, input.organizationId)
+      : and(
+          eq(auditEvents.organizationId, input.organizationId),
+          eq(auditEvents.actorMembershipId, input.viewerMembershipId),
+        );
+  const where = and(
+    visibility,
+    input.actorMembershipId === undefined
+      ? undefined
+      : eq(auditEvents.actorMembershipId, input.actorMembershipId),
+    input.action === undefined ? undefined : eq(auditEvents.action, input.action),
+    input.authorizationScopeId === undefined
+      ? undefined
+      : eq(auditEvents.authorizationScopeId, input.authorizationScopeId),
+    input.from === undefined ? undefined : gte(auditEvents.occurredAt, input.from),
+    input.to === undefined ? undefined : lte(auditEvents.occurredAt, input.to),
+  );
+  const [totals, rows] = await Promise.all([
+    executor.select({ value: count() }).from(auditEvents).where(where),
+    executor
+      .select()
+      .from(auditEvents)
+      .where(where)
+      .orderBy(desc(auditEvents.occurredAt))
+      .limit(input.limit)
+      .offset(input.offset),
+  ]);
+
+  return { rows, total: totals[0]?.value ?? 0 };
+}
+
 export const AuditWriter = {
   append,
   listVisible,
+  listVisiblePage,
 } as const;

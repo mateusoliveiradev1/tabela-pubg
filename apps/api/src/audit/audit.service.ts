@@ -51,29 +51,36 @@ export class PostgresAuditRepository implements AuditRepositoryPort {
       input.viewerActorId,
     );
     if (!viewerMembership) throw new Error("audit unavailable");
-    const rows = await AuditWriter.listVisible(
-      this.database,
-      input.organizationId,
-      viewerMembership.id,
-    );
+    const actorMembership = input.actorId
+      ? await findMembershipByUser(this.database, input.organizationId, input.actorId)
+      : null;
+    if (input.actorId && !actorMembership) {
+      return emptyAuditPage(input);
+    }
+    const { rows, total } = await AuditWriter.listVisiblePage(this.database, {
+      organizationId: input.organizationId,
+      viewerMembershipId: viewerMembership.id,
+      limit: input.pageSize,
+      offset: (input.page - 1) * input.pageSize,
+      ...(actorMembership === null ? {} : { actorMembershipId: actorMembership.id }),
+      ...(input.action === undefined ? {} : { action: input.action }),
+      ...(input.authorizationScopeId === undefined
+        ? {}
+        : { authorizationScopeId: input.authorizationScopeId }),
+      ...(input.from === undefined ? {} : { from: new Date(input.from) }),
+      ...(input.to === undefined ? {} : { to: new Date(input.to) }),
+    });
     const projected: AuditEvent[] = [];
     for (const row of rows) {
-      const actorMembership = await findMembershipById(
+      const rowActorMembership = await findMembershipById(
         this.database,
         input.organizationId,
         row.actorMembershipId,
       );
-      if (!actorMembership) continue;
-      if (input.actorId && actorMembership.userId !== input.actorId) continue;
-      if (input.from && row.occurredAt < new Date(input.from)) continue;
-      if (input.to && row.occurredAt > new Date(input.to)) continue;
-      if (input.action && row.action !== input.action) continue;
-      if (input.authorizationScopeId && row.authorizationScopeId !== input.authorizationScopeId) {
-        continue;
-      }
-      const actor = await findUserById(this.database, actorMembership.userId);
+      if (!rowActorMembership) continue;
+      const actor = await findUserById(this.database, rowActorMembership.userId);
       if (!actor) continue;
-      const email = await findVerifiedEmailForUser(this.database, actorMembership.userId);
+      const email = await findVerifiedEmailForUser(this.database, rowActorMembership.userId);
       const organization = await findOrganizationById(this.database, input.organizationId);
       const scope = row.authorizationScopeId
         ? (
@@ -105,17 +112,26 @@ export class PostgresAuditRepository implements AuditRepositoryPort {
         changes: projectAuditChanges(row.before, row.after),
       });
     }
-    const total = projected.length;
-    const offset = (input.page - 1) * input.pageSize;
     return AuditEventPageSchema.parse({
       visibility: input.visibility,
-      events: projected.slice(offset, offset + input.pageSize),
+      events: projected,
       page: input.page,
       pageSize: input.pageSize,
       total,
       totalPages: total === 0 ? 0 : Math.ceil(total / input.pageSize),
     });
   }
+}
+
+function emptyAuditPage(input: ResolvedAuditQuery): AuditEventPage {
+  return AuditEventPageSchema.parse({
+    visibility: input.visibility,
+    events: [],
+    page: input.page,
+    pageSize: input.pageSize,
+    total: 0,
+    totalPages: 0,
+  });
 }
 
 @Injectable()
