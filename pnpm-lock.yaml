@@ -95,6 +95,9 @@ importers:
       '@pubg-camp/queue':
         specifier: workspace:*
         version: link:../../packages/queue
+      '@pubg-camp/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       fastify:
         specifier: 5.11.3
         version: 5.11.3

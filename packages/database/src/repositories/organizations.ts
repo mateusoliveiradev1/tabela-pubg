@@ -1151,61 +1151,65 @@ export interface RetryOrphanCleanupInput {
 
 const CLEANUP_LEASE_MS = 5 * 60_000;
 
+export async function enqueueOrphanCleanup(
+  executor: OrganizationRepositoryExecutor,
+  input: EnqueueOrphanCleanupInput,
+): Promise<string> {
+  const objectKey = ObjectKeySchema.parse(input.objectKey);
+  if (!objectKey.startsWith("branding/")) {
+    throw new Error("orphan cleanup accepts only server-generated branding keys");
+  }
+  const objectKeyDigest = digestToken(objectKey);
+  const [inserted] = await executor
+    .insert(orphanStorageCleanupLedger)
+    .values({
+      cleanupId: input.cleanupId,
+      provider: input.provider,
+      objectKey,
+      objectKeyDigest,
+      status: "pending",
+      attempts: 0,
+      nextAttemptAt: input.nextAttemptAt ?? input.occurredAt,
+      createdAt: input.occurredAt,
+      updatedAt: input.occurredAt,
+    })
+    .onConflictDoNothing({
+      target: [orphanStorageCleanupLedger.provider, orphanStorageCleanupLedger.objectKeyDigest],
+    })
+    .returning({ cleanupId: orphanStorageCleanupLedger.cleanupId });
+
+  if (!inserted) {
+    const [existing] = await executor
+      .select({ cleanupId: orphanStorageCleanupLedger.cleanupId })
+      .from(orphanStorageCleanupLedger)
+      .where(
+        and(
+          eq(orphanStorageCleanupLedger.provider, input.provider),
+          eq(orphanStorageCleanupLedger.objectKeyDigest, objectKeyDigest),
+        ),
+      )
+      .limit(1);
+    if (!existing) throw new Error("orphan cleanup idempotency lookup failed");
+    return existing.cleanupId;
+  }
+
+  await appendOutboxEvent(executor, {
+    id: input.outboxEventId,
+    type: "storage.logo.cleanup",
+    version: 1,
+    occurredAt: input.occurredAt.toISOString(),
+    aggregate: { type: "storage-cleanup", id: inserted.cleanupId },
+    payload: { cleanupId: inserted.cleanupId },
+  });
+  return inserted.cleanupId;
+}
+
 export const StorageCleanupRepository = {
   async enqueueOrphanCleanup(
     database: PostgresJsDatabase<typeof databaseSchema>,
     input: EnqueueOrphanCleanupInput,
   ): Promise<string> {
-    const objectKey = ObjectKeySchema.parse(input.objectKey);
-    if (!objectKey.startsWith("branding/")) {
-      throw new Error("orphan cleanup accepts only server-generated branding keys");
-    }
-    const objectKeyDigest = digestToken(objectKey);
-
-    return database.transaction(async (transaction) => {
-      const [inserted] = await transaction
-        .insert(orphanStorageCleanupLedger)
-        .values({
-          cleanupId: input.cleanupId,
-          provider: input.provider,
-          objectKey,
-          objectKeyDigest,
-          status: "pending",
-          attempts: 0,
-          nextAttemptAt: input.nextAttemptAt ?? input.occurredAt,
-          createdAt: input.occurredAt,
-          updatedAt: input.occurredAt,
-        })
-        .onConflictDoNothing({
-          target: [orphanStorageCleanupLedger.provider, orphanStorageCleanupLedger.objectKeyDigest],
-        })
-        .returning({ cleanupId: orphanStorageCleanupLedger.cleanupId });
-
-      if (!inserted) {
-        const [existing] = await transaction
-          .select({ cleanupId: orphanStorageCleanupLedger.cleanupId })
-          .from(orphanStorageCleanupLedger)
-          .where(
-            and(
-              eq(orphanStorageCleanupLedger.provider, input.provider),
-              eq(orphanStorageCleanupLedger.objectKeyDigest, objectKeyDigest),
-            ),
-          )
-          .limit(1);
-        if (!existing) throw new Error("orphan cleanup idempotency lookup failed");
-        return existing.cleanupId;
-      }
-
-      await appendOutboxEvent(transaction, {
-        id: input.outboxEventId,
-        type: "storage.logo.cleanup",
-        version: 1,
-        occurredAt: input.occurredAt.toISOString(),
-        aggregate: { type: "storage-cleanup", id: inserted.cleanupId },
-        payload: { cleanupId: inserted.cleanupId },
-      });
-      return inserted.cleanupId;
-    });
+    return database.transaction((transaction) => enqueueOrphanCleanup(transaction, input));
   },
 
   async claimOrphanCleanup(

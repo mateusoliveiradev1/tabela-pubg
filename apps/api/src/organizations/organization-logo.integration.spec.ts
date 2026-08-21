@@ -1,12 +1,10 @@
 import type { OrganizationSummary } from "@pubg-camp/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TokenGenerator } from "../identity/ports/token-generator.js";
+import { type InvitationRepositoryPort, InvitationsService } from "./invitations.service.js";
 import { parseOrganizationMultipart } from "./organizations.controller.js";
+import { type OrganizationRepositoryPort, OrganizationsService } from "./organizations.service.js";
 import type { OrganizationLogoStorage } from "./ports/organization-logo-storage.js";
-import {
-  type OrganizationRepositoryPort,
-  OrganizationsService,
-} from "./organizations.service.js";
 
 const actorId = "11111111-1111-4111-8111-111111111111";
 const organizationId = "22222222-2222-4222-8222-222222222222";
@@ -155,12 +153,13 @@ describe("organization logo application flow", () => {
 
   it("returns a short signed URL and a safe fallback when signing or metadata is unavailable", async () => {
     const { repository, service, storage } = setup();
-    vi.mocked(repository.getActiveLogoForActor).mockResolvedValue({
+    const activeLogo = {
       id: "44444444-4444-4444-8444-444444444444",
       objectKey: `branding/${organizationId}/55555555-5555-4555-8555-555555555555`,
-      detectedMime: "image/png",
+      detectedMime: "image/png" as const,
       byteSize: png.byteLength,
-    });
+    };
+    vi.mocked(repository.getActiveLogoForActor).mockResolvedValue(activeLogo);
 
     await expect(service.getLogo(actorId, organizationId)).resolves.toEqual({
       id: "44444444-4444-4444-8444-444444444444",
@@ -170,6 +169,7 @@ describe("organization logo application flow", () => {
     });
     expect(storage.createDownloadUrl).toHaveBeenCalledWith(expect.any(String), 300);
 
+    vi.mocked(repository.getActiveLogo).mockResolvedValueOnce(activeLogo);
     vi.mocked(storage.createDownloadUrl).mockRejectedValueOnce(new Error("object missing"));
     await expect(service.publicLogoUrl(organizationId)).resolves.toBe(fallbackUrl);
     vi.mocked(repository.getActiveLogo).mockResolvedValueOnce(null);
@@ -212,5 +212,35 @@ describe("strict multipart parsing", () => {
         `multipart/form-data; boundary=${boundary}`,
       ),
     ).toThrow(/large|limit/i);
+  });
+});
+
+describe("invitation logo projection", () => {
+  it("resolves a short logo URL only after the opaque invitation preview is valid", async () => {
+    const preview = vi.fn(async () => ({
+      status: "valid" as const,
+      organization: { id: organizationId, name: "Arena Alpha", logoUrl: null },
+      invitedBy: "Capitão",
+      maskedEmail: "p***@example.com",
+      organizationRole: "member" as const,
+      assignments: [],
+      expiresAt: "2026-08-28T12:00:00.000Z",
+      emailMatches: true,
+    }));
+    const repository = {
+      preview,
+    } as unknown as InvitationRepositoryPort;
+    const logos = { resolve: vi.fn(async () => "https://storage.example.com/logo?expires=300") };
+    const service = new InvitationsService(repository, tokens(), { now: () => now }, logos);
+
+    const result = await service.preview(actorId, "opaque-invitation-context");
+
+    expect(preview).toHaveBeenCalledWith({ actorId, token: "opaque-invitation-context", now });
+    expect(logos.resolve).toHaveBeenCalledWith(organizationId);
+    expect(result).toMatchObject({
+      status: "valid",
+      organization: { logoUrl: "https://storage.example.com/logo?expires=300" },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/objectKey|bucket/);
   });
 });

@@ -40,6 +40,10 @@ export interface InvitationsClock {
   now(): Date;
 }
 
+export interface InvitationLogoResolver {
+  resolve(organizationId: string): Promise<string>;
+}
+
 interface InvitationMutationIdentity {
   actorId: string;
   organizationId: string;
@@ -337,6 +341,7 @@ export class InvitationsService {
     private readonly repository: InvitationRepositoryPort,
     private readonly tokens: TokenGenerator,
     private readonly clock: InvitationsClock,
+    private readonly logos?: InvitationLogoResolver,
   ) {}
 
   async create(input: {
@@ -411,8 +416,16 @@ export class InvitationsService {
     return InvitationActionResponseSchema.parse({ status: "revoked" });
   }
 
-  preview(actorId: string, token: string): Promise<InvitationPreviewResponse> {
-    return this.repository.preview({ actorId, token, now: this.clock.now() });
+  async preview(actorId: string, token: string): Promise<InvitationPreviewResponse> {
+    const preview = await this.repository.preview({ actorId, token, now: this.clock.now() });
+    if (preview.status !== "valid" || !this.logos) return preview;
+    return InvitationPreviewResponseSchema.parse({
+      ...preview,
+      organization: {
+        ...preview.organization,
+        logoUrl: await this.logos.resolve(preview.organization.id),
+      },
+    });
   }
 
   async accept(input: {

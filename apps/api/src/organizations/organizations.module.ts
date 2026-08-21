@@ -11,12 +11,16 @@ import {
 } from "./members.service.js";
 import { ORGANIZATIONS_SERVICE, OrganizationsController } from "./organizations.controller.js";
 import { OrganizationsService, PostgresOrganizationRepository } from "./organizations.service.js";
+import type { OrganizationLogoStorage } from "./ports/organization-logo-storage.js";
 
 export interface OrganizationsModuleOptions {
   database: DatabaseConnection["db"];
   encryptionKey: EncryptionKey;
   tokens: TokenGenerator;
   sessions: RecentReauthenticationPort;
+  logoStorage: OrganizationLogoStorage;
+  logoFallbackUrl: string;
+  logoSignedUrlTtlSeconds?: number;
   clock?: { now(): Date };
 }
 
@@ -29,6 +33,11 @@ export class OrganizationsModule {
       new PostgresOrganizationRepository(options.database),
       options.tokens,
       clock,
+      options.logoStorage,
+      {
+        fallbackUrl: options.logoFallbackUrl,
+        signedUrlTtlSeconds: options.logoSignedUrlTtlSeconds ?? 300,
+      },
     );
     const invitations = new InvitationsService(
       new PostgresInvitationRepository(options.database, options.encryptionKey, () =>
@@ -36,6 +45,7 @@ export class OrganizationsModule {
       ),
       options.tokens,
       clock,
+      { resolve: (organizationId) => organizations.publicLogoUrl(organizationId) },
     );
     const members = new MembersService(
       new PostgresMemberRepository(options.database, () => options.tokens.id()),

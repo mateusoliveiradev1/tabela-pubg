@@ -42,8 +42,28 @@ describe("OrganizationsService", () => {
     repository = {
       create: vi.fn(async (input) => ownerSummary(input.id, input.name)),
       listForUser: vi.fn(async () => []),
+      authorizeLogoMutation: vi.fn(async () => null),
+      getActiveLogoForActor: vi.fn(async () => null),
+      getActiveLogo: vi.fn(async () => null),
+      replaceLogo: vi.fn(async (input) => ({ logo: input.logo, previousObjectKey: null })),
+      enqueueOrphanCleanup: vi.fn(async () => undefined),
     };
-    service = new OrganizationsService(repository, tokenGenerator(), { now: () => now });
+    service = new OrganizationsService(
+      repository,
+      tokenGenerator(),
+      { now: () => now },
+      {
+        store: vi.fn(async () => {
+          throw new Error("logo storage is not used by this suite");
+        }),
+        deleteObject: vi.fn(async () => undefined),
+        createDownloadUrl: vi.fn(async () => "https://storage.example.com/logo"),
+      },
+      {
+        fallbackUrl: "https://camp.example.com/images/organization-fallback.svg",
+        signedUrlTtlSeconds: 300,
+      },
+    );
   });
 
   it("creates independent owner memberships and never stores an implicit active organization", async () => {

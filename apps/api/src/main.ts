@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
+import type { IncomingMessage } from "node:http";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import cookie from "@fastify/cookie";
@@ -19,8 +20,14 @@ import {
 import { migrateDatabase } from "@pubg-camp/database/migrator";
 import { createLogger } from "@pubg-camp/logger";
 import { initializeTelemetry } from "@pubg-camp/observability";
+import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import { registerAppModule } from "./app.module.js";
+import { S3OrganizationLogoStorage } from "./organizations/adapters/s3-organization-logo-storage.js";
+import {
+  collectOrganizationMultipartBody,
+  ORGANIZATION_LOGO_MULTIPART_MAX_BYTES,
+} from "./organizations/organizations.controller.js";
 import { CsrfService, registerCsrfPlugins } from "./security/csrf.service.js";
 import { HttpExceptionFilter } from "./security/http-exception.filter.js";
 
@@ -31,6 +38,11 @@ const ApiEnvSchema = Phase2EnvSchema.extend({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
+  S3_ENDPOINT: z.url(),
+  S3_REGION: z.string().trim().min(1).max(120),
+  S3_BUCKET: z.string().trim().min(3).max(63),
+  S3_ACCESS_KEY: z.string().min(1).max(512),
+  S3_SECRET_KEY: z.string().min(8).max(512),
 });
 
 export function trustedProxyConfiguration(mode: "none" | "loopback" | "private"): false | string[] {
@@ -64,6 +76,14 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
     await migrateDatabase(env.DATABASE_URL);
   }
   const database = createDatabase(env.DATABASE_URL);
+  const logoStorage = new S3OrganizationLogoStorage({
+    endpoint: env.S3_ENDPOINT,
+    region: env.S3_REGION,
+    bucket: env.S3_BUCKET,
+    accessKeyId: env.S3_ACCESS_KEY,
+    secretAccessKey: env.S3_SECRET_KEY,
+    forcePathStyle: true,
+  });
   const tokens = {
     id: () => randomUUID(),
     opaque: (bytes: number) => randomBytes(bytes).toString("base64url"),
@@ -83,6 +103,14 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
     bodyLimit: 1_048_576,
     trustProxy: trustedProxyConfiguration(env.TRUSTED_PROXY),
   });
+  adapter
+    .getInstance()
+    .addContentTypeParser(
+      /^multipart\/form-data(?:;|$)/i,
+      { bodyLimit: ORGANIZATION_LOGO_MULTIPART_MAX_BYTES },
+      async (_request: FastifyRequest, payload: IncomingMessage) =>
+        collectOrganizationMultipartBody(payload),
+    );
   const app = await NestFactory.create<NestFastifyApplication>(
     registerAppModule({
       csrf,
@@ -126,6 +154,9 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
             }
           },
         },
+        logoStorage,
+        logoFallbackUrl: `${env.APP_ORIGIN.replace(/\/$/, "")}/images/organization-fallback.svg`,
+        logoSignedUrlTtlSeconds: 300,
       },
       audit: { database: database.db },
     }),
@@ -166,6 +197,7 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
     logger.info({ signal }, "api shutting down");
     await app.close();
     await database.close();
+    logoStorage.close();
     await telemetry.shutdown();
   };
   process.once("SIGINT", () => void shutdown("SIGINT"));

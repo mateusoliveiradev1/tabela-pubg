@@ -27,6 +27,7 @@
     "@pubg-camp/logger": "workspace:*",
     "@pubg-camp/observability": "workspace:*",
     "@pubg-camp/queue": "workspace:*",
+    "@pubg-camp/storage": "workspace:*",
     "fastify": "5.11.3",
     "oauth4webapi": "3.8.7",
     "rate-limiter-flexible": "11.2.0",
