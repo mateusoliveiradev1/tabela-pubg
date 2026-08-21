@@ -39,7 +39,7 @@ describe("platform shell e organização explícita", () => {
     );
 
     expect(screen.getByRole("link", { name: "Pular para o conteúdo" }).getAttribute("href")).toBe(
-      "#conteudo-principal",
+      "#platform-content",
     );
     expect(screen.getByRole("link", { name: "Visão geral" }).getAttribute("href")).toBe(
       "/o/liga-central",
@@ -50,7 +50,7 @@ describe("platform shell e organização explícita", () => {
     expect(screen.getByRole("link", { name: "Convites" }).getAttribute("href")).toBe(
       "/o/liga-central/convites",
     );
-    expect(screen.getByRole("main").id).toBe("conteudo-principal");
+    expect(screen.getByRole("main").id).toBe("platform-content");
   });
 
   it("mostra estado seguro quando não existe organização autorizada", () => {
@@ -60,7 +60,9 @@ describe("platform shell e organização explícita", () => {
       </AppShell>,
     );
 
-    expect(screen.getByRole("heading", { name: "Você ainda não participa de uma organização" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Você ainda não participa de uma organização" }),
+    ).toBeTruthy();
     expect(screen.queryByText("não deve aparecer")).toBeNull();
   });
 
@@ -79,9 +81,11 @@ describe("platform shell e organização explícita", () => {
     await user.type(screen.getByRole("searchbox", { name: "Buscar organização" }), "Arena 8");
 
     const results = screen.getByRole("list", { name: "Organizações" });
-    expect(within(results).getByRole("link", { name: /Arena 8/ }).getAttribute("href")).toBe(
-      "/o/arena-8",
-    );
+    expect(
+      within(results)
+        .getByRole("link", { name: /Arena 8/ })
+        .getAttribute("href"),
+    ).toBe("/o/arena-8");
     expect(within(results).queryByRole("link", { name: /Arena 1/ })).toBeNull();
   });
 });
@@ -92,8 +96,10 @@ describe("primeiro acesso e overview", () => {
     render(<FirstAccessChoices hasInvitationContext />);
 
     const options = screen.getByRole("list", { name: "Opções de primeiro acesso" });
-    expect(within(options).getAllByRole("listitem")[0]?.textContent).toContain("Entrar por convite");
-    await user.click(screen.getByRole("link", { name: "Revisar convite" }));
+    expect(within(options).getAllByRole("listitem")[0]?.textContent).toContain(
+      "Entrar por convite",
+    );
+    await user.tab();
     expect(screen.getByRole("link", { name: "Revisar convite" }).getAttribute("href")).toBe(
       "/convites/aceitar",
     );
