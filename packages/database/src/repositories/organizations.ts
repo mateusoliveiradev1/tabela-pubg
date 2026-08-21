@@ -1,21 +1,26 @@
 import { createHash } from "node:crypto";
 import type { EventEnvelope } from "@pubg-camp/contracts";
 import { ObjectKeySchema } from "@pubg-camp/storage";
-import { and, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { appendOutboxEvent } from "../outbox.js";
 import type * as databaseSchema from "../schema.js";
 import {
   authorizationScopes,
   type InvitationRolePayloadEntry,
+  type InvitationRow,
   invitations,
   type OrganizationLogoAssetRow,
   type OrganizationMembershipRow,
+  type OrganizationRow,
   organizationLogoAssets,
   organizationMemberships,
   organizations,
   orphanStorageCleanupLedger,
+  type RoleAssignmentRow,
   roleAssignments,
+  type UserRow,
+  users,
   verifiedEmails,
 } from "../schema.js";
 import { AuditWriter } from "./audit.js";
@@ -289,6 +294,119 @@ export async function findMembershipById(
   return membership ?? null;
 }
 
+export async function findMembershipByUser(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  userId: string,
+): Promise<OrganizationMembershipRow | null> {
+  const [membership] = await executor
+    .select()
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.userId, userId),
+      ),
+    )
+    .limit(1);
+  return membership ?? null;
+}
+
+export async function findOrganizationById(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+): Promise<OrganizationRow | null> {
+  const [organization] = await executor
+    .select()
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+  return organization ?? null;
+}
+
+export async function listOrganizationsForUser(
+  executor: OrganizationRepositoryExecutor,
+  userId: string,
+): Promise<readonly { organization: OrganizationRow; membership: OrganizationMembershipRow }[]> {
+  const rows = await executor
+    .select({ organization: organizations, membership: organizationMemberships })
+    .from(organizationMemberships)
+    .innerJoin(organizations, eq(organizations.id, organizationMemberships.organizationId))
+    .where(
+      and(eq(organizationMemberships.userId, userId), eq(organizationMemberships.status, "active")),
+    )
+    .orderBy(organizations.name);
+  return rows;
+}
+
+export async function listMembershipsForOrganization(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+): Promise<readonly OrganizationMembershipRow[]> {
+  return executor
+    .select()
+    .from(organizationMemberships)
+    .where(eq(organizationMemberships.organizationId, organizationId))
+    .orderBy(organizationMemberships.joinedAt);
+}
+
+export async function findUserById(
+  executor: OrganizationRepositoryExecutor,
+  userId: string,
+): Promise<UserRow | null> {
+  const [user] = await executor.select().from(users).where(eq(users.id, userId)).limit(1);
+  return user ?? null;
+}
+
+export async function findVerifiedEmailForUser(
+  executor: OrganizationRepositoryExecutor,
+  userId: string,
+): Promise<string | null> {
+  const [email] = await executor
+    .select({ normalizedEmail: verifiedEmails.normalizedEmail })
+    .from(verifiedEmails)
+    .where(and(eq(verifiedEmails.userId, userId), isNull(verifiedEmails.revokedAt)))
+    .limit(1);
+  return email?.normalizedEmail ?? null;
+}
+
+export async function listActiveAssignmentsForMembership(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  membershipId: string,
+): Promise<readonly (RoleAssignmentRow & { scopeName: string })[]> {
+  return executor
+    .select({
+      id: roleAssignments.id,
+      organizationId: roleAssignments.organizationId,
+      membershipId: roleAssignments.membershipId,
+      authorizationScopeId: roleAssignments.authorizationScopeId,
+      role: roleAssignments.role,
+      status: roleAssignments.status,
+      assignedByMembershipId: roleAssignments.assignedByMembershipId,
+      assignmentReason: roleAssignments.assignmentReason,
+      assignedAt: roleAssignments.assignedAt,
+      revokedAt: roleAssignments.revokedAt,
+      revocationReason: roleAssignments.revocationReason,
+      scopeName: authorizationScopes.label,
+    })
+    .from(roleAssignments)
+    .innerJoin(
+      authorizationScopes,
+      and(
+        eq(authorizationScopes.organizationId, roleAssignments.organizationId),
+        eq(authorizationScopes.id, roleAssignments.authorizationScopeId),
+      ),
+    )
+    .where(
+      and(
+        eq(roleAssignments.organizationId, organizationId),
+        eq(roleAssignments.membershipId, membershipId),
+        eq(roleAssignments.status, "active"),
+      ),
+    );
+}
+
 export interface CreateInvitationInput extends MutationMetadata {
   id: string;
   invitedByMembershipId: string;
@@ -355,6 +473,153 @@ export async function createInvitation(
     aggregate: { type: "invitation", id: input.id },
     payload: { organizationId, invitationId: input.id },
   });
+}
+
+export interface ResendInvitationInput extends MutationMetadata {
+  id: string;
+  actorMembershipId: string;
+  token: string;
+  issuedAt: Date;
+}
+
+export type ResendInvitationResult =
+  | { status: "reissued"; invitation: InvitationRow }
+  | { status: "unavailable" };
+
+export async function resendInvitation(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  previousInvitationId: string,
+  input: ResendInvitationInput,
+): Promise<ResendInvitationResult> {
+  if (!(await lockOrganization(executor, organizationId))) return { status: "unavailable" };
+  await executor.execute(
+    sql`select ${invitations.id} from ${invitations}
+        where ${invitations.organizationId} = ${organizationId}
+          and ${invitations.id} = ${previousInvitationId} for update`,
+  );
+  const [previous] = await executor
+    .select()
+    .from(invitations)
+    .where(
+      and(
+        eq(invitations.organizationId, organizationId),
+        eq(invitations.id, previousInvitationId),
+        isNull(invitations.acceptedAt),
+        isNull(invitations.revokedAt),
+        isNull(invitations.supersededAt),
+        gt(invitations.expiresAt, input.occurredAt),
+      ),
+    )
+    .limit(1);
+  const [actor] = await executor
+    .select({ id: organizationMemberships.id, role: organizationMemberships.role })
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.id, input.actorMembershipId),
+        eq(organizationMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+  if (!previous || (actor?.role !== "owner" && actor?.role !== "admin")) {
+    return { status: "unavailable" };
+  }
+
+  const expiresAt = new Date(input.issuedAt.getTime() + INVITATION_TTL_MS);
+  await executor.insert(invitations).values({
+    id: input.id,
+    organizationId,
+    invitedByMembershipId: input.actorMembershipId,
+    normalizedEmail: previous.normalizedEmail,
+    tokenDigest: digestToken(input.token),
+    organizationRole: previous.organizationRole,
+    rolePayload: previous.rolePayload,
+    issuedAt: input.issuedAt,
+    expiresAt,
+    revokedAt: input.issuedAt,
+    revocationReason: "pending supersession",
+    createdAt: input.issuedAt,
+    updatedAt: input.issuedAt,
+  });
+  const [superseded] = await executor
+    .update(invitations)
+    .set({
+      supersededAt: input.occurredAt,
+      supersededByInvitationId: input.id,
+      updatedAt: input.occurredAt,
+    })
+    .where(
+      and(
+        eq(invitations.organizationId, organizationId),
+        eq(invitations.id, previousInvitationId),
+        isNull(invitations.acceptedAt),
+        isNull(invitations.revokedAt),
+        isNull(invitations.supersededAt),
+      ),
+    )
+    .returning({ id: invitations.id });
+  if (!superseded) throw new Error("invitation changed while locked; transaction must roll back");
+  const [activated] = await executor
+    .update(invitations)
+    .set({ revokedAt: null, revocationReason: null, updatedAt: input.occurredAt })
+    .where(
+      and(
+        eq(invitations.organizationId, organizationId),
+        eq(invitations.id, input.id),
+        eq(invitations.revocationReason, "pending supersession"),
+      ),
+    )
+    .returning();
+  if (!activated) throw new Error("replacement invitation was not activated");
+
+  await AuditWriter.append(executor, {
+    id: input.auditEventId,
+    organizationId,
+    actorMembershipId: input.actorMembershipId,
+    action: "invitation.created",
+    targetType: "invitation",
+    targetId: input.id,
+    reason: input.reason,
+    before: { invitationStatus: "superseded" },
+    after: { invitationStatus: "pending", organizationRole: activated.organizationRole },
+    correlationId: input.correlationId,
+    occurredAt: input.occurredAt,
+  });
+  await appendOutboxEvent(executor, {
+    id: input.outboxEventId,
+    type: "invitation.reissued",
+    version: 1,
+    occurredAt: input.occurredAt.toISOString(),
+    correlationId: input.correlationId,
+    aggregate: { type: "invitation", id: input.id },
+    payload: { organizationId, invitationId: input.id, previousInvitationId },
+  });
+  return { status: "reissued", invitation: activated };
+}
+
+export async function findInvitationByToken(
+  executor: OrganizationRepositoryExecutor,
+  token: string,
+): Promise<InvitationRow | null> {
+  const [invitation] = await executor
+    .select()
+    .from(invitations)
+    .where(eq(invitations.tokenDigest, digestToken(token)))
+    .limit(1);
+  return invitation ?? null;
+}
+
+export async function listInvitationsForOrganization(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+): Promise<readonly InvitationRow[]> {
+  return executor
+    .select()
+    .from(invitations)
+    .where(eq(invitations.organizationId, organizationId))
+    .orderBy(desc(invitations.createdAt));
 }
 
 export interface RevokeInvitationInput extends MutationMetadata {

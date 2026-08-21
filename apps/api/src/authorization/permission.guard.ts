@@ -38,7 +38,9 @@ export class PermissionGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     if (!request.auth) throw new ForbiddenException();
-    if (permission === "identity:session-alerts:resolve") return true;
+    if (permission === "identity:session-alerts:resolve" || permission === "authenticated") {
+      return true;
+    }
 
     const organizationId = firstHeader(request.headers["x-organization-id"]);
     const authorizationScopeId = firstHeader(request.headers["x-authorization-scope-id"]);

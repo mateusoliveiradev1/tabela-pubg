@@ -1,14 +1,8 @@
 import type { CreateOrganizationRequest, OrganizationSummary } from "@pubg-camp/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TokenGenerator } from "../identity/ports/token-generator.js";
-import {
-  type OrganizationRepositoryPort,
-  OrganizationsService,
-} from "./organizations.service.js";
-import {
-  type InvitationRepositoryPort,
-  InvitationsService,
-} from "./invitations.service.js";
+import { type InvitationRepositoryPort, InvitationsService } from "./invitations.service.js";
+import { type OrganizationRepositoryPort, OrganizationsService } from "./organizations.service.js";
 
 const actorId = "11111111-1111-4111-8111-111111111111";
 const organizationId = "22222222-2222-4222-8222-222222222222";
@@ -31,7 +25,7 @@ function tokenGenerator(): TokenGenerator {
   return {
     id: vi.fn(() => {
       id += 1;
-      return `${id}`.padStart(8, "0") + "-0000-4000-8000-000000000000";
+      return `${`${id}`.padStart(8, "0")}-0000-4000-8000-000000000000`;
     }),
     opaque: vi.fn((bytes) => `opaque-${bytes}-bytes`),
     numericCode: vi.fn(() => "12345678"),
@@ -90,7 +84,10 @@ describe("OrganizationsService", () => {
   it("lists every membership for the actor without selecting one as active", async () => {
     vi.mocked(repository.listForUser).mockResolvedValueOnce([
       ownerSummary(organizationId, "Arena Alpha"),
-      { ...ownerSummary("77777777-7777-4777-8777-777777777777", "Arena Bravo"), membershipRole: "admin" },
+      {
+        ...ownerSummary("77777777-7777-4777-8777-777777777777", "Arena Bravo"),
+        membershipRole: "admin",
+      },
     ]);
 
     const result = await service.list(actorId);
@@ -107,8 +104,14 @@ describe("InvitationsService", () => {
 
   beforeEach(() => {
     repository = {
-      createWithDelivery: vi.fn(async () => ({ invitationId, expiresAt: new Date(now.getTime() + 7 * 86_400_000) })),
-      resendWithDelivery: vi.fn(async () => ({ invitationId, expiresAt: new Date(now.getTime() + 7 * 86_400_000) })),
+      createWithDelivery: vi.fn(async () => ({
+        invitationId,
+        expiresAt: new Date(now.getTime() + 7 * 86_400_000),
+      })),
+      resendWithDelivery: vi.fn(async () => ({
+        invitationId,
+        expiresAt: new Date(now.getTime() + 7 * 86_400_000),
+      })),
       revoke: vi.fn(async () => true),
       preview: vi.fn(async () => ({ status: "invalid" as const })),
       accept: vi.fn(async () => ({ status: "unavailable" as const })),
