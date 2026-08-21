@@ -4,11 +4,25 @@ export function live(): HealthResponse {
   return createHealthResponse("worker", "ok");
 }
 
-export async function ready(probe: () => Promise<void>): Promise<HealthResponse> {
+export interface WorkerReadinessProbes {
+  postgres(): Promise<void>;
+  redis(): Promise<void>;
+}
+
+export async function ready(probes: WorkerReadinessProbes): Promise<HealthResponse> {
+  const checks = {
+    postgres: await settle(probes.postgres),
+    redis: await settle(probes.redis),
+  };
+  const state = Object.values(checks).every((check) => check === "ok") ? "ok" : "unavailable";
+  return createHealthResponse("worker", state, checks);
+}
+
+async function settle(probe: () => Promise<void>): Promise<"ok" | "unavailable"> {
   try {
     await probe();
-    return createHealthResponse("worker", "ok", { redis: "ok" });
+    return "ok";
   } catch {
-    return createHealthResponse("worker", "unavailable", { redis: "unavailable" });
+    return "unavailable";
   }
 }
