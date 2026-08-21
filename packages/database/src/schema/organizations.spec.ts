@@ -2,10 +2,10 @@ import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import {
   invitations,
-  orphanStorageCleanupLedger,
   organizationLogoAssets,
   organizationMemberships,
   organizations,
+  orphanStorageCleanupLedger,
 } from "../schema.js";
 
 function columnsOf(table: PgTable): string[] {

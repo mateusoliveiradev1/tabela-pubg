@@ -3,6 +3,7 @@ import {
   check,
   foreignKey,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -21,6 +22,23 @@ export const membershipStatus = pgEnum("membership_status", ["active", "revoked"
 export const invitationOrganizationRole = pgEnum("invitation_organization_role", [
   "admin",
   "member",
+]);
+export const organizationLogoMime = pgEnum("organization_logo_mime", [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
+export const organizationLogoStatus = pgEnum("organization_logo_status", [
+  "pending",
+  "active",
+  "delete_pending",
+]);
+export const storageCleanupProvider = pgEnum("storage_cleanup_provider", ["s3"]);
+export const storageCleanupStatus = pgEnum("storage_cleanup_status", [
+  "pending",
+  "claimed",
+  "completed",
+  "failed",
 ]);
 
 export interface InvitationRolePayloadEntry {
@@ -165,9 +183,103 @@ export const invitations = pgTable(
   ],
 );
 
+export const organizationLogoAssets = pgTable(
+  "organization_logo_assets",
+  {
+    id: uuid("id").primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    objectKey: text("object_key").notNull(),
+    detectedMime: organizationLogoMime("detected_mime").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    sha256: text("sha256").notNull(),
+    createdByMembershipId: uuid("created_by_membership_id").notNull(),
+    status: organizationLogoStatus("status").notNull().default("pending"),
+    activatedAt: timestamptz("activated_at"),
+    deletePendingAt: timestamptz("delete_pending_at"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("organization_logo_assets_object_key_unique").on(table.objectKey),
+    unique("organization_logo_assets_organization_id_id_unique").on(table.organizationId, table.id),
+    uniqueIndex("organization_logo_assets_one_active_per_organization_unique")
+      .on(table.organizationId)
+      .where(sql`${table.status} = 'active'`),
+    foreignKey({
+      name: "organization_logo_assets_organization_creator_fk",
+      columns: [table.organizationId, table.createdByMembershipId],
+      foreignColumns: [organizationMemberships.organizationId, organizationMemberships.id],
+    }).onDelete("restrict"),
+    index("organization_logo_assets_organization_status_idx").on(
+      table.organizationId,
+      table.status,
+    ),
+    check(
+      "organization_logo_assets_object_key_tenant_check",
+      sql`${table.objectKey} ~ ('^branding/' || ${table.organizationId}::text || '/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')`,
+    ),
+    check("organization_logo_assets_byte_size_check", sql`${table.byteSize} between 1 and 2097152`),
+    check("organization_logo_assets_sha256_check", sql`${table.sha256} ~ '^[0-9a-f]{64}$'`),
+    check(
+      "organization_logo_assets_lifecycle_check",
+      sql`(${table.status} = 'pending' and ${table.activatedAt} is null and ${table.deletePendingAt} is null)
+        or (${table.status} = 'active' and ${table.activatedAt} is not null and ${table.deletePendingAt} is null)
+        or (${table.status} = 'delete_pending' and ${table.deletePendingAt} is not null)`,
+    ),
+  ],
+);
+
+export const orphanStorageCleanupLedger = pgTable(
+  "orphan_storage_cleanup_ledger",
+  {
+    cleanupId: uuid("cleanup_id").primaryKey(),
+    provider: storageCleanupProvider("provider").notNull(),
+    objectKey: text("object_key").notNull(),
+    objectKeyDigest: text("object_key_digest").notNull(),
+    status: storageCleanupStatus("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamptz("next_attempt_at").notNull().defaultNow(),
+    claimedAt: timestamptz("claimed_at"),
+    completedAt: timestamptz("completed_at"),
+    lastError: text("last_error"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("orphan_storage_cleanup_provider_digest_unique").on(
+      table.provider,
+      table.objectKeyDigest,
+    ),
+    index("orphan_storage_cleanup_claim_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.claimedAt,
+    ),
+    check(
+      "orphan_storage_cleanup_object_key_check",
+      sql`${table.objectKey} ~ '^branding/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'`,
+    ),
+    check("orphan_storage_cleanup_digest_check", sql`${table.objectKeyDigest} ~ '^[0-9a-f]{64}$'`),
+    check("orphan_storage_cleanup_attempts_check", sql`${table.attempts} >= 0`),
+    check(
+      "orphan_storage_cleanup_lifecycle_check",
+      sql`(${table.status} = 'pending' and ${table.claimedAt} is null and ${table.completedAt} is null)
+        or (${table.status} = 'claimed' and ${table.claimedAt} is not null and ${table.completedAt} is null)
+        or (${table.status} = 'completed' and ${table.claimedAt} is not null and ${table.completedAt} is not null)
+        or (${table.status} = 'failed' and ${table.completedAt} is null)`,
+    ),
+  ],
+);
+
 export type OrganizationRow = typeof organizations.$inferSelect;
 export type NewOrganizationRow = typeof organizations.$inferInsert;
 export type OrganizationMembershipRow = typeof organizationMemberships.$inferSelect;
 export type NewOrganizationMembershipRow = typeof organizationMemberships.$inferInsert;
 export type InvitationRow = typeof invitations.$inferSelect;
 export type NewInvitationRow = typeof invitations.$inferInsert;
+export type OrganizationLogoAssetRow = typeof organizationLogoAssets.$inferSelect;
+export type NewOrganizationLogoAssetRow = typeof organizationLogoAssets.$inferInsert;
+export type OrphanStorageCleanupRow = typeof orphanStorageCleanupLedger.$inferSelect;
+export type NewOrphanStorageCleanupRow = typeof orphanStorageCleanupLedger.$inferInsert;
