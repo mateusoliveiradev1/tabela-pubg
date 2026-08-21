@@ -2,6 +2,31 @@ import { z } from "zod";
 
 const PublicIdSchema = z.uuid();
 const TimestampSchema = z.iso.datetime();
+
+export const ORGANIZATION_LOGO_MAX_BYTES = 2 * 1024 * 1024;
+export const OrganizationLogoMimeSchema = z.enum(["image/png", "image/jpeg", "image/webp"]);
+
+export const OrganizationLogoMultipartMetadataSchema = z
+  .object({
+    declaredMime: OrganizationLogoMimeSchema,
+    byteSize: z.int().positive().max(ORGANIZATION_LOGO_MAX_BYTES),
+  })
+  .strict();
+
+export const OrganizationLogoResponseSchema = z
+  .object({
+    id: PublicIdSchema,
+    detectedMime: OrganizationLogoMimeSchema,
+    byteSize: z.int().positive().max(ORGANIZATION_LOGO_MAX_BYTES),
+    url: z.url(),
+  })
+  .strict();
+
+export const OrganizationLogoCleanupJobSchema = z
+  .object({
+    cleanupId: PublicIdSchema,
+  })
+  .strict();
 const MaskedEmailSchema = z.string().regex(/^[^@\s]*[•*][^@\s]*@[^@\s]+\.[^@\s]+$/);
 
 export const OrganizationRoleSchema = z.enum(["owner", "admin", "member"]);
@@ -36,7 +61,15 @@ export const OrganizationSummarySchema = z
 export const CreateOrganizationRequestSchema = z
   .object({
     name: z.string().trim().min(2).max(120),
-    logoAssetId: PublicIdSchema.optional(),
+    logo: OrganizationLogoMultipartMetadataSchema.optional(),
+  })
+  .strict();
+
+export const CreateOrganizationMultipartRequestSchema = CreateOrganizationRequestSchema;
+
+export const UpdateOrganizationLogoMultipartRequestSchema = z
+  .object({
+    logo: OrganizationLogoMultipartMetadataSchema,
   })
   .strict();
 
@@ -55,7 +88,6 @@ export const OrganizationListResponseSchema = z
 export const UpdateOrganizationRequestSchema = z
   .object({
     name: z.string().trim().min(2).max(120).optional(),
-    logoAssetId: PublicIdSchema.nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, { message: "At least one field is required" });
@@ -228,6 +260,12 @@ export const TransferOwnershipResponseSchema = z
 export type OrganizationRole = z.infer<typeof OrganizationRoleSchema>;
 export type OperationalRole = z.infer<typeof OperationalRoleSchema>;
 export type OrganizationSummary = z.infer<typeof OrganizationSummarySchema>;
+export type OrganizationLogoMime = z.infer<typeof OrganizationLogoMimeSchema>;
+export type OrganizationLogoMultipartMetadata = z.infer<
+  typeof OrganizationLogoMultipartMetadataSchema
+>;
+export type OrganizationLogoResponse = z.infer<typeof OrganizationLogoResponseSchema>;
+export type OrganizationLogoCleanupJob = z.infer<typeof OrganizationLogoCleanupJobSchema>;
 export type CreateOrganizationRequest = z.infer<typeof CreateOrganizationRequestSchema>;
 export type CreateOrganizationResponse = z.infer<typeof CreateOrganizationResponseSchema>;
 export type MembershipSummary = z.infer<typeof MembershipSummarySchema>;

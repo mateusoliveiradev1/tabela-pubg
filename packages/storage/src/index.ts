@@ -1,4 +1,9 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { z } from "zod";
 
@@ -28,6 +33,12 @@ export interface StorageConfig {
   accessKeyId: string;
   secretAccessKey: string;
   forcePathStyle?: boolean;
+}
+
+export interface PutObjectInput {
+  key: string;
+  body: Uint8Array;
+  contentType: string;
 }
 
 export function validateUpload(size: number, mimeType: string, policy: UploadPolicy): void {
@@ -62,6 +73,21 @@ export function createStorage(config: StorageConfig) {
   });
 
   return {
+    async putObject(input: PutObjectInput): Promise<void> {
+      const safeKey = ObjectKeySchema.parse(input.key);
+      await client.send(
+        new PutObjectCommand({
+          Bucket: config.bucket,
+          Key: safeKey,
+          Body: input.body,
+          ContentType: input.contentType,
+        }),
+      );
+    },
+    async deleteObject(key: string): Promise<void> {
+      const safeKey = ObjectKeySchema.parse(key);
+      await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: safeKey }));
+    },
     async createUploadUrl(key: string, contentType: string, expiresIn = 300): Promise<string> {
       const safeKey = ObjectKeySchema.parse(key);
       return getSignedUrl(
@@ -81,3 +107,5 @@ export function createStorage(config: StorageConfig) {
     },
   };
 }
+
+export * from "./organization-logo.js";
