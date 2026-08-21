@@ -1,16 +1,12 @@
+import type { AuthorizationScopeId, OrganizationId, UserId } from "@pubg-camp/domain";
 import { describe, expect, it } from "vitest";
-import type {
-  AuthorizationScopeId,
-  OrganizationId,
-  UserId,
-} from "@pubg-camp/domain";
 import {
   ALL_PERMISSIONS,
+  type AuthorizationSnapshot,
   can,
   type OperationalRole,
   type OrganizationRole,
   type Permission,
-  type AuthorizationSnapshot,
 } from "./index.js";
 
 const actorId = "user-1" as UserId;
@@ -37,9 +33,7 @@ const tournamentPermissions = [
   "tournament:statistics:export",
 ] as const satisfies readonly Permission[];
 
-function snapshot(
-  overrides: Partial<AuthorizationSnapshot> = {},
-): AuthorizationSnapshot {
+function snapshot(overrides: Partial<AuthorizationSnapshot> = {}): AuthorizationSnapshot {
   return {
     actorId,
     organizationId,
@@ -56,9 +50,7 @@ function decision(permission: Permission, authorizationSnapshot: AuthorizationSn
       actorId,
       organizationId,
       permission,
-      ...(permission.startsWith("tournament:")
-        ? { authorizationScopeId: tournamentId }
-        : {}),
+      ...(permission.startsWith("tournament:") ? { authorizationScopeId: tournamentId } : {}),
     },
     authorizationSnapshot,
   );
@@ -67,9 +59,7 @@ function decision(permission: Permission, authorizationSnapshot: AuthorizationSn
 describe("organization roles", () => {
   const matrix: Readonly<Record<OrganizationRole, readonly Permission[]>> = {
     owner: ALL_PERMISSIONS,
-    admin: ALL_PERMISSIONS.filter(
-      (permission) => permission !== "organization:ownership:transfer",
-    ),
+    admin: ALL_PERMISSIONS.filter((permission) => permission !== "organization:ownership:transfer"),
   };
 
   for (const [role, allowed] of Object.entries(matrix) as [
@@ -299,6 +289,16 @@ describe("default deny boundaries", () => {
           actorId,
           organizationId,
           permission: "organization:*" as Permission,
+        },
+        snapshot({ organizationRole: "owner" }),
+      ),
+    ).toBe(false);
+    expect(
+      can(
+        {
+          actorId,
+          organizationId,
+          permission: "organization:settings:manage",
         },
         snapshot({ organizationRole: "super-admin" as OrganizationRole }),
       ),
