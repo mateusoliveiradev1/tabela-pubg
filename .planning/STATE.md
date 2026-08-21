@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T07:43:59.368Z"
+last_updated: "2026-08-21T08:03:23.419Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 16
-  percent: 59
+  completed_plans: 17
+  percent: 63
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 13 de 24 concluídos
-- Status: execução em andamento; organizações, convites, membros e auditoria concluídos
-- Progresso: 59% do milestone (16 de 27 planos)
+- Plano: 14 de 24 concluídos
+- Status: execução em andamento; fundação visual acessível e primitivos privados concluídos
+- Progresso: 63% do milestone (17 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -47,6 +47,9 @@ progress:
 - Seleção de organização permanece explícita; criar ou listar organizações não altera tenant ativo em sessão ou cookie.
 - Convite, audit, envelope cifrado e outbox são gravados na mesma transação; o worker recebe somente `deliveryId`.
 - Auditoria aplica visibilidade, filtros, contagem e paginação no PostgreSQL antes da projeção redigida.
+- Radix e Lucide ficam isolados nos primitivos locais; componentes de domínio recebem apenas capacidades já resolvidas.
+- Specs TSX executam em jsdom e testes de route continuam em Node por projetos Vitest distintos.
+- A UI usa quatro tamanhos, dois pesos e tokens globais grafite/teal; componentes TSX não codificam cores hexadecimais.
 
 ## Bloqueadores
 
@@ -54,6 +57,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: organizações, convites, gestão de membros e auditoria concluídos no plano 02-09.
-- Próxima ação: executar os planos 02-11 e 02-19 da próxima wave.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-11-PLAN.md`
+- Última ação: tokens e primitivos acessíveis concluídos no plano 02-11.
+- Próxima ação: executar o plano 02-19 da wave atual.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-19-PLAN.md`
