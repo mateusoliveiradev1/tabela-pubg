@@ -31,6 +31,7 @@ const requiredPatterns = [
   [/^ {6}DATABASE_URL:\s*\S+/m, "DATABASE_URL"],
   [/^ {6}REDIS_URL:\s*\S+/m, "REDIS_URL"],
   [/pnpm install --frozen-lockfile/, "frozen dependency install"],
+  [/pnpm --filter @pubg-camp\/storage build/, "fresh-checkout storage build"],
   [/pnpm phase2:integration:preflight/, "explicit preflight"],
   [/pnpm phase2:integration(?=\s|$)/m, "integration suite"],
   [/pnpm phase2:concurrent\b/m, "concurrent suite"],
@@ -60,10 +61,17 @@ for (const [pattern, description] of forbiddenPatterns) {
 }
 
 const preflightIndex = job.indexOf("pnpm phase2:integration:preflight");
+const storageBuildIndex = job.indexOf("pnpm --filter @pubg-camp/storage build");
 const integrationIndex = job.search(/pnpm phase2:integration(?=\s|$)/);
 const concurrentIndex = job.indexOf("pnpm phase2:concurrent");
 
-if (!(preflightIndex < integrationIndex && integrationIndex < concurrentIndex)) {
+if (
+  !(
+    storageBuildIndex < preflightIndex &&
+    preflightIndex < integrationIndex &&
+    integrationIndex < concurrentIndex
+  )
+) {
   throw new Error("phase 2 CI must run preflight, integration, then concurrent suites in order");
 }
 
@@ -85,6 +93,7 @@ const e2eRequirements = [
     /E2E_RUN_ID:\s*run-ci-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-phase2/,
     "run-scoped E2E id",
   ],
+  [/pnpm --filter @pubg-camp\/storage build/, "fresh-checkout browser storage build"],
   [/playwright install --with-deps chromium/, "official Chromium install"],
   [/test:e2e:smoke/, "browser smoke"],
   [/test:e2e(?=\s|$)/m, "complete browser suite"],
@@ -92,6 +101,12 @@ const e2eRequirements = [
 ];
 for (const [pattern, description] of e2eRequirements) {
   if (!pattern.test(e2eJob)) throw new Error(`phase2-e2e job is missing ${description}`);
+}
+if (
+  e2eJob.indexOf("pnpm --filter @pubg-camp/storage build") >=
+  e2eJob.indexOf("pnpm phase2:integration:preflight")
+) {
+  throw new Error("phase 2 browser CI must build storage before preflight and browser suites");
 }
 if (e2eJob.indexOf("test:e2e:smoke") >= e2eJob.search(/test:e2e(?=\s|$)/m)) {
   throw new Error("phase 2 browser smoke must run before the complete E2E suite");
