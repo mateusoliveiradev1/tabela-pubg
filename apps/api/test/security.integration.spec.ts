@@ -1,7 +1,17 @@
 import cookie from "@fastify/cookie";
 import csrfProtection from "@fastify/csrf-protection";
+import { Controller, Get, Module } from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
+import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import type { AuthorizationSnapshot } from "@pubg-camp/authorization";
 import fastify, { type FastifyInstance, type LightMyRequestResponse } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Public, RequirePermission } from "../src/authorization/decorators.js";
+import {
+  AuthorizationModule,
+  type AuthorizationModulePorts,
+} from "../src/authorization/authorization.module.js";
+import { HttpExceptionFilter } from "../src/security/http-exception.filter.js";
 import {
   CsrfService,
   type CsrfServiceOptions,
@@ -176,5 +186,181 @@ describe("CSRF lifecycle through Fastify inject", () => {
     absorbCookies(jar, logout);
     expect([...jar.keys()].filter((name) => name.startsWith("__Host-"))).toEqual([]);
     expect((await unsafe(server, jar, rotatedToken)).statusCode).toBe(403);
+  });
+});
+
+class AuthorizationTestController {
+  publicRoute() {
+    return { status: "public" };
+  }
+
+  unmarkedRoute() {
+    return { status: "must-not-run" };
+  }
+
+  broadcastRoute() {
+    return { status: "allowed" };
+  }
+}
+
+Controller("authorization-test")(AuthorizationTestController);
+for (const [method, path, decorators] of [
+  ["publicRoute", "public", [Public()]],
+  ["unmarkedRoute", "unmarked", []],
+  ["broadcastRoute", "broadcast", [RequirePermission("tournament:broadcast:manage")]],
+] as const) {
+  const descriptor = Object.getOwnPropertyDescriptor(AuthorizationTestController.prototype, method);
+  if (!descriptor) throw new Error(`missing test controller descriptor: ${method}`);
+  Get(path)(AuthorizationTestController.prototype, method, descriptor);
+  for (const decorator of decorators) {
+    decorator(AuthorizationTestController.prototype, method, descriptor);
+  }
+}
+
+function snapshot(overrides: Partial<AuthorizationSnapshot> = {}): AuthorizationSnapshot {
+  return {
+    actorId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2301" as AuthorizationSnapshot["actorId"],
+    organizationId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2302" as AuthorizationSnapshot["organizationId"],
+    membershipStatus: "active",
+    organizationRole: null,
+    assignments: [
+      {
+        organizationId:
+          "018f0ce7-98e3-7b27-bf2d-6eeac51d2302" as AuthorizationSnapshot["organizationId"],
+        authorizationScopeId:
+          "018f0ce7-98e3-7b27-bf2d-6eeac51d2303" as AuthorizationSnapshot["assignments"][number]["authorizationScopeId"],
+        role: "broadcast",
+        status: "active",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+async function createAuthorizationApp(ports: AuthorizationModulePorts) {
+  class AuthorizationTestModule {}
+  Module({
+    controllers: [AuthorizationTestController],
+    imports: [AuthorizationModule.register(ports)],
+  })(AuthorizationTestModule);
+
+  const adapter = new FastifyAdapter({ bodyLimit: 1_048_576, trustProxy: false });
+  const app = await NestFactory.create<NestFastifyApplication>(AuthorizationTestModule, adapter, {
+    logger: false,
+  });
+  await app.register(cookie);
+  app.useGlobalFilters(new HttpExceptionFilter());
+  await app.init();
+  await adapter.getInstance().ready();
+  return { app, server: adapter.getInstance() };
+}
+
+describe("global default-deny authorization through Nest Fastify inject", () => {
+  const apps: NestFastifyApplication[] = [];
+
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+  });
+
+  function ports(currentSnapshot = snapshot()): AuthorizationModulePorts & {
+    loadSnapshot: ReturnType<typeof vi.fn>;
+  } {
+    const loadSnapshot = vi.fn(async () => currentSnapshot);
+    return {
+      authenticate: vi.fn(async (token: string) =>
+        token === "session-a"
+          ? {
+              actorId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2301",
+              sessionId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2304",
+            }
+          : null,
+      ),
+      loadSnapshot,
+    };
+  }
+
+  it("allows only @Public to skip session and denies protected routes without permission metadata", async () => {
+    const harness = await createAuthorizationApp(ports());
+    apps.push(harness.app);
+
+    expect((await harness.server.inject({ method: "GET", url: "/authorization-test/public" })).statusCode).toBe(200);
+    expect((await harness.server.inject({ method: "GET", url: "/authorization-test/unmarked" })).statusCode).toBe(401);
+    expect(
+      (
+        await harness.server.inject({
+          method: "GET",
+          url: "/authorization-test/unmarked",
+          headers: { cookie: "__Host-session=session-a" },
+        })
+      ).statusCode,
+    ).toBe(403);
+  });
+
+  it("ignores request roles and denies the right role in the wrong organization or scope", async () => {
+    const harness = await createAuthorizationApp(ports());
+    apps.push(harness.app);
+
+    const response = await harness.server.inject({
+      method: "GET",
+      url: "/authorization-test/broadcast",
+      headers: {
+        cookie: "__Host-session=session-a",
+        "x-role": "owner",
+        "x-organization-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2399",
+        "x-authorization-scope-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2303",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body).not.toContain("owner");
+  });
+
+  it("loads a live snapshot on every request so revocation takes effect immediately", async () => {
+    let current = snapshot();
+    const livePorts = ports();
+    livePorts.loadSnapshot.mockImplementation(async () => current);
+    const harness = await createAuthorizationApp(livePorts);
+    apps.push(harness.app);
+    const request = {
+      method: "GET" as const,
+      url: "/authorization-test/broadcast",
+      headers: {
+        cookie: "__Host-session=session-a",
+        "x-organization-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2302",
+        "x-authorization-scope-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2303",
+      },
+    };
+
+    expect((await harness.server.inject(request)).statusCode).toBe(200);
+    current = snapshot({ membershipStatus: "revoked", assignments: [] });
+    expect((await harness.server.inject(request)).statusCode).toBe(403);
+    expect(livePorts.loadSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns uniform support-coded errors without infrastructure secrets or stacks", async () => {
+    const secret = "database-password-must-never-leak";
+    const harness = await createAuthorizationApp({
+      authenticate: vi.fn(async () => {
+        throw new Error(secret);
+      }),
+      loadSnapshot: vi.fn(async () => snapshot()),
+    });
+    apps.push(harness.app);
+
+    const response = await harness.server.inject({
+      method: "GET",
+      url: "/authorization-test/broadcast",
+      headers: { cookie: "__Host-session=session-a" },
+    });
+    const body = response.json<Record<string, unknown>>();
+
+    expect(response.statusCode).toBe(503);
+    expect(body).toEqual({
+      statusCode: 503,
+      code: "SERVICE_UNAVAILABLE",
+      supportCode: expect.stringMatching(/^SUP-[A-Z0-9]{12}$/),
+    });
+    expect(response.body).not.toContain(secret);
+    expect(response.body).not.toContain("stack");
   });
 });
