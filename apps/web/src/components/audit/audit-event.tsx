@@ -1,6 +1,9 @@
 "use client";
 
-import type { AuditEvent as AuditEventData, AuditVisibility } from "@pubg-camp/contracts";
+import type {
+  AuditEvent as AuditEventData,
+  AuditEventPage,
+} from "@pubg-camp/contracts";
 import { useState } from "react";
 import { Button } from "../ui/button";
 import { EmptyState, FeedbackState, InlineAlert } from "../ui/feedback";
@@ -109,7 +112,7 @@ export interface AuditFilters {
 
 interface AuditTimelineProps {
   organizationSlug: string;
-  visibility: AuditVisibility;
+  visibility: AuditEventPage["visibility"];
   events: readonly AuditEventData[];
   page: number;
   totalPages: number;
