@@ -34,7 +34,7 @@ export function AppShell({
   activeOrganizationSlug,
   loadState = "ready",
 }: AppShellProps) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "/";
   const [drawerOpen, setDrawerOpen] = useState(false);
   const routeOrganizationSlug = organizationSlugFromPath(pathname);
   const resolvedSlug = activeOrganizationSlug ?? routeOrganizationSlug;
@@ -43,6 +43,7 @@ export function AppShell({
   );
   const isOrganizationRoute = routeOrganizationSlug !== null;
   const isOnboardingRoute = pathname === "/primeiro-acesso" || pathname === "/organizacoes/nova";
+  const isAccountRoute = pathname === "/conta" || pathname.startsWith("/conta/");
 
   if (loadState !== "ready") {
     return (
@@ -67,7 +68,7 @@ export function AppShell({
     );
   }
 
-  if (organizations.length === 0 && !isOnboardingRoute) {
+  if (organizations.length === 0 && !isOnboardingRoute && !isAccountRoute) {
     return (
       <main className="platform-state" id="platform-content">
         <EmptyState

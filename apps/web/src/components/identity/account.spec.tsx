@@ -326,7 +326,8 @@ describe("sessões e alertas de novo acesso", () => {
     await user.click(within(targetCard).getByRole("button", { name: "Encerrar sessão" }));
     await user.click(screen.getByRole("button", { name: "Encerrar sessão agora" }));
 
-    expect(screen.getByRole("heading", { name: target.device.label })).toBeTruthy();
+    expect(targetCard.isConnected).toBe(true);
+    expect(targetCard.textContent).toContain(target.device.label);
     expect(changed).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Encerrando…" })).toBeTruthy();
     finishRevoke?.(
@@ -351,14 +352,18 @@ describe("sessões e alertas de novo acesso", () => {
     ["expired", "Não encontramos esta sessão. Ela pode ter expirado ou já ter sido removida."],
     ["not-found", "Não encontramos esta sessão. Ela pode ter expirado ou já ter sido removida."],
   ] as const)("apresenta alerta %s sem revelar identificador", (alertStatus, copy) => {
-    render(<SessionsPanel sessions={[session(1, { isCurrent: true })]} alertStatus={alertStatus} />);
+    render(
+      <SessionsPanel sessions={[session(1, { isCurrent: true })]} alertStatus={alertStatus} />,
+    );
     expect(screen.getByText(copy)).toBeTruthy();
     expect(document.body.textContent).not.toContain("alert-context-secret");
   });
 
   it("trata zero sessões como inconsistência e suporta vinte dispositivos", () => {
     const { rerender } = render(<SessionsPanel sessions={[]} />);
-    expect(screen.getByRole("heading", { name: "Não foi possível confirmar sua sessão" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Não foi possível confirmar sua sessão" }),
+    ).toBeTruthy();
     expect(screen.getByRole("link", { name: "Entrar novamente" })).toBeTruthy();
 
     rerender(
