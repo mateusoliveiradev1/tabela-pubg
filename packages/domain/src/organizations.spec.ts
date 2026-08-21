@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { MembershipId } from "./identity.js";
 import {
   LastOwnerRemovalError,
-  validateOwnerRemoval,
   type OrganizationMembership,
+  validateOwnerRemoval,
 } from "./organizations.js";
 
 const membershipId = (value: string) => value as MembershipId;
