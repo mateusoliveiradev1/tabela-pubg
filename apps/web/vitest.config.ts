@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   oxc: {
-    include: /\.[jt]sx$/,
+    include: /\.[jt]sx?$/,
     jsx: {
       runtime: "automatic",
     },
@@ -14,7 +14,7 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: ["src/**/*.test.ts"],
+          include: ["src/**/*.test.ts", "src/**/*.spec.ts"],
         },
       },
       {
