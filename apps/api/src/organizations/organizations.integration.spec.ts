@@ -213,6 +213,7 @@ describe("MembersService", () => {
 
   function setup() {
     const repository: MemberRepositoryPort = {
+      organizationName: vi.fn(async () => "Arena Alpha"),
       list: vi.fn(async () => [targetMembership]),
       update: vi.fn(async () => ({ status: "updated" as const, membership: targetMembership })),
       revoke: vi.fn(async () => ({ status: "revoked" as const, membership: targetMembership })),

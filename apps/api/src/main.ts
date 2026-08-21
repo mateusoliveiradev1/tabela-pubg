@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import cookie from "@fastify/cookie";
@@ -9,7 +10,12 @@ import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { AuthorizationSnapshot } from "@pubg-camp/authorization";
 import { loadEnv, Phase2EnvSchema } from "@pubg-camp/config";
-import { createDatabase, loadAuthorizationSnapshot, resolveSession } from "@pubg-camp/database";
+import {
+  createDatabase,
+  hasRecentReauthentication,
+  loadAuthorizationSnapshot,
+  resolveSession,
+} from "@pubg-camp/database";
 import { migrateDatabase } from "@pubg-camp/database/migrator";
 import { createLogger } from "@pubg-camp/logger";
 import { initializeTelemetry } from "@pubg-camp/observability";
@@ -58,6 +64,13 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
     await migrateDatabase(env.DATABASE_URL);
   }
   const database = createDatabase(env.DATABASE_URL);
+  const tokens = {
+    id: () => randomUUID(),
+    opaque: (bytes: number) => randomBytes(bytes).toString("base64url"),
+    numericCode: (digits: number) =>
+      Array.from({ length: digits }, () => randomInt(0, 10).toString()).join(""),
+    digest: (value: string) => createHash("sha256").update(value, "utf8").digest("hex"),
+  };
 
   const csrf = new CsrfService({
     appOrigin: env.APP_ORIGIN,
@@ -97,6 +110,21 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
                   assignment.authorizationScopeId as AuthorizationSnapshot["assignments"][number]["authorizationScopeId"],
               })) ?? [],
           };
+        },
+      },
+      organizations: {
+        database: database.db,
+        encryptionKey: {
+          version: env.ENCRYPTION_KEY_VERSION,
+          key: Buffer.from(env.AES_GCM_KEY_V1, "hex"),
+        },
+        tokens,
+        sessions: {
+          requireRecentReauthentication: async (userId, sessionId) => {
+            if (!(await hasRecentReauthentication(database.db, userId, sessionId, new Date()))) {
+              throw new Error("recent authentication required");
+            }
+          },
         },
       },
     }),

@@ -224,6 +224,10 @@ export class SessionService {
     }
   }
 
+  requireRecentReauthentication(userId: string, sessionId: string): Promise<void> {
+    return this.requireFreshStepUp(userId, sessionId);
+  }
+
   async confirmStepUp(input: {
     userId: string;
     sessionId: string;

@@ -818,6 +818,153 @@ export type RevokeMembershipResult =
   | { status: "last-owner" }
   | { status: "unavailable" };
 
+export interface UpdateMembershipRolesInput extends MutationMetadata {
+  actorMembershipId: string;
+  organizationRole: "admin" | "member";
+  rolePayload: readonly InvitationRolePayloadEntry[];
+  assignmentIds: readonly string[];
+}
+
+export type UpdateMembershipRolesResult =
+  | { status: "updated" }
+  | { status: "last-owner" }
+  | { status: "unavailable" };
+
+export async function updateMembershipRoles(
+  executor: OrganizationRepositoryExecutor,
+  organizationId: string,
+  membershipId: string,
+  input: UpdateMembershipRolesInput,
+): Promise<UpdateMembershipRolesResult> {
+  if (!(await lockOrganization(executor, organizationId))) return { status: "unavailable" };
+  const [target] = await executor
+    .select()
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.id, membershipId),
+        eq(organizationMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+  const [actor] = await executor
+    .select({ id: organizationMemberships.id, role: organizationMemberships.role })
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.id, input.actorMembershipId),
+        eq(organizationMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+  if (
+    !target ||
+    (actor?.role !== "owner" && actor?.role !== "admin") ||
+    (target.role === "owner" && actor.role !== "owner") ||
+    input.assignmentIds.length !== input.rolePayload.length ||
+    !(await validateRolePayload(executor, organizationId, input.rolePayload))
+  ) {
+    return { status: "unavailable" };
+  }
+  if (target.role === "owner") {
+    const owners = await executor
+      .select({ id: organizationMemberships.id })
+      .from(organizationMemberships)
+      .where(
+        and(
+          eq(organizationMemberships.organizationId, organizationId),
+          eq(organizationMemberships.role, "owner"),
+          eq(organizationMemberships.status, "active"),
+        ),
+      );
+    if (owners.length <= 1) return { status: "last-owner" };
+  }
+
+  const previousAssignments = await listActiveAssignmentsForMembership(
+    executor,
+    organizationId,
+    membershipId,
+  );
+  await executor
+    .update(roleAssignments)
+    .set({
+      status: "revoked",
+      revokedAt: input.occurredAt,
+      revocationReason: input.reason,
+    })
+    .where(
+      and(
+        eq(roleAssignments.organizationId, organizationId),
+        eq(roleAssignments.membershipId, membershipId),
+        eq(roleAssignments.status, "active"),
+      ),
+    );
+  if (input.rolePayload.length > 0) {
+    await executor.insert(roleAssignments).values(
+      input.rolePayload.map((assignment, index) => ({
+        id: input.assignmentIds[index] as string,
+        organizationId,
+        membershipId,
+        authorizationScopeId: assignment.authorizationScopeId,
+        role: assignment.role,
+        status: "active" as const,
+        assignedByMembershipId: input.actorMembershipId,
+        assignmentReason: input.reason,
+        assignedAt: input.occurredAt,
+      })),
+    );
+  }
+  await executor
+    .update(organizationMemberships)
+    .set({ role: input.organizationRole, updatedAt: input.occurredAt })
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.id, membershipId),
+        eq(organizationMemberships.status, "active"),
+      ),
+    );
+  await AuditWriter.append(executor, {
+    id: input.auditEventId,
+    organizationId,
+    actorMembershipId: input.actorMembershipId,
+    action: "membership.roles.updated",
+    targetType: "organization-membership",
+    targetId: membershipId,
+    reason: input.reason,
+    before: {
+      organizationRole: target.role,
+      operationalRoles: previousAssignments.map(roleAssignmentKey).toSorted().join(",") || "none",
+    },
+    after: {
+      organizationRole: input.organizationRole,
+      operationalRoles:
+        input.rolePayload
+          .map((assignment) => `${assignment.authorizationScopeId}:${assignment.role}`)
+          .toSorted()
+          .join(",") || "none",
+    },
+    correlationId: input.correlationId,
+    occurredAt: input.occurredAt,
+  });
+  await appendOutboxEvent(executor, {
+    id: input.outboxEventId,
+    type: "membership.roles.updated",
+    version: 1,
+    occurredAt: input.occurredAt.toISOString(),
+    correlationId: input.correlationId,
+    aggregate: { type: "organization-membership", id: membershipId },
+    payload: { organizationId, membershipId },
+  });
+  return { status: "updated" };
+}
+
+function roleAssignmentKey(assignment: RoleAssignmentRow): string {
+  return `${assignment.authorizationScopeId}:${assignment.role}`;
+}
+
 export async function revokeMembership(
   executor: OrganizationRepositoryExecutor,
   organizationId: string,
@@ -838,7 +985,7 @@ export async function revokeMembership(
     )
     .limit(1);
   const [actor] = await executor
-    .select({ id: organizationMemberships.id })
+    .select({ id: organizationMemberships.id, role: organizationMemberships.role })
     .from(organizationMemberships)
     .where(
       and(
@@ -848,7 +995,9 @@ export async function revokeMembership(
       ),
     )
     .limit(1);
-  if (!target || !actor) return { status: "unavailable" };
+  if (!target || (actor?.role !== "owner" && actor?.role !== "admin")) {
+    return { status: "unavailable" };
+  }
   if (target.role === "owner") {
     const owners = await executor
       .select({ id: organizationMemberships.id })

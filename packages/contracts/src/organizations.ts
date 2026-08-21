@@ -278,4 +278,6 @@ export type AcceptInvitationResponse = z.infer<typeof AcceptInvitationResponseSc
 export type InvitationActionResponse = z.infer<typeof InvitationActionResponseSchema>;
 export type InvitationListItem = z.infer<typeof InvitationListItemSchema>;
 export type UpdateMembershipRequest = z.infer<typeof UpdateMembershipRequestSchema>;
+export type MembershipMutationResponse = z.infer<typeof MembershipMutationResponseSchema>;
 export type TransferOwnershipRequest = z.infer<typeof TransferOwnershipRequestSchema>;
+export type TransferOwnershipResponse = z.infer<typeof TransferOwnershipResponseSchema>;

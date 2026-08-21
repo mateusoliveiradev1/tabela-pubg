@@ -310,6 +310,31 @@ export async function revokeOtherSessions(
   return revoked.length;
 }
 
+export async function hasRecentReauthentication(
+  executor: RepositoryExecutor,
+  userId: string,
+  sessionId: string,
+  now: Date,
+  lifetimeMs = 10 * 60_000,
+): Promise<boolean> {
+  const threshold = new Date(now.getTime() - lifetimeMs);
+  const [session] = await executor
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.userId, userId),
+        eq(sessions.id, sessionId),
+        isNull(sessions.revokedAt),
+        gt(sessions.idleExpiresAt, now),
+        gt(sessions.absoluteExpiresAt, now),
+        gt(sessions.reauthenticatedAt, threshold),
+      ),
+    )
+    .limit(1);
+  return Boolean(session);
+}
+
 export async function listSessionsForUser(executor: RepositoryExecutor, userId: string) {
   return executor
     .select({ session: sessions, device: devices })
