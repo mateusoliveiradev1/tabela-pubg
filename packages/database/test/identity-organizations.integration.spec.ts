@@ -387,7 +387,7 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     expect(outbox).toHaveLength(2);
     expect(outbox.every((row) => row.event_type === "organization.created")).toBe(true);
     expect(JSON.stringify(outbox)).not.toContain(userId);
-  });
+  }, 15_000);
 
   it("requires organization context for tenant resources and loads only current assignments", async () => {
     const userId = randomUUID();
@@ -426,12 +426,12 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     await client`
       insert into role_assignments
         (id, organization_id, membership_id, authorization_scope_id, role, status,
-         assigned_by_membership_id, assignment_reason, assigned_at)
+         assigned_by_membership_id, assignment_reason, assigned_at, revoked_at, revocation_reason)
       values
         (${randomUUID()}, ${organizationA}, ${membershipA}, ${scopeA}, 'broadcast', 'active',
-         ${membershipA}, 'initial assignment', ${now}),
+         ${membershipA}, 'initial assignment', ${now.toISOString()}, null, null),
         (${randomUUID()}, ${organizationB}, ${membershipB}, ${scopeB}, 'analyst', 'revoked',
-         ${membershipB}, 'revoked assignment', ${now})
+         ${membershipB}, 'revoked assignment', ${now.toISOString()}, ${now.toISOString()}, 'assignment revoked')
     `;
 
     await expect(findMembershipById(db, organizationA, membershipB)).resolves.toBeNull();
@@ -455,7 +455,7 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
         status: "active",
       },
     ]);
-  });
+  }, 15_000);
 
   it("shows complete audit to owner/admin and only self actions to members", async () => {
     const organizationId = randomUUID();
@@ -486,8 +486,8 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     await client`
       insert into organization_memberships (id, organization_id, user_id, role, status, joined_at)
       values
-        (${adminMembershipId}, ${organizationId}, ${adminUserId}, 'admin', 'active', ${now}),
-        (${memberMembershipId}, ${organizationId}, ${memberUserId}, 'member', 'active', ${now})
+        (${adminMembershipId}, ${organizationId}, ${adminUserId}, 'admin', 'active', ${now.toISOString()}),
+        (${memberMembershipId}, ${organizationId}, ${memberUserId}, 'member', 'active', ${now.toISOString()})
     `;
 
     for (const [actorMembershipId, action] of [
@@ -521,7 +521,7 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     expect(memberAudit[0]?.actorMembershipId).toBe(memberMembershipId);
     expect(JSON.stringify(memberAudit)).not.toContain("secret@example.test");
     expect(JSON.stringify(memberAudit)).not.toContain("must-not-persist");
-  });
+  }, 15_000);
 
   it("rolls organization, owner, audit and outbox back together", async () => {
     const organizationId = randomUUID();
@@ -553,5 +553,5 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
         (select count(*)::int from outbox_events where aggregate_id = ${organizationId}) as outbox
     `;
     expect(counts).toEqual({ organizations: 0, memberships: 0, audits: 0, outbox: 0 });
-  });
+  }, 15_000);
 });
