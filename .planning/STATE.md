@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T09:36:06.548Z"
+last_updated: "2026-08-21T10:02:00.000Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 21
-  percent: 78
+  completed_plans: 22
+  percent: 81
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 18 de 24 concluídos
-- Status: execução em andamento; área privada, onboarding, identidades e sessões concluídos
-- Progresso: 78% do milestone (21 de 27 planos)
+- Plano: 19 de 24 concluídos
+- Status: execução em andamento; central operacional de membros, convites e auditoria concluída
+- Progresso: 81% do milestone (22 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -61,6 +61,9 @@ progress:
 - Worker de logo recebe somente `cleanupId` e resolve provider/key do ledger server-side.
 - Leituras privadas da conta ficam em Server Components; mutações passam exclusivamente pelo BFF com CSRF.
 - O contexto de alerta de novo acesso é resolvido no servidor e removido da URL sem ser serializado para o cliente.
+- A UI operacional consome capabilities e projeções autoritativas do servidor sem duplicar a matriz RBAC no navegador.
+- Mutações sensíveis de organização preservam o motivo durante step-up e recarregam shell e capabilities somente após resposta confirmada.
+- A visibilidade de auditoria vem da API e filtros da UI nunca ampliam uma projeção self para all.
 
 ## Bloqueadores
 
@@ -68,6 +71,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: área privada, onboarding, identidades e sessões concluídos no plano 02-13.
-- Próxima ação: continuar a wave 11 conforme o orquestrador da Fase 2.
-- Arquivo de retomada: nenhum; plano 02-13 completo.
+- Última ação: central operacional de membros, convites e auditoria concluída no plano 02-14.
+- Próxima ação: continuar a wave 12 conforme o orquestrador da Fase 2.
+- Arquivo de retomada: nenhum; plano 02-14 completo.
