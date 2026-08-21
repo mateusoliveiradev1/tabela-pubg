@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "phase/02-identidade-organizacoes-e-autorizacao"]
   pull_request:
 
 permissions:
@@ -107,6 +107,72 @@ jobs:
           name: phase2-${{ matrix.suite }}-logs
           path: phase2-${{ matrix.suite }}.log
           if-no-files-found: error
+          retention-days: 7
+
+  phase2-e2e:
+    name: Phase 2 browser E2E
+    needs: [quality, phase2-integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: pubg_camp_test
+          POSTGRES_USER: pubg
+          POSTGRES_PASSWORD: pubg_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pubg -d pubg_camp_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:8.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://pubg:pubg_ci_only@127.0.0.1:5432/pubg_camp_test
+      REDIS_URL: redis://127.0.0.1:6379
+      E2E_PROVIDER_MODE: fake
+      E2E_RUN_ID: run-ci-${{ github.run_id }}-${{ github.run_attempt }}-phase2
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@11.17.0 --activate
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate final phase 2 workflow structure
+        run: pnpm verify:phase2-ci
+      - name: Run mandatory PostgreSQL and Redis preflight
+        run: pnpm phase2:integration:preflight
+      - name: Install official Chromium and operating-system dependencies
+        run: pnpm --filter @pubg-camp/web exec playwright install --with-deps chromium
+      - name: Run phase 2 browser smoke first
+        run: pnpm --filter @pubg-camp/web test:e2e:smoke
+      - name: Run complete phase 2 browser suite
+        run: pnpm --filter @pubg-camp/web test:e2e
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: phase2-browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            apps/web/test-results/
+            apps/web/playwright-report/
+          if-no-files-found: ignore
           retention-days: 7
 
   images:

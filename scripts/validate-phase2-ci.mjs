@@ -67,4 +67,44 @@ if (!(preflightIndex < integrationIndex && integrationIndex < concurrentIndex)) 
   throw new Error("phase 2 CI must run preflight, integration, then concurrent suites in order");
 }
 
+const e2eJobStart = lines.findIndex((line) => /^ {2}phase2-e2e:\s*$/.test(line));
+if (e2eJobStart < 0) throw new Error("CI must define the phase2-e2e job");
+let e2eJobEnd = lines.length;
+for (let index = e2eJobStart + 1; index < lines.length; index += 1) {
+  if (/^ {2}[a-zA-Z0-9_-]+:\s*$/.test(lines[index])) {
+    e2eJobEnd = index;
+    break;
+  }
+}
+const e2eJob = lines.slice(e2eJobStart, e2eJobEnd).join("\n");
+const e2eRequirements = [
+  [/^ {6}postgres:\s*$/m, "PostgreSQL browser service"],
+  [/^ {6}redis:\s*$/m, "Redis browser service"],
+  [/E2E_PROVIDER_MODE:\s*fake/, "fake provider mode"],
+  [
+    /E2E_RUN_ID:\s*run-ci-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-phase2/,
+    "run-scoped E2E id",
+  ],
+  [/playwright install --with-deps chromium/, "official Chromium install"],
+  [/test:e2e:smoke/, "browser smoke"],
+  [/test:e2e(?=\s|$)/m, "complete browser suite"],
+  [/if:\s*failure\(\)/, "failure-only browser artifacts"],
+];
+for (const [pattern, description] of e2eRequirements) {
+  if (!pattern.test(e2eJob)) throw new Error(`phase2-e2e job is missing ${description}`);
+}
+if (e2eJob.indexOf("test:e2e:smoke") >= e2eJob.search(/test:e2e(?=\s|$)/m)) {
+  throw new Error("phase 2 browser smoke must run before the complete E2E suite");
+}
+if (
+  !/^\s*branches:\s*\[main,\s*"phase\/02-identidade-organizacoes-e-autorizacao"\]\s*$/m.test(
+    workflow,
+  )
+) {
+  throw new Error("CI push branches must preserve main and the exact phase 2 branch");
+}
+if (!/^\s*pull_request:\s*$/m.test(workflow)) {
+  throw new Error("CI must preserve the pull_request trigger");
+}
+
 console.log(`phase 2 CI structure passed: ${path.relative(process.cwd(), workflowPath)}`);
