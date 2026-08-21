@@ -81,7 +81,7 @@ async function unsafe(
   jar: CookieJar,
   token: string | undefined,
   url = "/unsafe",
-  origin: string | undefined = options.appOrigin,
+  origin: string | null = options.appOrigin,
 ) {
   return server.inject({
     method: "POST",
@@ -89,7 +89,7 @@ async function unsafe(
     headers: {
       cookie: cookieHeader(jar),
       ...(token === undefined ? {} : { "x-csrf-token": token }),
-      ...(origin === undefined ? {} : { origin }),
+      ...(origin === null ? {} : { origin }),
     },
   });
 }
@@ -109,7 +109,7 @@ describe("CSRF lifecycle through Fastify inject", () => {
     const { response, token } = await acquire(server, jar);
 
     expect(response.statusCode).toBe(200);
-    expect(token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    expect(token).toMatch(/^[A-Za-z0-9_-]{64,}$/);
     expect(jar.has("__Host-preauth")).toBe(true);
     expect(jar.has("__Host-session")).toBe(false);
     expect(response.headers["set-cookie"]).toEqual(
@@ -151,7 +151,7 @@ describe("CSRF lifecycle through Fastify inject", () => {
     expect((await unsafe(server, jar, undefined)).statusCode).toBe(403);
     expect((await unsafe(server, jar, token, "/unsafe", "https://evil.test")).statusCode).toBe(403);
     expect((await unsafe(server, jar, token, "/unsafe", "null")).statusCode).toBe(403);
-    expect((await unsafe(server, jar, token, "/unsafe", undefined)).statusCode).toBe(403);
+    expect((await unsafe(server, jar, token, "/unsafe", null)).statusCode).toBe(403);
     expect(onUnsafe).not.toHaveBeenCalled();
   });
 

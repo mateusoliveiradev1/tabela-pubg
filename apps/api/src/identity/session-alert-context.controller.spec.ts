@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  SessionAlertContextController,
-  type SessionAlertRequest,
-} from "./identity.controller.js";
+import { SessionAlertContextController, type SessionAlertRequest } from "./identity.controller.js";
 import type { SessionService } from "./session.service.js";
 
 describe("SessionAlertContextController", () => {
@@ -17,7 +14,9 @@ describe("SessionAlertContextController", () => {
         rotateCurrentAndRevokeOthers: vi.fn(),
       } as unknown as SessionService;
       const controller = new SessionAlertContextController(session);
-      const request = { auth: { actorId: "user-a", sessionId: "session-a" } } as SessionAlertRequest;
+      const request = {
+        auth: { actorId: "user-a", sessionId: "session-a" },
+      } as SessionAlertRequest;
 
       const result = await controller.resolve({ context: "opaque-alert-context" }, request);
 
@@ -36,10 +35,7 @@ describe("SessionAlertContextController", () => {
     const request = { auth: { actorId: "user-a", sessionId: "session-a" } } as SessionAlertRequest;
 
     await expect(
-      controller.resolve(
-        { context: "opaque-alert-context", actorId: "user-b" } as never,
-        request,
-      ),
+      controller.resolve({ context: "opaque-alert-context", actorId: "user-b" } as never, request),
     ).rejects.toThrow();
     expect(session.resolveAlertContext).not.toHaveBeenCalled();
   });

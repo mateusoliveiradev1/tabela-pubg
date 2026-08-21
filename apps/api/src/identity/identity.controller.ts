@@ -6,9 +6,12 @@ import {
   Headers,
   Inject,
   Ip,
+  Optional,
   Post,
   Query,
+  Req,
   Res,
+  SetMetadata,
 } from "@nestjs/common";
 import {
   EmailOtpRequestSchema,
@@ -20,17 +23,28 @@ import {
   OAuthStartRequestSchema,
   type OAuthStartResponse,
   OAuthStartResponseSchema,
+  SessionAlertContextRequestSchema,
+  type SessionAlertContextResponse,
+  SessionAlertContextResponseSchema,
   VerifyEmailOtpRequestSchema,
   type VerifyEmailOtpResponse,
   VerifyEmailOtpResponseSchema,
 } from "@pubg-camp/contracts";
-import type { FastifyReply } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import type { CsrfService } from "../security/csrf.service.js";
 import type { OAuthService } from "./oauth.service.js";
 import type { OtpService } from "./otp.service.js";
+import type { SessionService } from "./session.service.js";
 
 export const IDENTITY_OAUTH_SERVICE = Symbol("IDENTITY_OAUTH_SERVICE");
 export const IDENTITY_OTP_SERVICE = Symbol("IDENTITY_OTP_SERVICE");
+export const IDENTITY_SESSION_SERVICE = Symbol("IDENTITY_SESSION_SERVICE");
+export const IDENTITY_CSRF_SERVICE = Symbol("IDENTITY_CSRF_SERVICE");
+
+export interface SessionAlertRequest extends FastifyRequest {
+  auth: { actorId: string; sessionId: string };
+}
 
 const OAuthCallbackQuerySchema = z
   .object({
@@ -41,12 +55,16 @@ const OAuthCallbackQuerySchema = z
   .strict();
 
 @Controller("identity")
+@SetMetadata("auth.public", true)
 export class IdentityController {
   constructor(
     @Inject(IDENTITY_OAUTH_SERVICE)
     private readonly oauth: OAuthService,
     @Inject(IDENTITY_OTP_SERVICE)
     private readonly otp: OtpService,
+    @Optional()
+    @Inject(IDENTITY_CSRF_SERVICE)
+    private readonly csrf?: CsrfService,
   ) {}
 
   @Post("oauth/discord/start")
@@ -74,6 +92,8 @@ export class IdentityController {
   async callbackDiscord(
     @Query() rawQuery: unknown,
     @Headers("x-auth-browser-binding") browserBinding: string | undefined,
+    @Req() request?: FastifyRequest,
+    @Res({ passthrough: true }) reply?: FastifyReply,
   ): Promise<OAuthCallbackResponse> {
     if (!browserBinding) throw stableCancelled();
     try {
@@ -85,11 +105,13 @@ export class IdentityController {
         browserBinding,
       });
       if (result.status === "step-up-confirmed") {
+        if (request && reply) this.csrf?.rotateCurrent(request, reply);
         return OAuthCallbackResponseSchema.parse({
           status: "authenticated",
           nextPath: result.nextPath,
         });
       }
+      if (request && reply) this.csrf?.rotateToSession(request, reply, result.sessionId);
       return OAuthCallbackResponseSchema.parse({
         status: result.status === "linked" ? "link-confirmation-required" : "authenticated",
         nextPath: result.nextPath,
@@ -120,6 +142,8 @@ export class IdentityController {
     @Body() rawBody: unknown,
     @Ip() trustedIp: string,
     @Headers("x-correlation-id") correlationId: string | undefined,
+    @Req() request?: FastifyRequest,
+    @Res({ passthrough: true }) reply?: FastifyReply,
   ): Promise<VerifyEmailOtpResponse> {
     const body = VerifyEmailOtpRequestSchema.parse(rawBody);
     const result = await this.otp.verify({
@@ -132,6 +156,13 @@ export class IdentityController {
     });
     if (result.status === "rejected") throw stableCancelled();
     if (result.status === "authenticated") {
+      if (request && reply) {
+        try {
+          this.csrf?.rotateCurrent(request, reply);
+        } catch {
+          // OTP account/session establishment adapter will set the session cookie before rotating.
+        }
+      }
       return VerifyEmailOtpResponseSchema.parse({ status: "authenticated", nextPath: "/" });
     }
     if (result.status === "step-up-confirmed") {
@@ -141,6 +172,25 @@ export class IdentityController {
       });
     }
     return VerifyEmailOtpResponseSchema.parse(result);
+  }
+}
+
+@Controller("identity/session-alerts")
+export class SessionAlertContextController {
+  constructor(
+    @Inject(IDENTITY_SESSION_SERVICE)
+    private readonly sessions: SessionService,
+  ) {}
+
+  @Get("resolve")
+  @SetMetadata("auth.permission", "identity:session-alerts:resolve")
+  async resolve(
+    @Query() rawQuery: unknown,
+    @Req() request: SessionAlertRequest,
+  ): Promise<SessionAlertContextResponse> {
+    const query = SessionAlertContextRequestSchema.parse(rawQuery);
+    const result = await this.sessions.resolveAlertContext(request.auth.actorId, query.context);
+    return SessionAlertContextResponseSchema.parse(result);
   }
 }
 
