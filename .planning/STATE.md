@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T07:00:08.865Z"
+last_updated: "2026-08-21T07:43:59.368Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 15
-  percent: 56
+  completed_plans: 16
+  percent: 59
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 12 de 24 concluídos
-- Status: execução em andamento; CSRF completo e autorização global default-deny concluídos
-- Progresso: 56% do milestone (15 de 27 planos)
+- Plano: 13 de 24 concluídos
+- Status: execução em andamento; organizações, convites, membros e auditoria concluídos
+- Progresso: 59% do milestone (16 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -44,6 +44,9 @@ progress:
 - CSRF usa binding HMAC distinto para pre-auth e sessão, com rotação em autenticação e invalidação no logout.
 - A API aplica SessionGuard, CsrfGuard e PermissionGuard globais; somente `@Public` pula sessão e ausência de permission metadata nega.
 - Autorização resolve sessão e carrega snapshot tenant-aware diretamente do PostgreSQL em cada request, sem roles em cookie ou cache.
+- Seleção de organização permanece explícita; criar ou listar organizações não altera tenant ativo em sessão ou cookie.
+- Convite, audit, envelope cifrado e outbox são gravados na mesma transação; o worker recebe somente `deliveryId`.
+- Auditoria aplica visibilidade, filtros, contagem e paginação no PostgreSQL antes da projeção redigida.
 
 ## Bloqueadores
 
@@ -51,6 +54,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: lifecycle CSRF, guards globais, snapshot PostgreSQL ao vivo e erros uniformes concluídos no plano 02-16.
-- Próxima ação: executar os planos 02-09, 02-11 e 02-19 da próxima wave.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-09-PLAN.md`
+- Última ação: organizações, convites, gestão de membros e auditoria concluídos no plano 02-09.
+- Próxima ação: executar os planos 02-11 e 02-19 da próxima wave.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-11-PLAN.md`
