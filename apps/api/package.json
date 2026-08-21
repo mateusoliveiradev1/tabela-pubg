@@ -20,6 +20,7 @@
     "@nestjs/common": "11.2.1",
     "@nestjs/core": "11.2.1",
     "@nestjs/platform-fastify": "11.2.1",
+    "@pubg-camp/authorization": "workspace:*",
     "@pubg-camp/config": "workspace:*",
     "@pubg-camp/contracts": "workspace:*",
     "@pubg-camp/database": "workspace:*",

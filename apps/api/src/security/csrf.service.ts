@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type {} from "@fastify/cookie";
 import type {} from "@fastify/csrf-protection";
-import { Injectable } from "@nestjs/common";
+import { type CanActivate, type ExecutionContext, Injectable } from "@nestjs/common";
 import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } from "fastify";
 
 export interface CsrfServiceOptions {
@@ -33,11 +33,7 @@ type CookieReply = FastifyReply & {
 };
 
 type CsrfFastifyInstance = FastifyInstance & {
-  csrfProtection(
-    request: FastifyRequest,
-    reply: FastifyReply,
-    done: (error?: Error) => void,
-  ): void;
+  csrfProtection(request: FastifyRequest, reply: FastifyReply, done: (error?: Error) => void): void;
 };
 
 type CookiePlugin = Parameters<FastifyInstance["register"]>[0];
@@ -124,13 +120,17 @@ export class CsrfService {
 
   protectHook(): preHandlerHookHandler {
     return async (request, reply) => {
-      if (SAFE_METHODS.has(request.method)) return;
-      this.assertSameOrigin(request);
-      await new Promise<void>((resolve, reject) => {
-        const callback = (error?: Error) => (error ? reject(error) : resolve());
-        (request.server as CsrfFastifyInstance).csrfProtection(request, reply, callback);
-      });
+      await this.protect(request, reply);
     };
+  }
+
+  async protect(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    if (SAFE_METHODS.has(request.method)) return;
+    this.assertSameOrigin(request);
+    await new Promise<void>((resolve, reject) => {
+      const callback = (error?: Error) => (error ? reject(error) : resolve());
+      (request.server as CsrfFastifyInstance).csrfProtection(request, reply, callback);
+    });
   }
 
   private generate(request: FastifyRequest, reply: FastifyReply): string {
@@ -173,6 +173,17 @@ export class CsrfService {
       secure: this.options.secureCookies,
       sameSite: "lax",
     });
+  }
+}
+
+@Injectable()
+export class CsrfGuard implements CanActivate {
+  constructor(private readonly csrf: CsrfService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const http = context.switchToHttp();
+    await this.csrf.protect(http.getRequest<FastifyRequest>(), http.getResponse<FastifyReply>());
+    return true;
   }
 }
 

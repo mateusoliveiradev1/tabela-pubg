@@ -1,22 +1,22 @@
 import cookie from "@fastify/cookie";
 import csrfProtection from "@fastify/csrf-protection";
-import { Controller, Get, Module } from "@nestjs/common";
+import { Controller, Get, Module, NotFoundException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { AuthorizationSnapshot } from "@pubg-camp/authorization";
 import fastify, { type FastifyInstance, type LightMyRequestResponse } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Public, RequirePermission } from "../src/authorization/decorators.js";
 import {
   AuthorizationModule,
   type AuthorizationModulePorts,
 } from "../src/authorization/authorization.module.js";
-import { HttpExceptionFilter } from "../src/security/http-exception.filter.js";
+import { Public, RequirePermission } from "../src/authorization/decorators.js";
 import {
   CsrfService,
   type CsrfServiceOptions,
   registerCsrfPlugins,
 } from "../src/security/csrf.service.js";
+import { HttpExceptionFilter } from "../src/security/http-exception.filter.js";
 
 const options: CsrfServiceOptions = {
   appOrigin: "https://camp.test",
@@ -54,19 +54,15 @@ async function createServer(onUnsafe = vi.fn()): Promise<FastifyInstance> {
   await registerCsrfPlugins(server, csrf, { cookie, csrfProtection });
 
   server.get("/security/csrf", async (request, reply) => csrf.acquire(request, reply));
-  server.post(
-    "/login",
-    { preHandler: csrf.protectHook() },
-    async (request, reply) => csrf.rotateToSession(request, reply, "session-a"),
+  server.post("/login", { preHandler: csrf.protectHook() }, async (request, reply) =>
+    csrf.rotateToSession(request, reply, "session-a"),
   );
   server.post("/unsafe", { preHandler: csrf.protectHook() }, async () => {
     onUnsafe();
     return { status: "ok" };
   });
-  server.post(
-    "/rotate",
-    { preHandler: csrf.protectHook() },
-    async (request, reply) => csrf.rotateToSession(request, reply, "session-a-rotated"),
+  server.post("/rotate", { preHandler: csrf.protectHook() }, async (request, reply) =>
+    csrf.rotateToSession(request, reply, "session-a-rotated"),
   );
   server.post("/logout", { preHandler: csrf.protectHook() }, async (request, reply) => {
     csrf.invalidate(request, reply);
@@ -201,6 +197,10 @@ class AuthorizationTestController {
   broadcastRoute() {
     return { status: "allowed" };
   }
+
+  missingRoute(): never {
+    throw new NotFoundException();
+  }
 }
 
 Controller("authorization-test")(AuthorizationTestController);
@@ -208,6 +208,7 @@ for (const [method, path, decorators] of [
   ["publicRoute", "public", [Public()]],
   ["unmarkedRoute", "unmarked", []],
   ["broadcastRoute", "broadcast", [RequirePermission("tournament:broadcast:manage")]],
+  ["missingRoute", "missing", [Public()]],
 ] as const) {
   const descriptor = Object.getOwnPropertyDescriptor(AuthorizationTestController.prototype, method);
   if (!descriptor) throw new Error(`missing test controller descriptor: ${method}`);
@@ -220,7 +221,8 @@ for (const [method, path, decorators] of [
 function snapshot(overrides: Partial<AuthorizationSnapshot> = {}): AuthorizationSnapshot {
   return {
     actorId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2301" as AuthorizationSnapshot["actorId"],
-    organizationId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2302" as AuthorizationSnapshot["organizationId"],
+    organizationId:
+      "018f0ce7-98e3-7b27-bf2d-6eeac51d2302" as AuthorizationSnapshot["organizationId"],
     membershipStatus: "active",
     organizationRole: null,
     assignments: [
@@ -247,6 +249,7 @@ async function createAuthorizationApp(ports: AuthorizationModulePorts) {
   const adapter = new FastifyAdapter({ bodyLimit: 1_048_576, trustProxy: false });
   const app = await NestFactory.create<NestFastifyApplication>(AuthorizationTestModule, adapter, {
     logger: false,
+    abortOnError: false,
   });
   await app.register(cookie);
   app.useGlobalFilters(new HttpExceptionFilter());
@@ -283,8 +286,14 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
     const harness = await createAuthorizationApp(ports());
     apps.push(harness.app);
 
-    expect((await harness.server.inject({ method: "GET", url: "/authorization-test/public" })).statusCode).toBe(200);
-    expect((await harness.server.inject({ method: "GET", url: "/authorization-test/unmarked" })).statusCode).toBe(401);
+    expect(
+      (await harness.server.inject({ method: "GET", url: "/authorization-test/public" }))
+        .statusCode,
+    ).toBe(200);
+    expect(
+      (await harness.server.inject({ method: "GET", url: "/authorization-test/unmarked" }))
+        .statusCode,
+    ).toBe(401);
     expect(
       (
         await harness.server.inject({
@@ -362,5 +371,16 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
     });
     expect(response.body).not.toContain(secret);
     expect(response.body).not.toContain("stack");
+
+    const missing = await harness.server.inject({
+      method: "GET",
+      url: "/authorization-test/missing",
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toEqual({
+      statusCode: 404,
+      code: "RESOURCE_NOT_FOUND",
+      supportCode: expect.stringMatching(/^SUP-[A-Z0-9]{12}$/),
+    });
   });
 });
