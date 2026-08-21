@@ -88,7 +88,12 @@ const ROUTES: readonly RouteRule[] = [
     upstream: "root",
     csrfRotation: "reacquire",
   },
-  { pattern: /^organizations$/, methods: ["GET", "POST"], upstream: "platform" },
+  {
+    pattern: /^organizations$/,
+    methods: ["GET", "POST"],
+    upstream: "platform",
+    bodyLimit: MULTIPART_BODY_LIMIT,
+  },
   {
     pattern: new RegExp(`^organizations/${UUID}/members$`, "i"),
     methods: ["GET"],

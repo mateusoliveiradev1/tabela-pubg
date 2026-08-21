@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrganizationOverview } from "../../app/(platform)/o/[slug]/page";
@@ -153,7 +153,7 @@ describe("criação de organização", () => {
     const name = screen.getByRole("textbox", { name: "Nome da organização" });
     await user.type(name, "Liga do Bairro");
     await user.upload(
-      screen.getByLabelText("Selecionar logo"),
+      screen.getByLabelText(/Selecionar logo/),
       new File([new Uint8Array(2 * 1024 * 1024 + 1)], "grande.png", { type: "image/png" }),
     );
     expect(screen.getByRole("alert").textContent).toContain("até 2 MiB");
@@ -178,14 +178,15 @@ describe("criação de organização", () => {
 describe("formas de acesso", () => {
   it("não remove a última identidade e confirma vínculo explicitamente sem estado otimista", async () => {
     const user = userEvent.setup();
+    let finishLink: ((response: Response) => void) | undefined;
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(csrfResponse())
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ status: "linked", provider: "email", otherSessionsRevoked: 2 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishLink = resolve;
+          }),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -205,12 +206,13 @@ describe("formas de acesso", () => {
           provider: "email",
           displayIdentifier: "l•••@example.com",
         }}
+        onRefresh={() => undefined}
       />,
     );
 
-    expect((screen.getByRole("button", { name: "Desvincular Discord" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(
+      (screen.getByRole("button", { name: "Desvincular Discord" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
     await user.click(screen.getByRole("button", { name: "Confirmar vínculo de e-mail" }));
     expect(screen.getByRole("dialog").textContent).toContain("Contas nunca são unidas");
     expect(document.body.textContent).toContain("l•••@example.com");
@@ -218,9 +220,16 @@ describe("formas de acesso", () => {
 
     await user.click(screen.getByRole("button", { name: "Vincular identidade" }));
     expect(screen.getByRole("button", { name: "Vinculando…" })).toBeTruthy();
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "Vínculo concluído. Encerramos 2 outras sessões por segurança.",
+    expect(document.body.textContent).not.toContain("Vínculo concluído");
+    finishLink?.(
+      new Response(
+        JSON.stringify({ status: "linked", provider: "email", otherSessionsRevoked: 2 }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
     );
+    expect(
+      await screen.findByText("Vínculo concluído. Encerramos 2 outras sessões por segurança."),
+    ).toBeTruthy();
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/platform/identity/identities/link/confirm",
@@ -238,7 +247,10 @@ describe("formas de acesso", () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValueOnce(csrfResponse()).mockResolvedValueOnce(new Response(null, { status: 409 })),
+      vi
+        .fn()
+        .mockResolvedValueOnce(csrfResponse())
+        .mockResolvedValueOnce(new Response(null, { status: 409 })),
     );
     render(
       <IdentityCards
@@ -256,14 +268,17 @@ describe("formas de acesso", () => {
           provider: "email",
           displayIdentifier: "l•••@example.com",
         }}
+        onRefresh={() => undefined}
       />,
     );
     await user.click(screen.getByRole("button", { name: "Confirmar vínculo de e-mail" }));
     await user.click(screen.getByRole("button", { name: "Vincular identidade" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Esta forma de acesso já está vinculada a outra conta. Nenhuma conta foi unida.",
-    );
+    expect(
+      await screen.findByText(
+        "Esta forma de acesso já está vinculada a outra conta. Nenhuma conta foi unida.",
+      ),
+    ).toBeTruthy();
     expect(document.body.textContent).not.toContain("usuário proprietário");
   });
 });

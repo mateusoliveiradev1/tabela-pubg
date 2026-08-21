@@ -1045,6 +1045,126 @@ li {
   background: var(--color-surface);
 }
 
+.organization-form {
+  display: grid;
+  width: min(100%, 640px);
+  gap: var(--space-lg);
+}
+
+.organization-logo-field {
+  display: grid;
+  gap: var(--space-sm);
+  padding: 0;
+  border: 0;
+}
+
+.organization-logo-field legend {
+  margin-block-end: var(--space-sm);
+  font-size: var(--font-label);
+  font-weight: 600;
+}
+
+.organization-logo-dropzone {
+  display: grid;
+  min-height: 112px;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.organization-logo-dropzone:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface-hover);
+}
+
+.organization-logo-dropzone span {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.organization-logo-dropzone small,
+.organization-logo-drop-target {
+  color: var(--color-text-secondary);
+}
+
+.organization-logo-dropzone img {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-control);
+  object-fit: cover;
+}
+
+.organization-logo-drop-target {
+  display: flex;
+  min-height: var(--control-height);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  font-size: var(--font-label);
+}
+
+.identity-access-list {
+  display: grid;
+  width: min(100%, 840px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-lg);
+}
+
+.identity-access-list > .ui-alert {
+  grid-column: 1 / -1;
+}
+
+.identity-card {
+  display: grid;
+  align-content: start;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+
+.identity-card > header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+
+.identity-card h2 {
+  margin-block-end: var(--space-sm);
+}
+
+.identity-card dl {
+  display: grid;
+  gap: var(--space-md);
+  margin: 0;
+}
+
+.identity-card dl div {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.identity-card dt {
+  color: var(--color-text-secondary);
+  font-size: var(--font-label);
+}
+
+.identity-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.identity-link-form {
+  display: grid;
+  gap: var(--space-md);
+}
+
 .platform-drawer-backdrop {
   display: none;
 }
@@ -1094,5 +1214,9 @@ li {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .identity-access-list {
+    grid-template-columns: 1fr;
   }
 }
