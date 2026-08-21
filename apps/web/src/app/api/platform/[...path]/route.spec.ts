@@ -40,6 +40,7 @@ describe("same-origin platform BFF", () => {
   const fetchMock = vi.fn<typeof fetch>();
 
   beforeEach(() => {
+    fetchMock.mockReset();
     process.env.API_INTERNAL_ORIGIN = API_ORIGIN;
     vi.stubGlobal("fetch", fetchMock);
   });
@@ -59,7 +60,10 @@ describe("same-origin platform BFF", () => {
       request("organizations/%2e%2e/security/csrf"),
       context("organizations", "..", "security", "csrf"),
     );
-    const wrongMethod = await POST(request("security/csrf", { method: "POST" }), context("security", "csrf"));
+    const wrongMethod = await POST(
+      request("security/csrf", { method: "POST" }),
+      context("security", "csrf"),
+    );
 
     expect(absolute.status).toBe(404);
     expect(traversal.status).toBe(404);
@@ -82,22 +86,33 @@ describe("same-origin platform BFF", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it.each([401, 403, 404])("passes upstream %s without interpreting authorization", async (status) => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ status: "denied", capabilities: ["server-owned"] }, { status }),
-    );
+  it.each([401, 403, 404])(
+    "passes upstream %s without interpreting authorization",
+    async (status) => {
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ status: "denied", capabilities: ["server-owned"] }, { status }),
+      );
 
-    const response = await GET(
-      request("identity/session-alerts/resolve?context=opaque", { method: "GET" }),
-      context("identity", "session-alerts", "resolve"),
-    );
+      const response = await GET(
+        request("identity/session-alerts/resolve?context=opaque", { method: "GET" }),
+        context("identity", "session-alerts", "resolve"),
+      );
 
-    expect(response.status).toBe(status);
-    expect(await response.json()).toEqual({ status: "denied", capabilities: ["server-owned"] });
-  });
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual({ status: "denied", capabilities: ["server-owned"] });
+    },
+  );
 
   it("forwards only bounded first-party headers, cookies, CSRF and body", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ status: "accepted" }, { status: 202 }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        { status: "accepted" },
+        {
+          status: 202,
+          headers: { server: "internal-api", "x-provider-token": "provider-response-secret" },
+        },
+      ),
+    );
 
     const response = await POST(
       request("identity/email/otp/request", {
@@ -125,12 +140,14 @@ describe("same-origin platform BFF", () => {
     expect(headers.get("authorization")).toBeNull();
     expect(headers.get("connection")).toBeNull();
     expect(headers.get("x-provider-token")).toBeNull();
+    expect(response.headers.get("server")).toBeNull();
+    expect(response.headers.get("x-provider-token")).toBeNull();
   });
 
   it("acquires a pre-auth CSRF token and preserves every secure Set-Cookie", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
-        { csrfToken: "preauth-csrf" },
+        { csrfToken: "preauth-csrf-token-123" },
         {
           cookies: [
             "__Host-preauth=opaque; Path=/; Secure; HttpOnly; SameSite=Lax",
@@ -146,7 +163,7 @@ describe("same-origin platform BFF", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("x-csrf-token")).toBe("preauth-csrf");
+    expect(response.headers.get("x-csrf-token")).toBe("preauth-csrf-token-123");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(setCookies(response).join(";")).toContain("__Host-preauth=opaque");
     expect(setCookies(response).join(";")).toContain("__Host-csrf=secret");
@@ -167,11 +184,9 @@ describe("same-origin platform BFF", () => {
       )
       .mockResolvedValueOnce(
         jsonResponse(
-          { csrfToken: "authenticated-csrf" },
+          { csrfToken: "authenticated-csrf-token-123" },
           {
-            cookies: [
-              "__Host-csrf=confirmed-secret; Path=/; Secure; HttpOnly; SameSite=Lax",
-            ],
+            cookies: ["__Host-csrf=confirmed-secret; Path=/; Secure; HttpOnly; SameSite=Lax"],
           },
         ),
       );
@@ -182,7 +197,7 @@ describe("same-origin platform BFF", () => {
         headers: {
           cookie: "__Host-preauth=old-context; __Host-csrf=old-secret",
           "content-type": "application/json",
-          "x-csrf-token": "preauth-csrf",
+          "x-csrf-token": "preauth-csrf-token-123",
         },
         body: JSON.stringify({ code: "12345678" }),
       }),
@@ -195,7 +210,7 @@ describe("same-origin platform BFF", () => {
     const cookie = new Headers(csrfInit?.headers).get("cookie") ?? "";
     expect(cookie).toContain("__Host-session=new-session");
     expect(cookie).toContain("__Host-csrf=rotated-secret");
-    expect(response.headers.get("x-csrf-token")).toBe("authenticated-csrf");
+    expect(response.headers.get("x-csrf-token")).toBe("authenticated-csrf-token-123");
     expect(setCookies(response).join(";")).toContain("__Host-csrf=confirmed-secret");
   });
 
@@ -242,11 +257,14 @@ describe("same-origin platform BFF", () => {
 
   it("enforces body limits before fetch and returns uniform errors without config secrets", async () => {
     const oversized = await PATCH(
-      request("organizations/00000000-0000-4000-8000-000000000001/members/00000000-0000-4000-8000-000000000002", {
-        method: "PATCH",
-        headers: { "content-type": "application/json", "x-csrf-token": "csrf" },
-        body: "x".repeat(70 * 1024),
-      }),
+      request(
+        "organizations/00000000-0000-4000-8000-000000000001/members/00000000-0000-4000-8000-000000000002",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json", "x-csrf-token": "csrf" },
+          body: "x".repeat(70 * 1024),
+        },
+      ),
       context(
         "organizations",
         "00000000-0000-4000-8000-000000000001",
