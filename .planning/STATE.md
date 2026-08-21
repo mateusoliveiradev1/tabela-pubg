@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T04:34:47.103Z"
+last_updated: "2026-08-21T05:06:34.883Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 9
-  percent: 33
+  completed_plans: 10
+  percent: 37
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 6 de 24 concluídos
-- Status: execução em andamento; repositories transacionais de identidade e sessão concluídos
-- Progresso: 33% do milestone (9 de 27 planos)
+- Plano: 7 de 24 concluídos
+- Status: execução em andamento; organizações, convites e ownership concorrente concluídos
+- Progresso: 37% do milestone (10 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -31,6 +31,9 @@ progress:
 - O preflight inicial da Fase 2 usa PostgreSQL Neon em branch isolada e Redis real loopback-only, sem persistir connection strings.
 - A aprovação de PostgreSQL/Redis/migrations do plano 02-17 não aprova a CI final, reservada ao plano 02-24.
 - Repositories de identidade e sessão persistem somente digests/HMAC; payloads temporários usam AES-256-GCM e o outbox recebe apenas `deliveryId`.
+- Repositories tenant-owned exigem `organizationId` junto do recurso e gravam mutação, audit sanitizado e outbox no mesmo executor transacional.
+- Convites e ownership serializam na linha da organização; as corridas usam duas conexões Neon diretas e nunca mock/PGlite.
+- A matrix CI da Fase 2 redige logs e produz artifact por suite, mas sua execução remota continua reservada ao plano 02-24.
 
 ## Bloqueadores
 
@@ -38,6 +41,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: repositories de OAuth, OTP, notificações, sessões e alertas aprovados contra PostgreSQL/Redis reais no plano 02-04.
-- Próxima ação: executar repositories transacionais de organizações no plano 02-05.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-05-PLAN.md`
+- Última ação: repositories tenant-aware, convite single-use e último owner aprovados contra PostgreSQL/Redis reais no plano 02-05.
+- Próxima ação: executar casos de uso e serviços de identidade/organizações no plano 02-06.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-06-PLAN.md`
