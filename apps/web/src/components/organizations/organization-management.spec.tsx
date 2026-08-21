@@ -351,10 +351,12 @@ describe("auditoria redigida", () => {
       "/o/liga-central/auditoria",
     );
     const pagination = screen.getByRole("navigation", { name: "Paginação da auditoria" });
-    expect(within(pagination).getByRole("link", { name: "Página anterior" }).getAttribute("href"))
-      .toContain("page=1");
-    expect(within(pagination).getByRole("link", { name: "Próxima página" }).getAttribute("href"))
-      .toContain("page=3");
+    expect(
+      within(pagination).getByRole("link", { name: "Página anterior" }).getAttribute("href"),
+    ).toContain("page=1");
+    expect(
+      within(pagination).getByRole("link", { name: "Próxima página" }).getAttribute("href"),
+    ).toContain("page=3");
     expect(document.body.textContent).not.toContain("Auditoria completa");
   });
 
@@ -369,8 +371,9 @@ describe("auditoria redigida", () => {
         filters={{ action: "session.revoked" }}
       />,
     );
-    expect(screen.getByRole("heading", { name: "Nenhum evento corresponde aos filtros." }))
-      .toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Nenhum evento corresponde aos filtros." }),
+    ).toBeTruthy();
     expect(screen.getByText("Você está vendo somente ações realizadas por você.")).toBeTruthy();
   });
 });
