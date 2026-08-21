@@ -1,6 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { eq } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -17,9 +19,10 @@ import {
   decryptNotificationPayload,
 } from "../src/repositories/notifications.js";
 import * as schema from "../src/schema.js";
+import { notificationDeliveries } from "../src/schema.js";
 
 const databaseUrl = process.env.DATABASE_URL;
-const migrationsFolder = path.resolve("packages/database/migrations");
+const migrationsFolder = fileURLToPath(new URL("../migrations", import.meta.url));
 
 if (!databaseUrl) {
   throw new Error("DATABASE_URL is required for identity repository integration tests");
@@ -65,7 +68,7 @@ describe("identity repositories", () => {
     });
     await applyMigrations(client, schemaName);
     db = drizzle(client, { schema });
-  });
+  }, 30_000);
 
   afterAll(async () => {
     if (client) {
@@ -73,20 +76,24 @@ describe("identity repositories", () => {
       await client.unsafe(`drop schema if exists ${quoteIdentifier(schemaName)} cascade`);
       await client.end({ timeout: 5 });
     }
-  });
+  }, 30_000);
 
   it("consumes OAuth state once and binds it to browser, purpose and expiry", async () => {
     const now = new Date("2026-08-21T04:00:00.000Z");
     const state = "oauth-state-must-never-be-stored";
     const browserBinding = "browser-binding-must-never-be-stored";
 
-    await createOAuthTransaction(db, {
-      id: randomUUID(),
-      state,
-      browserBinding,
-      purpose: "sign-in",
-      expiresAt: new Date(now.getTime() + 5 * 60_000),
-    });
+    await createOAuthTransaction(
+      db,
+      {
+        id: randomUUID(),
+        state,
+        browserBinding,
+        purpose: "sign-in",
+        expiresAt: new Date(now.getTime() + 5 * 60_000),
+      },
+      () => now,
+    );
 
     await expect(
       consumeOAuthTransaction(
@@ -111,18 +118,23 @@ describe("identity repositories", () => {
       consumeOAuthTransaction(db, { state, browserBinding, purpose: "sign-in" }, () => now),
     ).resolves.toBeNull();
 
-    const [stored] = await client`select state_digest, browser_binding_digest from oauth_transactions`;
+    const [stored] =
+      await client`select state_digest, browser_binding_digest from oauth_transactions`;
     expect(JSON.stringify(stored)).not.toContain(state);
     expect(JSON.stringify(stored)).not.toContain(browserBinding);
 
     const expiredState = "expired-oauth-state";
-    await createOAuthTransaction(db, {
-      id: randomUUID(),
-      state: expiredState,
-      browserBinding,
-      purpose: "sign-in",
-      expiresAt: new Date(now.getTime() + 1_000),
-    });
+    await createOAuthTransaction(
+      db,
+      {
+        id: randomUUID(),
+        state: expiredState,
+        browserBinding,
+        purpose: "sign-in",
+        expiresAt: new Date(now.getTime() + 1_000),
+      },
+      () => now,
+    );
     await expect(
       consumeOAuthTransaction(
         db,
@@ -256,15 +268,22 @@ describe("identity repositories", () => {
       occurredAt: new Date("2026-08-21T06:00:00.000Z"),
     });
 
-    const [delivery] = await client`select * from notification_deliveries where id = ${deliveryId}`;
-    const [outbox] = await client`select payload from outbox_events where aggregate_id = ${deliveryId}`;
+    const [delivery] = await db
+      .select()
+      .from(notificationDeliveries)
+      .where(eq(notificationDeliveries.id, deliveryId));
+    const [outbox] =
+      await client`select payload from outbox_events where aggregate_id = ${deliveryId}`;
     expect(JSON.stringify(delivery)).not.toContain(plaintext.recipient);
     expect(JSON.stringify(delivery)).not.toContain(plaintext.otp);
     expect(outbox?.payload).toEqual({ deliveryId });
+    if (!delivery) {
+      throw new Error("encrypted notification delivery was not persisted");
+    }
 
-    await expect(
-      decryptNotificationPayload(delivery as never, { v1: encryptionKey }),
-    ).resolves.toEqual(plaintext);
+    await expect(decryptNotificationPayload(delivery, { v1: encryptionKey })).resolves.toEqual(
+      plaintext,
+    );
 
     await clearNotificationPayload(db, deliveryId, {
       status: "delivered",

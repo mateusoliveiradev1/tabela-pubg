@@ -189,19 +189,26 @@ async function runPreflight() {
 }
 
 async function runSuite(suite) {
-  const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  // pnpm injects its executable path for lifecycle scripts; using Node avoids Windows .cmd spawn.
+  // biome-ignore lint/suspicious/noUndeclaredEnvVars: package-manager lifecycle variable, not test input
+  const pnpmEntry = process.env.npm_execpath;
+  const pnpmCommand = process.platform === "win32" ? process.execPath : "pnpm";
+  const pnpmArguments = ["exec", "vitest", "run", "--config", "vitest.integration.config.ts"];
+
+  if (process.platform === "win32") {
+    if (!pnpmEntry) {
+      throw new Error("npm_execpath is required to launch the phase 2 suite on Windows");
+    }
+    pnpmArguments.unshift(pnpmEntry);
+  }
 
   await new Promise((resolve, reject) => {
-    const child = spawn(
-      pnpmCommand,
-      ["exec", "vitest", "run", "--config", "vitest.integration.config.ts"],
-      {
-        cwd: repositoryRoot,
-        env: { ...process.env, PHASE2_SUITE: suite },
-        stdio: "inherit",
-        shell: false,
-      },
-    );
+    const child = spawn(pnpmCommand, pnpmArguments, {
+      cwd: repositoryRoot,
+      env: { ...process.env, PHASE2_SUITE: suite },
+      stdio: "inherit",
+      shell: false,
+    });
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) resolve();
