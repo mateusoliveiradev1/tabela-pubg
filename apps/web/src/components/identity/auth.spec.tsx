@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DiscordButton } from "./discord-button";
@@ -203,7 +203,11 @@ describe("convite seguro", () => {
           new Response(
             JSON.stringify({
               status: "valid",
-              organization: { id: "org-1", name: "Liga da Comunidade", logoUrl: null },
+              organization: {
+                id: "org-1",
+                name: "Liga da Comunidade",
+                logoUrl: "/branding/signed/liga?expires=300&signature=opaque",
+              },
               invitedBy: "Organizador",
               maskedEmail: "j•••@example.com",
               organizationRole: "member",
@@ -231,6 +235,9 @@ describe("convite seguro", () => {
     expect(window.location.pathname).toBe("/convites/aceitar");
     expect(window.location.search).toBe("");
     expect(document.documentElement.textContent).not.toContain("invite-secret-token-value");
+    const logo = screen.getByRole("img", { name: "Logo da organização Liga da Comunidade" });
+    expect(logo.getAttribute("src")).toBe("/branding/signed/liga?expires=300&signature=opaque");
+    expect(logo.getAttribute("referrerpolicy")).toBe("no-referrer");
     expect(fetch).toHaveBeenCalledTimes(2);
 
     await user.click(screen.getByRole("button", { name: "Aceitar convite" }));
@@ -240,6 +247,81 @@ describe("convite seguro", () => {
     expect(String(acceptInit?.body)).toBe(JSON.stringify({ confirmation: true }));
     expect(String(acceptInit?.body)).not.toContain("invite-secret");
     expect((await screen.findByRole("status")).textContent).toContain("Convite aceito");
+  });
+
+  it("não monta imagem antes do preview e usa iniciais quando a URL assinada falha", async () => {
+    window.history.replaceState({}, "", "/convites/aceitar?token=invite-secret-token-value");
+    let finishPreview: ((response: Response) => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(csrfResponse())
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              finishPreview = resolve;
+            }),
+        ),
+    );
+
+    render(<InvitationAcceptForm />);
+    expect(window.location.search).toBe("");
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(document.documentElement.innerHTML).not.toContain("invite-secret-token-value");
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    finishPreview?.(
+      new Response(
+        JSON.stringify({
+          status: "valid",
+          organization: {
+            name: "Camps do Interior",
+            logoUrl: "/branding/signed/interior?expires=300&signature=opaque",
+          },
+          invitedBy: "Organizador",
+          maskedEmail: "c•••@example.com",
+          organizationRole: "member",
+          expiresAt: "2026-08-28T12:00:00.000Z",
+          emailMatches: true,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const image = await screen.findByRole("img", {
+      name: "Logo da organização Camps do Interior",
+    });
+    fireEvent.error(image);
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByText("CI").getAttribute("aria-hidden")).toBe("true");
+    expect(document.documentElement.textContent).not.toContain("signature=opaque");
+  });
+
+  it("não amplia dados de organização em estados terminais", async () => {
+    window.history.replaceState({}, "", "/convites/aceitar?token=revoked-secret-token-value");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(csrfResponse())
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              status: "revoked",
+              organization: {
+                name: "Tenant que não deve aparecer",
+                logoUrl: "/private/object-key/logo.png",
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        ),
+    );
+
+    render(<InvitationAcceptForm />);
+    expect(await screen.findByText("Este convite foi revogado")).toBeTruthy();
+    expect(document.documentElement.textContent).not.toContain("Tenant que não deve aparecer");
+    expect(document.documentElement.innerHTML).not.toContain("object-key");
   });
 
   it.each([
