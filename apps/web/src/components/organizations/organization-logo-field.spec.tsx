@@ -1,11 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell, type ShellOrganization } from "../layout/app-shell";
-import {
-  OrganizationLogoField,
-  OrganizationLogoSettingsForm,
-} from "./organization-logo-field";
+import { OrganizationLogoField, OrganizationLogoSettingsForm } from "./organization-logo-field";
 
 const organization: ShellOrganization = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -16,12 +13,15 @@ const organization: ShellOrganization = {
   capabilities: ["members:view", "organization:settings:manage"],
 };
 
+const NativeUrl = globalThis.URL;
+
 beforeEach(() => {
-  vi.stubGlobal("URL", {
-    ...URL,
-    createObjectURL: vi.fn((file: File) => `blob:${file.name}`),
-    revokeObjectURL: vi.fn(),
+  class TestUrl extends NativeUrl {}
+  Object.defineProperties(TestUrl, {
+    createObjectURL: { value: vi.fn((file: File) => `blob:${file.name}`) },
+    revokeObjectURL: { value: vi.fn() },
   });
+  vi.stubGlobal("URL", TestUrl);
 });
 
 afterEach(() => {
@@ -43,10 +43,9 @@ describe("campo acessível de logo", () => {
     expect(onChange).toHaveBeenLastCalledWith(first);
 
     rerender(<OrganizationLogoField value={first} onChange={onChange} />);
-    expect(screen.getByRole("img", { name: "Prévia do logo selecionado" })).toHaveAttribute(
-      "src",
-      "blob:liga.png",
-    );
+    expect(
+      screen.getByRole("img", { name: "Prévia do logo selecionado" }).getAttribute("src"),
+    ).toBe("blob:liga.png");
 
     const oversized = new File([new Uint8Array(2 * 1024 * 1024 + 1)], "grande.webp", {
       type: "image/webp",
@@ -54,7 +53,7 @@ describe("campo acessível de logo", () => {
     fireEvent.drop(screen.getByTestId("organization-logo-dropzone"), {
       dataTransfer: { files: [oversized] },
     });
-    expect(await screen.findByRole("alert")).toHaveTextContent("até 2 MiB");
+    expect((await screen.findByRole("alert")).textContent).toContain("até 2 MiB");
     expect(onChange).not.toHaveBeenCalledWith(null);
 
     unmount();
@@ -100,17 +99,16 @@ describe("configurações autoritativas de branding", () => {
     await user.upload(screen.getByLabelText("Selecionar logo"), logo);
     await user.click(screen.getByRole("button", { name: "Salvar logo" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("servidor recusou");
+    expect((await screen.findByRole("alert")).textContent).toContain("servidor recusou");
     expect(screen.getByDisplayValue("Liga Central")).toBeTruthy();
     expect(screen.getByText("novo.png")).toBeTruthy();
     expect(refresh).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Salvar logo" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Logo atualizado");
-    expect(screen.getByRole("img", { name: "Logo atual de Liga Central" })).toHaveAttribute(
-      "src",
-      "https://assets.example.test/signed/logo",
-    );
+    expect((await screen.findByRole("status")).textContent).toContain("Logo atualizado");
+    expect(
+      screen.getByRole("img", { name: "Logo atual de Liga Central" }).getAttribute("src"),
+    ).toBe("https://assets.example.test/signed/logo");
     expect(refresh).toHaveBeenCalledTimes(1);
     const request = fetchMock.mock.calls[3]?.[1] as RequestInit;
     expect(request.method).toBe("PUT");
@@ -126,8 +124,7 @@ describe("configurações autoritativas de branding", () => {
         <span>conteúdo</span>
       </AppShell>,
     );
-    expect(screen.getByRole("link", { name: "Configurações" })).toHaveAttribute(
-      "href",
+    expect(screen.getByRole("link", { name: "Configurações" }).getAttribute("href")).toBe(
       "/o/liga-central/configuracoes",
     );
 

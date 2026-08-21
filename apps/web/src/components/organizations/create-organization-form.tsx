@@ -1,61 +1,24 @@
 "use client";
 
-import { ImagePlus, Trash2, Upload } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useState } from "react";
 import { Button } from "../ui/button";
 import { InlineAlert } from "../ui/feedback";
 import { Input } from "../ui/input";
+import { OrganizationLogoField } from "./organization-logo-field";
 
 const ORGANIZATION_PATH = "/api/platform/organizations";
-const LOGO_MAX_BYTES = 2 * 1024 * 1024;
-const LOGO_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 interface CreateOrganizationFormProps {
   onNavigate?: (path: string) => void;
 }
 
 export function CreateOrganizationForm({ onNavigate }: CreateOrganizationFormProps) {
-  const inputId = useId();
-  const fileInput = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [logo, setLogo] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string>();
   const [logoError, setLogoError] = useState<string>();
   const [formError, setFormError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!logo || typeof URL.createObjectURL !== "function") {
-      setPreviewUrl(null);
-      return;
-    }
-    const nextPreview = URL.createObjectURL(logo);
-    setPreviewUrl(nextPreview);
-    return () => URL.revokeObjectURL(nextPreview);
-  }, [logo]);
-
-  function selectLogo(file: File | undefined) {
-    setLogoError(undefined);
-    if (!file) return;
-    if (!LOGO_TYPES.has(file.type)) {
-      setLogo(null);
-      setLogoError("Selecione uma imagem PNG, JPEG ou WebP.");
-      return;
-    }
-    if (file.size > LOGO_MAX_BYTES) {
-      setLogo(null);
-      setLogoError("O logo deve ter até 2 MiB.");
-      return;
-    }
-    setLogo(file);
-  }
-
-  function removeLogo() {
-    setLogo(null);
-    setLogoError(undefined);
-    if (fileInput.current) fileInput.current.value = "";
-  }
 
   async function createOrganization(event: React.FormEvent) {
     event.preventDefault();
@@ -118,55 +81,15 @@ export function CreateOrganizationForm({ onNavigate }: CreateOrganizationFormPro
         {...(nameError ? { error: nameError } : {})}
         required
       />
-      <fieldset className="organization-logo-field">
-        <legend>Logo opcional</legend>
-        <input
-          ref={fileInput}
-          className="sr-only"
-          id={inputId}
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          aria-describedby={`${inputId}-help${logoError ? ` ${inputId}-error` : ""}`}
-          onChange={(event) => selectLogo(event.currentTarget.files?.[0])}
-        />
-        <label
-          className="organization-logo-dropzone"
-          htmlFor={inputId}
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => {
-            event.preventDefault();
-            selectLogo(event.dataTransfer.files[0]);
-          }}
-        >
-          {previewUrl ? (
-            // biome-ignore lint/performance/noImgElement: local object URLs are not supported by next/image.
-            <img src={previewUrl} alt="Prévia do logo selecionado" />
-          ) : (
-            <ImagePlus aria-hidden="true" size={30} />
-          )}
-          <span>
-            <strong>Selecionar logo</strong>
-            <small id={`${inputId}-help`}>
-              PNG, JPEG ou WebP, até 2 MiB. Também aceita arrastar.
-            </small>
-          </span>
-          <Upload aria-hidden="true" size={20} />
-        </label>
-        <div className="organization-logo-drop-target">
-          {logo ? <span>{logo.name}</span> : <span>Nenhum arquivo selecionado</span>}
-          {logo ? (
-            <Button variant="ghost" onClick={removeLogo}>
-              <Trash2 aria-hidden="true" size={17} />
-              Remover logo
-            </Button>
-          ) : null}
-        </div>
-        {logoError ? (
-          <p className="ui-field__error" id={`${inputId}-error`} role="alert">
-            {logoError}
-          </p>
-        ) : null}
-      </fieldset>
+      <OrganizationLogoField
+        value={logo}
+        onChange={(nextLogo) => {
+          setLogo(nextLogo);
+          setLogoError(undefined);
+        }}
+        error={logoError}
+        disabled={submitting}
+      />
       <InlineAlert title="Proprietário inicial">
         Você será o proprietário inicial e poderá convidar outras pessoas depois.
       </InlineAlert>

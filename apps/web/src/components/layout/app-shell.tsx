@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, ClipboardList, Menu, ShieldCheck, Users, X } from "lucide-react";
+import { Building2, ClipboardList, Menu, Settings, ShieldCheck, Users, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { type ReactNode, useState } from "react";
 import { Button } from "../ui/button";
@@ -118,6 +118,12 @@ export function AppShell({
           href: `/o/${activeOrganization.slug}/auditoria`,
           icon: ShieldCheck,
           visible: capabilities.has("audit:view") || capabilities.has("audit:view:self"),
+        },
+        {
+          label: "Configurações",
+          href: `/o/${activeOrganization.slug}/configuracoes`,
+          icon: Settings,
+          visible: capabilities.has("organization:settings:manage"),
         },
       ].filter((item) => item.visible)
     : [];
