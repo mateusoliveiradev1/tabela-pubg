@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-08-21T09:06:50.288Z"
+last_updated: "2026-08-21T09:36:06.548Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 20
-  percent: 74
+  completed_plans: 21
+  percent: 78
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 17 de 24 concluídos
-- Status: execução em andamento; upload, projeção e cleanup seguro de logos concluídos
-- Progresso: 74% do milestone (20 de 27 planos)
+- Plano: 18 de 24 concluídos
+- Status: execução em andamento; área privada, onboarding, identidades e sessões concluídos
+- Progresso: 78% do milestone (21 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -59,6 +59,8 @@ progress:
 - Multipart de logo aceita somente `name`/`logo`, deriva metadata no servidor e nunca encaminha filename ou object key.
 - Replace ativa o novo asset e enfileira cleanup do anterior na mesma transação; compensação de órfão usa transação independente.
 - Worker de logo recebe somente `cleanupId` e resolve provider/key do ledger server-side.
+- Leituras privadas da conta ficam em Server Components; mutações passam exclusivamente pelo BFF com CSRF.
+- O contexto de alerta de novo acesso é resolvido no servidor e removido da URL sem ser serializado para o cliente.
 
 ## Bloqueadores
 
@@ -66,6 +68,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: upload, URL segura e cleanup idempotente de logos concluídos no plano 02-22.
-- Próxima ação: continuar a wave 10 conforme o orquestrador da Fase 2.
-- Arquivo de retomada: nenhum; plano 02-22 completo.
+- Última ação: área privada, onboarding, identidades e sessões concluídos no plano 02-13.
+- Próxima ação: continuar a wave 11 conforme o orquestrador da Fase 2.
+- Arquivo de retomada: nenhum; plano 02-13 completo.
