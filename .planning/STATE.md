@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-08-21T10:13:03.840Z"
+status: in_progress
+last_updated: "2026-08-21T10:50:14.584Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 23
-  percent: 85
+  completed_plans: 24
+  percent: 89
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 20 de 24 concluídos
-- Status: execução em andamento; branding persistente e seguro concluído
-- Progresso: 85% do milestone (23 de 27 planos)
+- Plano: 21 de 24 concluídos
+- Status: execução em andamento; harness Chromium E2E e gate CI concluídos
+- Progresso: 89% do milestone (24 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -66,10 +66,13 @@ progress:
 - A visibilidade de auditoria vem da API e filtros da UI nunca ampliam uma projeção self para all.
 - Branding da UI muda somente após resposta autoritativa e refresh do shell.
 - Logo de convite usa origem allowlisted, no-referrer e fallback local após remoção do token.
+- Harness E2E aborta antes de seed/start sem preflight PostgreSQL/Redis e escopo fake/test/run-id válido.
+- CI preserva main e pull_request e executa Chromium smoke antes da suíte browser completa.
 
 ## Métricas de execução
 
 - Plano 02-23: 8 min, 2 tarefas, 10 arquivos.
+- Plano 02-18: 34 min, 3 tarefas, 19 arquivos.
 
 ## Bloqueadores
 
@@ -77,6 +80,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: branding persistente e seguro concluído no plano 02-23.
+- Última ação: harness Chromium E2E e gate CI concluídos no plano 02-18.
 - Próxima ação: continuar a wave 13 conforme o orquestrador da Fase 2.
-- Arquivo de retomada: nenhum; plano 02-23 completo.
+- Arquivo de retomada: nenhum; plano 02-18 completo.
