@@ -44,12 +44,7 @@ export interface SessionRepositoryPort {
     };
   }): Promise<{ sessionId: string; isNewDevice: boolean; notificationScheduled: boolean }>;
   list(userId: string): Promise<readonly SessionRecord[]>;
-  revoke(input: {
-    userId: string;
-    sessionId: string;
-    reason: string;
-    now: Date;
-  }): Promise<boolean>;
+  revoke(input: { userId: string; sessionId: string; reason: string; now: Date }): Promise<boolean>;
   revokeOthers(input: {
     userId: string;
     preservedSessionId: string;
@@ -101,6 +96,8 @@ export interface SessionSummary {
   status: "active" | "revoked" | "expired";
 }
 
+const STEP_UP_LIFETIME_MS = 10 * 60_000;
+
 @Injectable()
 export class SessionService {
   constructor(
@@ -109,15 +106,23 @@ export class SessionService {
     private readonly clock: SessionClock,
   ) {}
 
-  async issue(_input: {
+  async issue(input: {
     userId: string;
     trust: SessionTrust;
     expiresAt?: Date;
   }): Promise<{ sessionId: string }> {
-    throw new Error("not implemented");
+    const issuedAt = this.clock.now();
+    return this.repository.issue({
+      id: this.tokens.id(),
+      userId: input.userId,
+      token: this.tokens.opaque(32),
+      trust: input.trust,
+      issuedAt,
+      ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+    });
   }
 
-  async startDeviceSession(_input: {
+  async startDeviceSession(input: {
     userId: string;
     deviceFingerprint: string;
     device: SessionRecord["device"] & { summarizedUserAgent?: string };
@@ -128,54 +133,160 @@ export class SessionService {
     isNewDevice: boolean;
     notificationScheduled: boolean;
   }> {
-    throw new Error("not implemented");
+    const token = this.tokens.opaque(32);
+    const issued = await this.repository.issueForDevice({
+      id: this.tokens.id(),
+      userId: input.userId,
+      token,
+      alertToken: this.tokens.opaque(32),
+      deviceFingerprint: input.deviceFingerprint,
+      device: input.device,
+      issuedAt: this.clock.now(),
+      newDeviceNotification: input.newDeviceNotification,
+    });
+    return { ...issued, token };
   }
 
-  async list(_userId: string, _currentSessionId: string): Promise<readonly SessionSummary[]> {
-    throw new Error("not implemented");
+  async list(userId: string, currentSessionId: string): Promise<readonly SessionSummary[]> {
+    const sessions = await this.repository.list(userId);
+    if (sessions.length === 0) {
+      throw new Error("authenticated user has no sessions");
+    }
+    const now = this.clock.now();
+    return sessions.map((session) => ({
+      id: session.id,
+      device: {
+        label: session.device.label,
+        browser: session.device.browser,
+        operatingSystem: session.device.operatingSystem,
+      },
+      approximateLocation: session.device.approximateLocation ?? null,
+      createdAt: session.createdAt,
+      lastSeenAt: session.lastSeenAt,
+      idleExpiresAt: session.idleExpiresAt,
+      absoluteExpiresAt: session.absoluteExpiresAt,
+      isCurrent: session.id === currentSessionId,
+      status: sessionStatus(session, now),
+    }));
   }
 
-  async revoke(_userId: string, _sessionId: string): Promise<void> {
-    throw new Error("not implemented");
+  async revoke(userId: string, sessionId: string): Promise<void> {
+    const revoked = await this.repository.revoke({
+      userId,
+      sessionId,
+      reason: "user-revoked",
+      now: this.clock.now(),
+    });
+    if (!revoked) {
+      throw new Error("session not found");
+    }
   }
 
-  async revokeOthers(_userId: string, _currentSessionId: string): Promise<number> {
-    throw new Error("not implemented");
+  async revokeOthers(userId: string, currentSessionId: string): Promise<number> {
+    return this.repository.revokeOthers({
+      userId,
+      preservedSessionId: currentSessionId,
+      reason: "user-revoked-others",
+      now: this.clock.now(),
+    });
   }
 
-  async logout(_userId: string, _currentSessionId: string): Promise<void> {
-    throw new Error("not implemented");
+  async logout(userId: string, currentSessionId: string): Promise<void> {
+    const revoked = await this.repository.revoke({
+      userId,
+      sessionId: currentSessionId,
+      reason: "logout",
+      now: this.clock.now(),
+    });
+    if (!revoked) {
+      throw new Error("session not found");
+    }
   }
 
-  async hasFreshStepUp(_userId: string, _sessionId: string, _now: Date): Promise<boolean> {
-    throw new Error("not implemented");
+  async hasFreshStepUp(userId: string, sessionId: string, now: Date): Promise<boolean> {
+    const session = await this.repository.findForStepUp(userId, sessionId);
+    if (
+      session === null ||
+      session.revokedAt !== undefined ||
+      session.idleExpiresAt <= now ||
+      session.absoluteExpiresAt <= now ||
+      session.reauthenticatedAt === undefined
+    ) {
+      return false;
+    }
+    const age = now.getTime() - session.reauthenticatedAt.getTime();
+    return age >= 0 && age < STEP_UP_LIFETIME_MS;
   }
 
-  async requireFreshStepUp(_userId: string, _sessionId: string): Promise<void> {
-    throw new Error("not implemented");
+  async requireFreshStepUp(userId: string, sessionId: string): Promise<void> {
+    if (!(await this.hasFreshStepUp(userId, sessionId, this.clock.now()))) {
+      throw new Error("recent authentication required");
+    }
   }
 
-  async confirmStepUp(_input: {
+  async confirmStepUp(input: {
     userId: string;
     sessionId: string;
     method: "discord" | "email";
     confirmedAt: Date;
   }): Promise<void> {
-    throw new Error("not implemented");
+    if (!(await this.repository.markStepUp(input))) {
+      throw new Error("session not found");
+    }
   }
 
-  async rotateCurrentAndRevokeOthers(_input: {
+  async rotateCurrentAndRevokeOthers(input: {
     userId: string;
     sessionId: string;
     reason: SensitiveSessionChange;
   }): Promise<{ sessionId: string; otherSessionsRevoked: number }> {
-    throw new Error("not implemented");
+    await this.requireFreshStepUp(input.userId, input.sessionId);
+    const rotated = await this.repository.rotate({
+      userId: input.userId,
+      sessionId: input.sessionId,
+      token: this.tokens.opaque(32),
+      reauthenticatedAt: this.clock.now(),
+    });
+    if (rotated === null) {
+      throw new Error("session not found");
+    }
+    const otherSessionsRevoked = await this.repository.revokeOthers({
+      userId: input.userId,
+      preservedSessionId: rotated.sessionId,
+      reason: input.reason,
+      now: this.clock.now(),
+    });
+    return { sessionId: rotated.sessionId, otherSessionsRevoked };
   }
 
   async resolveAlertContext(
-    _actorId: string,
-    _rawContext: string,
+    actorId: string,
+    rawContext: string,
   ): Promise<{ status: "active" | "revoked" | "expired" | "not-found" }> {
-    throw new Error("not implemented");
+    const resolved = await this.repository.resolveAlertContextReadOnly({
+      actorId,
+      contextDigest: this.tokens.digest(rawContext),
+      now: this.clock.now(),
+    });
+    switch (resolved.status) {
+      case "active":
+        return { status: "active" };
+      case "already-revoked":
+        return { status: "revoked" };
+      case "expired":
+        return { status: "expired" };
+      case "not-found":
+        return { status: "not-found" };
+    }
   }
+}
+
+function sessionStatus(session: SessionRecord, now: Date): "active" | "revoked" | "expired" {
+  if (session.revokedAt !== undefined) {
+    return "revoked";
+  }
+  if (session.idleExpiresAt <= now || session.absoluteExpiresAt <= now) {
+    return "expired";
+  }
+  return "active";
 }

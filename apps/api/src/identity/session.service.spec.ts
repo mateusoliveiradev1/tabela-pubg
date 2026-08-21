@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import type { TokenGenerator } from "./ports/token-generator.js";
 import {
   type SessionRecord,
   type SessionRepositoryPort,
   SessionService,
 } from "./session.service.js";
-import type { TokenGenerator } from "./ports/token-generator.js";
 
 const now = new Date("2026-08-21T12:00:00.000Z");
 
@@ -41,10 +41,12 @@ function setup(options?: {
     revoke: vi.fn(async () => true),
     revokeOthers: vi.fn(async () => 2),
     rotate: vi.fn(async ({ sessionId }) => ({ sessionId: `${sessionId}-rotated` })),
-    findForStepUp: vi.fn(async () => session({ reauthenticatedAt: new Date(now.getTime() - 9 * 60_000) })),
+    findForStepUp: vi.fn(async () =>
+      session({ reauthenticatedAt: new Date(now.getTime() - 9 * 60_000) }),
+    ),
     markStepUp: vi.fn(async () => true),
-    resolveAlertContextReadOnly: vi.fn(async () =>
-      options?.alertStatus ?? { status: "active", sessionId: "session-alerted" },
+    resolveAlertContextReadOnly: vi.fn(
+      async () => options?.alertStatus ?? { status: "active", sessionId: "session-alerted" },
     ),
   };
   let idSequence = 0;
