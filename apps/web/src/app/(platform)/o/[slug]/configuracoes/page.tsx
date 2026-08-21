@@ -1,5 +1,5 @@
-import { OrganizationLogoSettingsForm } from "../../../../../../components/organizations/organization-logo-field";
-import { FeedbackState } from "../../../../../../components/ui/feedback";
+import { OrganizationLogoSettingsForm } from "../../../../../components/organizations/organization-logo-field";
+import { FeedbackState } from "../../../../../components/ui/feedback";
 import { loadPlatformOrganizations } from "../../../layout";
 
 export const dynamic = "force-dynamic";

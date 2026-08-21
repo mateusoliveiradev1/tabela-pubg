@@ -15,7 +15,7 @@ interface OrganizationLogoFieldProps {
   onChange: (file: File | null) => void;
   currentLogoUrl?: string | null;
   organizationName?: string;
-  error?: string;
+  error?: string | undefined;
   disabled?: boolean;
 }
 
