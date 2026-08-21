@@ -21,10 +21,18 @@ function uniqueColumnSets(table: PgTable): string[][] {
   );
 }
 
+function compositeForeignKeysOf(table: PgTable): string[][] {
+  return getTableConfig(table).foreignKeys.map((foreignKey) =>
+    foreignKey.reference().columns.map((column) => column.name),
+  );
+}
+
 describe("identity persistence schema", () => {
   it("keeps provider subjects and verified normalized emails unique", () => {
     expect(uniqueColumnSets(identities)).toContainEqual(["provider", "provider_subject"]);
+    expect(uniqueColumnSets(identities)).toContainEqual(["user_id", "id"]);
     expect(uniqueColumnSets(verifiedEmails)).toContainEqual(["normalized_email"]);
+    expect(compositeForeignKeysOf(verifiedEmails)).toContainEqual(["user_id", "identity_id"]);
   });
 
   it("persists only digests for reusable authentication material", () => {
@@ -82,6 +90,10 @@ describe("identity persistence schema", () => {
     expect(columnsOf(sessionAlertContexts)).not.toEqual(
       expect.arrayContaining(["revoked_at", "revocation_reason", "action"]),
     );
+  });
+
+  it("cannot bind an OAuth transaction to another user's session", () => {
+    expect(compositeForeignKeysOf(oauthTransactions)).toContainEqual(["user_id", "session_id"]);
   });
 
   it("keeps users credential-free", () => {

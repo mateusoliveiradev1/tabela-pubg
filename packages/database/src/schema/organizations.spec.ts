@@ -53,6 +53,7 @@ describe("organization persistence schema", () => {
       expect.arrayContaining([
         ["organization_id", "invited_by_membership_id"],
         ["organization_id", "accepted_by_membership_id"],
+        ["organization_id", "superseded_by_invitation_id"],
       ]),
     );
   });
