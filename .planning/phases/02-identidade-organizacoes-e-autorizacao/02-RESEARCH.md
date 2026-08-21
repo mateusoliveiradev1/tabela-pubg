@@ -535,27 +535,25 @@ Além do plugin, rejeitar Origin/Referer que não corresponda à origem configur
 | A9 | `authorization_scopes` cria o placeholder de tournament na Fase 2 e a Fase 3 reutiliza o mesmo ID. | Proposed Permission Matrix | Se Fase 3 modelar ID diferente, haverá migração/integração. |
 | A10 | Discord aceitará PKCE S256 no fluxo web atual; confirmar no sandbox antes de travar implementação. | OAuth Pattern | Se não aceitar, usar state/browser binding obrigatório e documentar a exceção. |
 
-## Open Questions
+## Resolved Questions
+
+As quatro questões abaixo foram resolvidas para o planejamento da Fase 2 em 2026-08-20. Elas não são mais decisões abertas; qualquer alteração exige nova decisão de produto ou evidência do sandbox.
 
 1. **Discord sem e-mail utilizável**
    - What we know: o scope `email` inclui o e-mail quando a conta Discord possui um, e o recurso User permite ausência desse campo. [CITED: https://docs.discord.com/developers/resources/user]
-   - What's unclear: D-07 exige aviso por e-mail, mas não define se Discord-only sem e-mail confirmado pode ter sessão confiável.
-   - Recommendation: criar sessão provisória curta e concluir um vínculo por OTP explícito antes da sessão de 30 dias, criação de organização ou aceite de convite. [ASSUMED]
+   - Resolução aceita: Discord-only sem e-mail confirmado recebe sessão provisória de 15 minutos, limitada a vincular/verificar e-mail e sair. Sessão confiável de 30 dias, criação de organização e aceite de convite exigem OTP explícito de um e-mail verificado. Isso preserva D-03 e torna D-07 executável. [DECIDED]
 
 2. **Máximo absoluto de sessão**
    - What we know: D-06 trava 30 dias com renovação por atividade; OWASP recomenda idle e absolute timeout server-side. [CITED: https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html]
-   - What's unclear: não há teto absoluto decidido.
-   - Recommendation: 90 dias absolutos, depois reautenticação completa. [ASSUMED]
+   - Resolução aceita: sessões confiáveis têm idle timeout deslizante de 30 dias e teto absoluto de 90 dias; ao atingir o teto, exigem autenticação completa e emitem token novo. [DECIDED]
 
 3. **PKCE Discord no ambiente real**
    - What we know: RFC 9700 recomenda PKCE S256 inclusive para clientes web; a documentação OAuth principal do Discord não descreve os parâmetros PKCE. [CITED: https://datatracker.ietf.org/doc/html/rfc9700]
-   - What's unclear: suporte atual no tipo exato de aplicação/redirect do projeto.
-   - Recommendation: tornar um teste de sandbox pré-requisito; manter state one-use/browser binding sempre; se o endpoint recusar PKCE, registrar a exceção e seguir o BCP para CSRF com state. [CITED: https://datatracker.ietf.org/doc/html/rfc9700]
+   - Resolução aceita: implementar e testar os dois modos atrás de configuração server-side. `required` é o default e usa S256; `documented-exception` só inicia com um ID de evidência do sandbox e mantém state one-use/browser binding. O repair path é retornar a `required` removendo a exceção após novo teste sandbox. [DECIDED]
 
 4. **Credenciais operacionais de e-mail e Discord**
    - What we know: `.env.example` ainda não possui Discord OAuth nem Resend e nenhum domínio/remetente está configurado no workspace. [VERIFIED: codebase grep]
-   - What's unclear: app Discord, redirect URLs, domínio verificado e remetente de produção.
-   - Recommendation: implementar/testar com adapters fake e tornar sandbox Discord + Resend um checkpoint manual antes do smoke externo. [ASSUMED]
+   - Resolução aceita: implementação usa adapters fake até os checkpoints bloqueantes. O usuário fornece app/redirect Discord sandbox e domínio/remetente Resend; nenhum plano afirma integração real antes desses gates. Se credenciais não estiverem disponíveis, a fase permanece pendente no checkpoint externo, sem fallback inseguro. [DECIDED]
 
 ## Environment Availability
 
