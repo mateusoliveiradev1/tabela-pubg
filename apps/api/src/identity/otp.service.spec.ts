@@ -1,9 +1,9 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
-  OtpService,
   type OtpChallengeRecord,
   type OtpRepository,
+  OtpService,
   type SecureOtpDeliveryPort,
 } from "./otp.service.js";
 import type { AuthRateLimiter } from "./ports/auth-rate-limiter.js";
@@ -154,7 +154,9 @@ describe("OtpService", () => {
         { dimension: "cooldown", digest: "digest:player@example.com" },
       ],
     });
-    expect(JSON.stringify(vi.mocked(limiter.consume).mock.calls)).not.toContain("Player@Example.com");
+    expect(JSON.stringify(vi.mocked(limiter.consume).mock.calls)).not.toContain(
+      "Player@Example.com",
+    );
   });
 
   it("fails closed with a uniform response when limiter blocks or is unavailable", async () => {
