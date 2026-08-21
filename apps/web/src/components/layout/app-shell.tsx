@@ -2,7 +2,7 @@
 
 import { Building2, ClipboardList, Menu, Settings, ShieldCheck, Users, X } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { EmptyState, FeedbackState } from "../ui/feedback";
 import { OrganizationSwitcher, type OrganizationSwitcherItem } from "./organization-switcher";
@@ -36,6 +36,18 @@ export function AppShell({
 }: AppShellProps) {
   const pathname = usePathname() ?? "/";
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setDrawerOpen(false);
+      window.setTimeout(() => document.getElementById("platform-drawer-trigger")?.focus(), 0);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [drawerOpen]);
   const routeOrganizationSlug = organizationSlugFromPath(pathname);
   const resolvedSlug = activeOrganizationSlug ?? routeOrganizationSlug;
   const activeOrganization = organizations.find(
@@ -136,6 +148,7 @@ export function AppShell({
       <header className="platform-topbar">
         <Button
           className="platform-drawer-trigger"
+          id="platform-drawer-trigger"
           size="icon"
           variant="ghost"
           aria-controls="platform-sidebar"

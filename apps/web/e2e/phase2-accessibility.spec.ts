@@ -17,7 +17,10 @@ test.describe("phase 2 responsive and accessible flows", () => {
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
   });
 
-  test("keyboard navigation reaches content and dialogs restore focus", async ({ page, phase2 }) => {
+  test("keyboard navigation reaches content and dialogs restore focus", async ({
+    page,
+    phase2,
+  }) => {
     await phase2.signIn(page);
     await page.goto(`/o/${phase2.organizationSlug}`);
     await page.keyboard.press("Tab");
@@ -69,7 +72,9 @@ test.describe("phase 2 responsive and accessible flows", () => {
     await phase2.signIn(page);
     await page.goto(`/o/${phase2.organizationSlug}/membros`);
     await expect(page.getByRole("heading", { name: "Membros e permissões" })).toBeVisible();
-    await expect(page.getByText("Transfira a propriedade antes de alterar este membro.")).toBeVisible();
+    await expect(
+      page.getByText("Transfira a propriedade antes de alterar este membro."),
+    ).toBeVisible();
     await page.goto(`/o/${phase2.organizationSlug}/auditoria`);
     await expect(page.getByRole("heading", { name: "Auditoria" })).toBeVisible();
     await page.goto("/o/organizacao-inexistente/membros");
@@ -80,14 +85,14 @@ test.describe("phase 2 responsive and accessible flows", () => {
   test("reduced motion collapses authored animation and transition duration", async ({ page }) => {
     test.skip(test.info().project.name !== "reduced-motion", "reduced-motion project only");
     await page.goto("/entrar");
-    const duration = await page.getByRole("button", { name: "Continuar com Discord" }).evaluate(
-      (element) => ({
+    const duration = await page
+      .getByRole("button", { name: "Continuar com Discord" })
+      .evaluate((element) => ({
         animation: getComputedStyle(element).animationDuration,
         transition: getComputedStyle(element).transitionDuration,
-      }),
-    );
-    expect(duration.animation).toBe("0.00001s");
-    expect(duration.transition).toBe("0.00001s");
+      }));
+    expect(shortDurations(duration.animation)).toBe(true);
+    expect(shortDurations(duration.transition)).toBe(true);
   });
 });
 
@@ -100,4 +105,8 @@ async function expectAxeClean(page: import("@playwright/test").Page) {
 
 function horizontalOverflow(page: import("@playwright/test").Page): Promise<number> {
   return page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+}
+
+function shortDurations(value: string): boolean {
+  return value.split(",").every((duration) => Number.parseFloat(duration) <= 0.00001);
 }
