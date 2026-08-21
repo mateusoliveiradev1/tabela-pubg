@@ -2,10 +2,7 @@ import { createCipheriv, createHash, randomBytes } from "node:crypto";
 import type { NotificationDeliveryRow } from "@pubg-camp/database";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmailSender } from "./email-sender.js";
-import {
-  createNotificationProcessor,
-  type NotificationDeliveryStore,
-} from "./processor.js";
+import { createNotificationProcessor, type NotificationDeliveryStore } from "./processor.js";
 
 const now = new Date("2026-08-21T15:45:12.000Z");
 const encryptionKey = randomBytes(32);
@@ -30,13 +27,7 @@ function encryptedDelivery(input: {
   const cipher = createCipheriv("aes-256-gcm", encryptionKey, iv);
   cipher.setAAD(
     Buffer.from(
-      JSON.stringify([
-        id,
-        input.template,
-        recipientDigest,
-        "v1",
-        payloadExpiresAt.toISOString(),
-      ]),
+      JSON.stringify([id, input.template, recipientDigest, "v1", payloadExpiresAt.toISOString()]),
       "utf8",
     ),
   );

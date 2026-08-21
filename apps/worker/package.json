@@ -15,10 +15,12 @@
   "dependencies": {
     "@pubg-camp/config": "workspace:*",
     "@pubg-camp/contracts": "workspace:*",
+    "@pubg-camp/database": "workspace:*",
     "@pubg-camp/logger": "workspace:*",
     "@pubg-camp/observability": "workspace:*",
     "@pubg-camp/queue": "workspace:*",
     "fastify": "5.12.1",
+    "resend": "6.21.0",
     "zod": "catalog:"
   },
   "devDependencies": {
