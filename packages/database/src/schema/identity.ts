@@ -25,6 +25,7 @@ export const authChallengePurpose = pgEnum("auth_challenge_purpose", [
   "step-up",
 ]);
 export const oauthPurpose = pgEnum("oauth_purpose", ["sign-in", "link-identity", "step-up"]);
+export const sessionTrust = pgEnum("session_trust", ["provisional", "trusted"]);
 
 export const users = pgTable(
   "users",
@@ -120,6 +121,7 @@ export const sessions = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     deviceId: uuid("device_id").notNull(),
     tokenDigest: text("token_digest").notNull().unique("sessions_token_digest_unique"),
+    trust: sessionTrust("trust").notNull(),
     issuedAt: timestamptz("issued_at").notNull(),
     lastSeenAt: timestamptz("last_seen_at").notNull(),
     idleExpiresAt: timestamptz("idle_expires_at").notNull(),
@@ -150,6 +152,10 @@ export const sessions = pgTable(
       "sessions_revocation_pair_check",
       sql`(${table.revokedAt} is null and ${table.revocationReason} is null) or (${table.revokedAt} is not null and ${table.revocationReason} is not null)`,
     ),
+    check(
+      "sessions_provisional_absolute_expiry_check",
+      sql`${table.trust} = 'trusted' or ${table.absoluteExpiresAt} <= ${table.issuedAt} + interval '15 minutes'`,
+    ),
   ],
 );
 
@@ -158,6 +164,7 @@ export const authChallenges = pgTable(
   {
     id: uuid("id").primaryKey(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id"),
     emailDigest: text("email_digest").notNull(),
     purpose: authChallengePurpose("purpose").notNull(),
     codeDigest: text("code_digest").notNull(),
@@ -168,6 +175,11 @@ export const authChallenges = pgTable(
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
   (table) => [
+    foreignKey({
+      name: "auth_challenges_user_session_fk",
+      columns: [table.userId, table.sessionId],
+      foreignColumns: [sessions.userId, sessions.id],
+    }).onDelete("cascade"),
     uniqueIndex("auth_challenges_active_subject_purpose_unique")
       .on(table.emailDigest, table.purpose)
       .where(sql`${table.supersededAt} is null and ${table.consumedAt} is null`),
@@ -182,6 +194,10 @@ export const authChallenges = pgTable(
       "auth_challenges_terminal_state_check",
       sql`num_nonnulls(${table.supersededAt}, ${table.consumedAt}) <= 1`,
     ),
+    check(
+      "auth_challenges_purpose_binding_check",
+      sql`(${table.purpose} = 'sign-in' and ${table.userId} is null and ${table.sessionId} is null) or (${table.purpose} <> 'sign-in' and ${table.userId} is not null and ${table.sessionId} is not null)`,
+    ),
   ],
 );
 
@@ -194,6 +210,7 @@ export const oauthTransactions = pgTable(
     purpose: oauthPurpose("purpose").notNull(),
     stateDigest: text("state_digest").notNull().unique("oauth_transactions_state_digest_unique"),
     browserBindingDigest: text("browser_binding_digest").notNull(),
+    currentMethodConfirmedAt: timestamptz("current_method_confirmed_at"),
     returnPath: text("return_path"),
     expiresAt: timestamptz("expires_at").notNull(),
     consumedAt: timestamptz("consumed_at"),
@@ -211,6 +228,49 @@ export const oauthTransactions = pgTable(
     check(
       "oauth_transactions_session_user_check",
       sql`${table.sessionId} is null or ${table.userId} is not null`,
+    ),
+    check(
+      "oauth_transactions_purpose_binding_check",
+      sql`(${table.purpose} = 'sign-in' and ${table.userId} is null and ${table.sessionId} is null and ${table.currentMethodConfirmedAt} is null)
+        or (${table.purpose} = 'link-identity' and ${table.userId} is not null and ${table.sessionId} is not null and ${table.currentMethodConfirmedAt} is not null)
+        or (${table.purpose} = 'step-up' and ${table.userId} is not null and ${table.sessionId} is not null and ${table.currentMethodConfirmedAt} is null)`,
+    ),
+    check(
+      "oauth_transactions_current_method_order_check",
+      sql`${table.currentMethodConfirmedAt} is null or ${table.currentMethodConfirmedAt} <= ${table.createdAt}`,
+    ),
+  ],
+);
+
+export const identityLinkProofs = pgTable(
+  "identity_link_proofs",
+  {
+    id: uuid("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").notNull(),
+    provider: identityProvider("provider").notNull(),
+    providerSubject: text("provider_subject").notNull(),
+    displayName: text("display_name"),
+    expiresAt: timestamptz("expires_at").notNull(),
+    consumedAt: timestamptz("consumed_at"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "identity_link_proofs_user_session_fk",
+      columns: [table.userId, table.sessionId],
+      foreignColumns: [sessions.userId, sessions.id],
+    }).onDelete("cascade"),
+    index("identity_link_proofs_actor_session_active_idx")
+      .on(table.userId, table.sessionId, table.provider)
+      .where(sql`${table.consumedAt} is null`),
+    index("identity_link_proofs_expiry_idx").on(table.expiresAt),
+    check("identity_link_proofs_expiry_check", sql`${table.expiresAt} > ${table.createdAt}`),
+    check(
+      "identity_link_proofs_consumption_order_check",
+      sql`${table.consumedAt} is null or ${table.consumedAt} >= ${table.createdAt}`,
     ),
   ],
 );
@@ -248,3 +308,5 @@ export type IdentityRow = typeof identities.$inferSelect;
 export type NewIdentityRow = typeof identities.$inferInsert;
 export type SessionRow = typeof sessions.$inferSelect;
 export type NewSessionRow = typeof sessions.$inferInsert;
+export type IdentityLinkProofRow = typeof identityLinkProofs.$inferSelect;
+export type NewIdentityLinkProofRow = typeof identityLinkProofs.$inferInsert;
