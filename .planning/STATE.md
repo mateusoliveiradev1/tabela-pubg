@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T11:14:23.000Z"
+last_updated: "2026-08-24T11:29:41.655Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 33
+  completed_plans: 34
   percent: 33
 ---
 
@@ -126,3 +126,15 @@ progress:
 ### Roadmap Evolution
 
 - Phase 2.1 inserted after Phase 2: Direção visual e sistema de experiência Impeccable para web, e-mail, Discord e broadcast (URGENT)
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 02 P29 | 9 min | 2 tasks | 7 files |
+
+## Decisions
+
+- [Phase 02]: BFF injeta tenant somente de captures UUID canonicos da rota allowlisted; headers tenant do browser sao descartados.
+- [Phase 02]: PermissionGuard exige igualdade entre parametros Fastify e headers internos antes do snapshot RBAC ou handler.
+- [Phase 02]: Negacoes tenant usam reason class limitada e payload redigido; falha ou ausencia do recorder preserva o 403.
