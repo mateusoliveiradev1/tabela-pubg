@@ -14,7 +14,6 @@ import {
   SetMetadata,
 } from "@nestjs/common";
 import {
-  EmailOtpRequestSchema,
   type EmailOtpResponse,
   EmailOtpResponseSchema,
   type OAuthCallbackResponse,
@@ -26,26 +25,40 @@ import {
   SessionAlertContextRequestSchema,
   type SessionAlertContextResponse,
   SessionAlertContextResponseSchema,
-  VerifyEmailOtpRequestSchema,
   type VerifyEmailOtpResponse,
   VerifyEmailOtpResponseSchema,
 } from "@pubg-camp/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AuthenticatedSession } from "../authorization/authorization.service.js";
+import { AllowProvisional, Public, RequirePermission } from "../authorization/decorators.js";
 import type { CsrfService } from "../security/csrf.service.js";
+import type { IdentityService } from "./identity.service.js";
 import type { OAuthService } from "./oauth.service.js";
 import type { OtpService } from "./otp.service.js";
 import type { SessionService } from "./session.service.js";
 
 export const IDENTITY_OAUTH_SERVICE = Symbol("IDENTITY_OAUTH_SERVICE");
 export const IDENTITY_OTP_SERVICE = Symbol("IDENTITY_OTP_SERVICE");
+export const IDENTITY_SERVICE = Symbol("IDENTITY_SERVICE");
 export const IDENTITY_SESSION_SERVICE = Symbol("IDENTITY_SESSION_SERVICE");
 export const IDENTITY_CSRF_SERVICE = Symbol("IDENTITY_CSRF_SERVICE");
 
 export interface SessionAlertRequest extends FastifyRequest {
   auth: AuthenticatedSession;
 }
+
+type AuthenticatedIdentityRequest = FastifyRequest & { auth: AuthenticatedSession };
+
+const EmailOnlySchema = z.object({ email: z.email().trim().max(254) }).strict();
+const EmailOtpCodeSchema = z
+  .object({
+    challengeId: z.uuid(),
+    email: z.email().trim().max(254),
+    code: z.string().regex(/^\d{8}$/),
+  })
+  .strict();
+const ChangeEmailOtpCodeSchema = EmailOtpCodeSchema.extend({ identityId: z.uuid() }).strict();
 
 const OAuthCallbackQuerySchema = z
   .object({
@@ -56,19 +69,23 @@ const OAuthCallbackQuerySchema = z
   .strict();
 
 @Controller("identity")
-@SetMetadata("auth.public", true)
 export class IdentityController {
   constructor(
     @Inject(IDENTITY_OAUTH_SERVICE)
     private readonly oauth: OAuthService,
     @Inject(IDENTITY_OTP_SERVICE)
     private readonly otp: OtpService,
+    @Inject(IDENTITY_SERVICE)
+    private readonly identity: IdentityService,
+    @Inject(IDENTITY_SESSION_SERVICE)
+    private readonly sessions: SessionService,
     @Optional()
     @Inject(IDENTITY_CSRF_SERVICE)
     private readonly csrf?: CsrfService,
   ) {}
 
   @Post("oauth/discord/start")
+  @Public()
   async startDiscord(
     @Body() rawBody: unknown,
     @Headers("x-auth-browser-binding") browserBinding: string | undefined,
@@ -93,6 +110,7 @@ export class IdentityController {
   }
 
   @Post("oauth/discord/callback")
+  @Public()
   async callbackDiscord(
     @Body() rawQuery: unknown,
     @Headers("x-auth-browser-binding") browserBinding: string | undefined,
@@ -129,17 +147,18 @@ export class IdentityController {
     }
   }
 
-  @Post("email/otp/request")
-  async requestEmailOtp(
+  @Post("email/otp/sign-in/request")
+  @Public()
+  async requestEmailSignInOtp(
     @Body() rawBody: unknown,
     @Ip() trustedIp: string,
     @Headers("x-correlation-id") correlationId: string | undefined,
     @Res({ passthrough: true }) reply?: Pick<FastifyReply, "header">,
   ): Promise<EmailOtpResponse> {
-    const body = EmailOtpRequestSchema.parse(rawBody);
+    const body = EmailOnlySchema.parse(rawBody);
     const result = await this.otp.request({
       email: body.email,
-      purpose: body.purpose,
+      purpose: "sign-in",
       trustedIp,
       correlationId: normalizeCorrelationId(correlationId),
     });
@@ -147,41 +166,291 @@ export class IdentityController {
     return EmailOtpResponseSchema.parse(result.response);
   }
 
-  @Post("email/otp/verify")
-  async verifyEmailOtp(
+  @Post("email/otp/sign-in/verify")
+  @Public()
+  async verifyEmailSignInOtp(
     @Body() rawBody: unknown,
     @Ip() trustedIp: string,
     @Headers("x-correlation-id") correlationId: string | undefined,
-    @Req() request?: FastifyRequest,
-    @Res({ passthrough: true }) reply?: FastifyReply,
+    @Req() request: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<VerifyEmailOtpResponse> {
-    const body = VerifyEmailOtpRequestSchema.parse(rawBody);
+    const body = EmailOtpCodeSchema.parse(rawBody);
     const result = await this.otp.verify({
       challengeId: body.challengeId,
       email: body.email,
-      purpose: body.purpose,
+      purpose: "sign-in",
       code: body.code,
       trustedIp,
       correlationId: normalizeCorrelationId(correlationId),
     });
-    if (result.status === "rejected") throw stableCancelled();
-    if (result.status === "authenticated") {
-      if (request && reply) {
-        try {
-          this.csrf?.rotateCurrent(request, reply);
-        } catch {
-          // OTP account/session establishment adapter will set the session cookie before rotating.
-        }
-      }
+    if (result.status !== "authenticated") throw stableCancelled();
+    const deviceFingerprint = this.csrf?.browserBindingFor(request);
+    if (!deviceFingerprint) throw stableCancelled();
+    try {
+      const issued = await this.identity.startEmailSession({
+        userId: result.userId,
+        email: body.email,
+        deviceFingerprint,
+        device: deviceMetadata(request),
+        correlationId: normalizeCorrelationId(correlationId),
+      });
+      this.csrf?.rotateToSession(request, reply, issued.sessionId, issued.sessionToken);
       return VerifyEmailOtpResponseSchema.parse({ status: "authenticated", nextPath: "/" });
+    } catch {
+      throw stableCancelled();
     }
-    if (result.status === "step-up-confirmed") {
+  }
+
+  @Post("email/otp/link-email/request")
+  @RequirePermission("authenticated")
+  requestLinkEmailOtp(
+    @Body() rawBody: unknown,
+    @Ip() trustedIp: string,
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply?: Pick<FastifyReply, "header">,
+  ): Promise<EmailOtpResponse> {
+    return this.requestProtectedOtp(
+      "link-email",
+      rawBody,
+      trustedIp,
+      correlationId,
+      request,
+      reply,
+    );
+  }
+
+  @Post("email/otp/change-email/request")
+  @RequirePermission("authenticated")
+  requestChangeEmailOtp(
+    @Body() rawBody: unknown,
+    @Ip() trustedIp: string,
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply?: Pick<FastifyReply, "header">,
+  ): Promise<EmailOtpResponse> {
+    return this.requestProtectedOtp(
+      "change-email",
+      rawBody,
+      trustedIp,
+      correlationId,
+      request,
+      reply,
+    );
+  }
+
+  @Post("email/otp/step-up/request")
+  @RequirePermission("authenticated")
+  requestEmailStepUpOtp(
+    @Body() rawBody: unknown,
+    @Ip() trustedIp: string,
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply?: Pick<FastifyReply, "header">,
+  ): Promise<EmailOtpResponse> {
+    return this.requestProtectedOtp("step-up", rawBody, trustedIp, correlationId, request, reply);
+  }
+
+  @Post("email/otp/verify-provisional-email/request")
+  @RequirePermission("authenticated")
+  @AllowProvisional()
+  requestProvisionalEmailOtp(
+    @Body() rawBody: unknown,
+    @Ip() trustedIp: string,
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply?: Pick<FastifyReply, "header">,
+  ): Promise<EmailOtpResponse> {
+    if (request.auth.trust !== "provisional") throw stableCancelled();
+    return this.requestProtectedOtp(
+      "verify-provisional-email",
+      rawBody,
+      trustedIp,
+      correlationId,
+      request,
+      reply,
+    );
+  }
+
+  @Post("email/otp/link-email/verify")
+  @RequirePermission("authenticated")
+  async verifyLinkEmailOtp(
+    @Body() rawBody: unknown,
+    @Ip() trustedIp: string,
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<VerifyEmailOtpResponse> {
+    return this.verifyEmailSecurityChange(
+      "link-email",
+      rawBody,
+      trustedIp,
+      correlationId,
+      request,
+      reply,
+    );
+  }
+
+  @Post("email/otp/change-email/verify")
+  @RequirePermission("authenticated")
+  async verifyChangeEmailOtp(
+    @Body() rawBody: unknown,
+    @Ip() trustedIp: string,
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<VerifyEmailOtpResponse> {
+    return this.verifyEmailSecurityChange(
+      "change-email",
+      rawBody,
+      trustedIp,
+      correlationId,
+      request,
+      reply,
+    );
+  }
+
+  @Post("email/otp/step-up/verify")
+  @RequirePermission("authenticated")
+  async verifyEmailStepUpOtp(
+    @Body() rawBody: unknown,
+    @Ip() trustedIp: string,
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<VerifyEmailOtpResponse> {
+    const body = EmailOtpCodeSchema.parse(rawBody);
+    const result = await this.otp.verify({
+      ...body,
+      purpose: "step-up",
+      actorId: request.auth.actorId,
+      sessionId: request.auth.sessionId,
+      trustedIp,
+      correlationId: normalizeCorrelationId(correlationId),
+    });
+    if (
+      result.status !== "step-up-confirmed" ||
+      result.actorId !== request.auth.actorId ||
+      result.sessionId !== request.auth.sessionId
+    ) {
+      throw stableCancelled();
+    }
+    try {
+      await this.sessions.confirmStepUp({
+        userId: request.auth.actorId,
+        sessionId: request.auth.sessionId,
+        method: "email",
+        confirmedAt: result.confirmedAt,
+      });
+      this.csrf?.rotateCurrent(request, reply);
       return VerifyEmailOtpResponseSchema.parse({
-        status: result.status,
+        status: "step-up-confirmed",
         validUntil: result.validUntil.toISOString(),
       });
+    } catch {
+      throw stableCancelled();
     }
-    return VerifyEmailOtpResponseSchema.parse(result);
+  }
+
+  @Post("email/otp/verify-provisional-email/verify")
+  @RequirePermission("authenticated")
+  @AllowProvisional()
+  async verifyProvisionalEmailOtp(
+    @Body() rawBody: unknown,
+    @Ip() trustedIp: string,
+    @Headers("x-correlation-id") correlationId: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<VerifyEmailOtpResponse> {
+    if (request.auth.trust !== "provisional") throw stableCancelled();
+    const body = EmailOtpCodeSchema.parse(rawBody);
+    const result = await this.otp.verify({
+      ...body,
+      purpose: "verify-provisional-email",
+      actorId: request.auth.actorId,
+      sessionId: request.auth.sessionId,
+      trustedIp,
+      correlationId: normalizeCorrelationId(correlationId),
+    });
+    if (
+      result.status !== "provisional-email-verified" ||
+      result.userId !== request.auth.actorId ||
+      result.sessionId !== request.auth.sessionId ||
+      result.trust !== "trusted"
+    ) {
+      throw stableCancelled();
+    }
+    this.csrf?.rotateToSession(request, reply, result.sessionId, result.sessionToken);
+    return VerifyEmailOtpResponseSchema.parse({ status: "authenticated", nextPath: "/" });
+  }
+
+  private async requestProtectedOtp(
+    purpose: "link-email" | "change-email" | "step-up" | "verify-provisional-email",
+    rawBody: unknown,
+    trustedIp: string,
+    correlationId: string | undefined,
+    request: AuthenticatedIdentityRequest,
+    reply?: Pick<FastifyReply, "header">,
+  ): Promise<EmailOtpResponse> {
+    const body = EmailOnlySchema.parse(rawBody);
+    const result = await this.otp.request({
+      email: body.email,
+      purpose,
+      actorId: request.auth.actorId,
+      sessionId: request.auth.sessionId,
+      trustedIp,
+      correlationId: normalizeCorrelationId(correlationId),
+    });
+    if (result.challengeId) reply?.header("x-otp-challenge-id", result.challengeId);
+    return EmailOtpResponseSchema.parse(result.response);
+  }
+
+  private async verifyEmailSecurityChange(
+    purpose: "link-email" | "change-email",
+    rawBody: unknown,
+    trustedIp: string,
+    correlationId: string | undefined,
+    request: AuthenticatedIdentityRequest,
+    reply: FastifyReply,
+  ): Promise<VerifyEmailOtpResponse> {
+    const body = EmailOtpCodeSchema.parse(rawBody);
+    const identityId =
+      purpose === "change-email" ? ChangeEmailOtpCodeSchema.parse(rawBody).identityId : undefined;
+    const normalizedCorrelationId = normalizeCorrelationId(correlationId);
+    const result = await this.otp.verify({
+      challengeId: body.challengeId,
+      email: body.email,
+      code: body.code,
+      purpose,
+      actorId: request.auth.actorId,
+      sessionId: request.auth.sessionId,
+      trustedIp,
+      correlationId: normalizedCorrelationId,
+    });
+    const expectedStatus = purpose === "link-email" ? "identity-link-ready" : "email-change-ready";
+    if (
+      result.status !== expectedStatus ||
+      result.actorId !== request.auth.actorId ||
+      result.sessionId !== request.auth.sessionId
+    ) {
+      throw stableCancelled();
+    }
+    try {
+      const secured = await this.identity.applyEmailSecurityChange({
+        actorId: request.auth.actorId,
+        sessionId: request.auth.sessionId,
+        proofId: result.proofId,
+        purpose,
+        email: body.email,
+        ...(identityId === undefined ? {} : { identityId }),
+        correlationId: normalizedCorrelationId,
+      });
+      this.csrf?.rotateToSession(request, reply, secured.sessionId, secured.sessionToken);
+      return VerifyEmailOtpResponseSchema.parse({ status: expectedStatus });
+    } catch {
+      throw stableCancelled();
+    }
   }
 }
 
@@ -211,4 +480,43 @@ function stableCancelled(): BadRequestException {
 function normalizeCorrelationId(value: string | undefined): string {
   const normalized = value?.trim();
   return normalized && normalized.length <= 120 ? normalized : "unavailable";
+}
+
+function deviceMetadata(request: FastifyRequest): {
+  label: string;
+  browser: string;
+  operatingSystem: string;
+  summarizedUserAgent: string;
+} {
+  const raw = firstHeader(request.headers["user-agent"])?.trim().slice(0, 512) || "Unknown client";
+  const browser = /Edg\//.test(raw)
+    ? "Edge"
+    : /Firefox\//.test(raw)
+      ? "Firefox"
+      : /Chrome\//.test(raw)
+        ? "Chrome"
+        : /Safari\//.test(raw)
+          ? "Safari"
+          : "Unknown browser";
+  const operatingSystem = /Windows/i.test(raw)
+    ? "Windows"
+    : /Android/i.test(raw)
+      ? "Android"
+      : /iPhone|iPad|iOS/i.test(raw)
+        ? "iOS"
+        : /Mac OS|Macintosh/i.test(raw)
+          ? "macOS"
+          : /Linux/i.test(raw)
+            ? "Linux"
+            : "Unknown OS";
+  return {
+    label: `${browser} on ${operatingSystem}`,
+    browser,
+    operatingSystem,
+    summarizedUserAgent: raw,
+  };
+}
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }

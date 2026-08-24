@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  type IdentitySecurityChangeApplicationPort,
   type IdentityRepository,
+  type IdentitySecurityChangeApplicationPort,
   IdentityService,
   type IdentitySessionPort,
 } from "./identity.service.js";

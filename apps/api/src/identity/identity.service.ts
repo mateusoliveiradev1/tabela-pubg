@@ -29,6 +29,24 @@ export interface IdentitySessionPort {
     trust: SessionTrust;
     expiresAt?: Date;
   }): Promise<{ sessionId: string; token: string }>;
+  startDeviceSession(input: {
+    userId: string;
+    trust: SessionTrust;
+    deviceFingerprint: string;
+    device: {
+      label: string;
+      browser: string;
+      operatingSystem: string;
+      approximateLocation?: string;
+      summarizedUserAgent?: string;
+    };
+    newDeviceNotification: { recipient: string; correlationId: string };
+  }): Promise<{
+    sessionId: string;
+    token: string;
+    isNewDevice: boolean;
+    notificationScheduled: boolean;
+  }>;
   hasFreshStepUp(userId: string, sessionId: string, now: Date): Promise<boolean>;
   rotateCurrentAndRevokeOthers(input: {
     userId: string;
@@ -41,6 +59,23 @@ export interface IdentitySessionPort {
     method: "discord" | "email";
     confirmedAt: Date;
   }): Promise<void>;
+}
+
+export interface IdentitySecurityChangeApplicationPort {
+  execute(input: {
+    actorId: string;
+    currentSessionId: string;
+    proofId: string;
+    change:
+      | { type: "link-identity"; provider: "email"; email: string }
+      | { type: "change-email"; identityId: string; email: string };
+    now: Date;
+    correlationId: string;
+  }): Promise<{
+    sessionId: string;
+    sessionToken: string;
+    otherSessionsRevoked: number;
+  }>;
 }
 
 export interface Clock {
@@ -80,7 +115,74 @@ export class IdentityService {
     private readonly sessions: IdentitySessionPort,
     private readonly tokens: TokenGenerator,
     private readonly clock: Clock,
+    private readonly securityChanges: IdentitySecurityChangeApplicationPort,
   ) {}
+
+  async startEmailSession(input: {
+    userId: string;
+    email: string;
+    deviceFingerprint: string;
+    device: {
+      label: string;
+      browser: string;
+      operatingSystem: string;
+      approximateLocation?: string;
+      summarizedUserAgent?: string;
+    };
+    correlationId: string;
+  }): Promise<{
+    sessionId: string;
+    sessionToken: string;
+    isNewDevice: boolean;
+    notificationScheduled: boolean;
+  }> {
+    const issued = await this.sessions.startDeviceSession({
+      userId: input.userId,
+      trust: "trusted",
+      deviceFingerprint: input.deviceFingerprint,
+      device: input.device,
+      newDeviceNotification: {
+        recipient: input.email.trim().toLowerCase(),
+        correlationId: input.correlationId,
+      },
+    });
+    return {
+      sessionId: issued.sessionId,
+      sessionToken: issued.token,
+      isNewDevice: issued.isNewDevice,
+      notificationScheduled: issued.notificationScheduled,
+    };
+  }
+
+  async applyEmailSecurityChange(input: {
+    actorId: string;
+    sessionId: string;
+    proofId: string;
+    purpose: "link-email" | "change-email";
+    email: string;
+    identityId?: string;
+    correlationId: string;
+  }): Promise<{
+    sessionId: string;
+    sessionToken: string;
+    otherSessionsRevoked: number;
+  }> {
+    const email = input.email.trim().toLowerCase();
+    if (input.purpose === "change-email" && !input.identityId) {
+      throw new Error("email identity is required");
+    }
+    return this.securityChanges.execute({
+      actorId: input.actorId,
+      currentSessionId: input.sessionId,
+      proofId: input.proofId,
+      change:
+        input.purpose === "link-email"
+          ? { type: "link-identity", provider: "email", email }
+          : { type: "change-email", identityId: input.identityId as string, email },
+      now: this.clock.now(),
+      correlationId: input.correlationId,
+    });
+  }
 
   async signInWithDiscord(profile: DiscordUserProfile): Promise<DiscordSignInResult> {
     if (profile.id.trim().length === 0 || profile.username.trim().length === 0) {

@@ -4,10 +4,12 @@ import {
   IDENTITY_CSRF_SERVICE,
   IDENTITY_OAUTH_SERVICE,
   IDENTITY_OTP_SERVICE,
+  IDENTITY_SERVICE,
   IDENTITY_SESSION_SERVICE,
   IdentityController,
   SessionAlertContextController,
 } from "./identity.controller.js";
+import type { IdentityService } from "./identity.service.js";
 import type { OAuthService } from "./oauth.service.js";
 import type { OtpService } from "./otp.service.js";
 import type { SessionService } from "./session.service.js";
@@ -15,6 +17,7 @@ import type { SessionService } from "./session.service.js";
 export interface IdentityModuleServices {
   oauth: OAuthService;
   otp: OtpService;
+  identity: IdentityService;
   session: SessionService;
   csrf: CsrfService;
 }
@@ -29,12 +32,14 @@ export class IdentityModule {
       providers: [
         { provide: IDENTITY_OAUTH_SERVICE, useValue: services.oauth },
         { provide: IDENTITY_OTP_SERVICE, useValue: services.otp },
+        { provide: IDENTITY_SERVICE, useValue: services.identity },
         { provide: IDENTITY_SESSION_SERVICE, useValue: services.session },
         { provide: IDENTITY_CSRF_SERVICE, useValue: services.csrf },
       ],
       exports: [
         IDENTITY_OAUTH_SERVICE,
         IDENTITY_OTP_SERVICE,
+        IDENTITY_SERVICE,
         IDENTITY_SESSION_SERVICE,
         IDENTITY_CSRF_SERVICE,
       ],

@@ -103,17 +103,19 @@ describe("identity runtime D-08 adapter", () => {
       correlationId: "corr-1",
     });
 
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      database,
-      actorId: "actor-1",
-      currentSessionId: "session-1",
-      proofId: "proof-1",
-      change: { type: "link-identity", provider: "email", email: "player@example.com" },
-      now,
-      generateId: expect.any(Function),
-      generateCorrelationId: expect.any(Function),
-      generateOpaqueToken: expect.any(Function),
-    }));
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        database,
+        actorId: "actor-1",
+        currentSessionId: "session-1",
+        proofId: "proof-1",
+        change: { type: "link-identity", provider: "email", email: "player@example.com" },
+        now,
+        generateId: expect.any(Function),
+        generateCorrelationId: expect.any(Function),
+        generateOpaqueToken: expect.any(Function),
+      }),
+    );
     expect(result).toEqual({
       sessionId: "session-1",
       sessionToken: "replacement-token",

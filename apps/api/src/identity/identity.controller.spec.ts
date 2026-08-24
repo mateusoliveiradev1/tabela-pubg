@@ -1,4 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
+import type { FastifyReply } from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import type { AuthenticatedSession } from "../authorization/authorization.service.js";
 import { PUBLIC_ROUTE_KEY } from "../authorization/decorators.js";
@@ -91,7 +92,13 @@ function request(auth: AuthenticatedSession = authenticated) {
 }
 
 function reply() {
-  return { header: vi.fn().mockReturnThis(), status: vi.fn().mockReturnThis() } as never;
+  return {
+    header: vi.fn().mockReturnThis(),
+    status: vi.fn().mockReturnThis(),
+  } as unknown as FastifyReply & {
+    header: ReturnType<typeof vi.fn>;
+    status: ReturnType<typeof vi.fn>;
+  };
 }
 
 describe("IdentityController", () => {
@@ -269,6 +276,34 @@ describe("IdentityController", () => {
     });
   });
 
+  it("rejects cross-session step-up output without rotating CSRF", async () => {
+    const { controller, otp, sessions, csrf } = setup();
+    const confirmedAt = new Date("2026-08-24T12:00:00.000Z");
+    vi.mocked(otp.verify).mockResolvedValueOnce({
+      status: "step-up-confirmed",
+      actorId: authenticated.actorId,
+      sessionId: "99999999-9999-4999-8999-999999999999",
+      confirmedAt,
+      validUntil: new Date("2026-08-24T12:10:00.000Z"),
+    });
+
+    await expect(
+      controller.verifyEmailStepUpOtp(
+        {
+          challengeId: "33333333-3333-4333-8333-333333333333",
+          email: "player@example.com",
+          code: "12345678",
+        },
+        "203.0.113.8",
+        "corr-step",
+        request(),
+        reply(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(sessions.confirmStepUp).not.toHaveBeenCalled();
+    expect(csrf.rotateCurrent).not.toHaveBeenCalled();
+  });
+
   it("passes the unconsumed proof once to D-08 and publishes replacement credentials after commit", async () => {
     const { controller, otp, identity, csrf, events } = setup();
     vi.mocked(otp.verify).mockResolvedValueOnce({
@@ -373,5 +408,31 @@ describe("IdentityController", () => {
     );
     expect(events).toEqual(["csrf-session"]);
     expect(result).toEqual({ status: "authenticated", nextPath: "/" });
+  });
+
+  it("keeps the old provisional cookie and CSRF untouched when promotion is rejected", async () => {
+    const { controller, otp, csrf } = setup();
+    const provisional = { ...authenticated, trust: "provisional" as const };
+    vi.mocked(otp.verify).mockResolvedValueOnce({ status: "rejected" });
+    const req = request(provisional);
+
+    await expect(
+      controller.verifyProvisionalEmailOtp(
+        {
+          challengeId: "33333333-3333-4333-8333-333333333333",
+          email: "confirmed@example.com",
+          code: "12345678",
+        },
+        "203.0.113.8",
+        "corr-promote",
+        req,
+        reply(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(csrf.rotateToSession).not.toHaveBeenCalled();
+    expect(csrf.rotateCurrent).not.toHaveBeenCalled();
+    expect((req as never as { cookies: Record<string, string> }).cookies["__Host-session"]).toBe(
+      "old-session-token",
+    );
   });
 });

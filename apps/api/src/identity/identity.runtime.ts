@@ -6,6 +6,7 @@ import {
   createOAuthTransaction,
   type DatabaseConnection,
   type EncryptionKey,
+  executeIdentitySecurityChange,
   findActiveAuthChallenge,
   findDiscordIdentity,
   findSessionForStepUp,
@@ -30,6 +31,7 @@ import {
   RedisDiscordOAuthVerifierStore,
 } from "./adapters/redis-auth-rate-limiter.js";
 import type { IdentityModuleServices } from "./identity.module.js";
+import type { IdentitySecurityChangeApplicationPort } from "./identity.service.js";
 import { type IdentityRepository, IdentityService } from "./identity.service.js";
 import { OAuthService, type OAuthTransactionRepository } from "./oauth.service.js";
 import { type OtpRepository, OtpService, type SecureOtpDeliveryPort } from "./otp.service.js";
@@ -91,6 +93,11 @@ export async function createIdentityRuntime(
     sessions,
     options.tokens,
     clock,
+    buildIdentitySecurityChangeApplication({
+      database: options.database,
+      tokens: options.tokens,
+      clock,
+    }),
   );
   const oauth = new OAuthService(
     new DiscordOAuthAdapter(
@@ -123,9 +130,38 @@ export async function createIdentityRuntime(
   );
 
   return {
-    services: { oauth, otp, session: sessions, csrf: options.csrf },
+    services: { oauth, otp, identity, session: sessions, csrf: options.csrf },
     close: async () => {
       await redis.quit();
+    },
+  };
+}
+
+export function buildIdentitySecurityChangeApplication(input: {
+  database: DatabaseConnection["db"];
+  tokens: TokenGenerator;
+  clock: { now(): Date };
+  execute?: typeof executeIdentitySecurityChange;
+}): IdentitySecurityChangeApplicationPort {
+  const execute = input.execute ?? executeIdentitySecurityChange;
+  return {
+    execute: async (command) => {
+      const committed = await execute({
+        database: input.database,
+        actorId: command.actorId,
+        currentSessionId: command.currentSessionId,
+        proofId: command.proofId,
+        change: command.change,
+        now: command.now,
+        generateId: () => input.tokens.id(),
+        generateCorrelationId: () => command.correlationId,
+        generateOpaqueToken: () => Buffer.from(input.tokens.opaque(32), "base64url"),
+      });
+      return {
+        sessionId: committed.sessionId,
+        sessionToken: committed.newSessionToken,
+        otherSessionsRevoked: committed.revokedOtherSessions,
+      };
     },
   };
 }

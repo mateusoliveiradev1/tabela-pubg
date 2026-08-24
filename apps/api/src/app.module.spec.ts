@@ -29,6 +29,21 @@ describe("registerAppModule identity composition", () => {
       expect(fastify.hasRoute({ method: "POST", url: "/identity/oauth/discord/callback" })).toBe(
         true,
       );
+      expect(fastify.hasRoute({ method: "POST", url: "/identity/email/otp/sign-in/request" })).toBe(
+        true,
+      );
+      expect(fastify.hasRoute({ method: "POST", url: "/identity/email/otp/sign-in/verify" })).toBe(
+        true,
+      );
+      expect(fastify.hasRoute({ method: "POST", url: "/identity/email/otp/step-up/verify" })).toBe(
+        true,
+      );
+      expect(
+        fastify.hasRoute({
+          method: "POST",
+          url: "/identity/email/otp/verify-provisional-email/verify",
+        }),
+      ).toBe(true);
     } finally {
       await app.close();
     }
@@ -61,6 +76,7 @@ function createModule() {
     identity: {
       oauth: {} as never,
       otp: {} as never,
+      identity: {} as never,
       session: {} as never,
       csrf: {} as never,
     },
