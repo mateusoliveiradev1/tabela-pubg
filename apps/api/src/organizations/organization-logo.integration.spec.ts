@@ -147,6 +147,70 @@ describe("organization logo application flow", () => {
     });
   });
 
+  it("keeps committed create metadata and its active object when signed URL projection fails", async () => {
+    const { repository, service, storage } = setup();
+    vi.mocked(storage.createDownloadUrl).mockRejectedValueOnce(new Error("signing unavailable"));
+
+    await expect(
+      service.create({
+        actorId,
+        body: {
+          name: "Arena Alpha",
+          logo: { declaredMime: "image/png", byteSize: png.byteLength },
+        },
+        logoBytes: png,
+        correlationId: "55555555-5555-4555-8555-555555555555",
+      }),
+    ).resolves.toMatchObject({ organization: { logoUrl: fallbackUrl } });
+
+    expect(repository.create).toHaveBeenCalledOnce();
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+    expect(repository.enqueueOrphanCleanup).not.toHaveBeenCalled();
+  });
+
+  it("never compensates a committed active object when response projection rejects", async () => {
+    const { repository, service, storage } = setup();
+    vi.mocked(repository.create).mockResolvedValueOnce({
+      ...ownerSummary(),
+      name: "",
+    });
+
+    await expect(
+      service.create({
+        actorId,
+        body: {
+          name: "Arena Alpha",
+          logo: { declaredMime: "image/png", byteSize: png.byteLength },
+        },
+        logoBytes: png,
+        correlationId: "55555555-5555-4555-8555-555555555555",
+      }),
+    ).rejects.toThrow();
+
+    expect(repository.create).toHaveBeenCalledOnce();
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+    expect(repository.enqueueOrphanCleanup).not.toHaveBeenCalled();
+  });
+
+  it("keeps a replacement active when its post-commit signing projection fails", async () => {
+    const { repository, service, storage } = setup();
+    vi.mocked(storage.createDownloadUrl).mockRejectedValueOnce(new Error("signing unavailable"));
+
+    await expect(
+      service.updateLogo({
+        actorId,
+        organizationId,
+        body: { logo: { declaredMime: "image/png", byteSize: png.byteLength } },
+        logoBytes: png,
+        correlationId: "55555555-5555-4555-8555-555555555555",
+      }),
+    ).resolves.toMatchObject({ url: fallbackUrl });
+
+    expect(repository.replaceLogo).toHaveBeenCalledOnce();
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+    expect(repository.enqueueOrphanCleanup).not.toHaveBeenCalled();
+  });
+
   it("rejects spoofed bytes and cross-organization mutation before writing storage", async () => {
     const { repository, service, storage } = setup();
     vi.mocked(storage.store).mockRejectedValueOnce(new Error("Declared MIME must match bytes"));
