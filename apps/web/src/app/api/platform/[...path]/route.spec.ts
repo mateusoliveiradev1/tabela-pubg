@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GET, PATCH, POST } from "./route.js";
+import { GET, PATCH, POST, PUT } from "./route.js";
 
 const WEB_ORIGIN = "https://camp.test";
 const API_ORIGIN = "http://api.internal:3001";
@@ -151,6 +151,83 @@ describe("same-origin platform BFF", () => {
     expect(response.headers.get("server")).toBeNull();
     expect(response.headers.get("x-provider-token")).toBeNull();
     expect(response.headers.get("x-otp-challenge-id")).toBe("66323e38-bb3e-4c19-b23a-821b355c06e3");
+  });
+
+  it.each([
+    {
+      name: "members",
+      handler: GET,
+      method: "GET",
+      path: "members",
+    },
+    {
+      name: "invitations",
+      handler: GET,
+      method: "GET",
+      path: "invitations",
+    },
+    {
+      name: "ownership",
+      handler: POST,
+      method: "POST",
+      path: "ownership/transfer",
+    },
+    {
+      name: "audit",
+      handler: GET,
+      method: "GET",
+      path: "audit",
+    },
+    {
+      name: "logo",
+      handler: PUT,
+      method: "PUT",
+      path: "logo",
+    },
+  ] as const)(
+    "derives the organization header from the validated $name route and drops spoofed tenant headers",
+    async ({ handler, method, path }) => {
+      const organizationId = "11111111-1111-4111-8111-111111111111";
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ status: "ok" }))
+        .mockResolvedValueOnce(jsonResponse({ csrfToken: "rotated-csrf-token-123" }));
+
+      const response = await handler(
+        request(`organizations/${organizationId}/${path}`, {
+          method,
+          headers: {
+            "x-organization-id": "22222222-2222-4222-8222-222222222222",
+            "x-authorization-scope-id": "33333333-3333-4333-8333-333333333333",
+          },
+        }),
+        context("organizations", organizationId, ...path.split("/")),
+      );
+
+      expect(response.status).toBe(200);
+      const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+      expect(Object.fromEntries(headers.entries())).toEqual({
+        origin: WEB_ORIGIN,
+        "x-organization-id": organizationId,
+      });
+    },
+  );
+
+  it("does not fabricate tenant context for root identity or invitation routes", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: "ok" }));
+
+    await GET(
+      request("identity/sessions", {
+        headers: {
+          "x-organization-id": "22222222-2222-4222-8222-222222222222",
+          "x-authorization-scope-id": "33333333-3333-4333-8333-333333333333",
+        },
+      }),
+      context("identity", "sessions"),
+    );
+
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("x-organization-id")).toBeNull();
+    expect(headers.get("x-authorization-scope-id")).toBeNull();
   });
 
   it("acquires a pre-auth CSRF token and preserves every secure Set-Cookie", async () => {
