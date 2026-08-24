@@ -36,11 +36,7 @@ export const outboxEvents = pgTable(
   },
   (table) => [
     index("outbox_pending_available_idx").on(table.status, table.availableAt),
-    index("outbox_pending_lease_idx").on(
-      table.status,
-      table.availableAt,
-      table.leaseExpiresAt,
-    ),
+    index("outbox_pending_lease_idx").on(table.status, table.availableAt, table.leaseExpiresAt),
     index("outbox_aggregate_idx").on(table.aggregateType, table.aggregateId),
   ],
 );

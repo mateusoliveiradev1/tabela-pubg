@@ -5,11 +5,7 @@ import { fileURLToPath } from "node:url";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  claimOutboxBatch,
-  markOutboxPublished,
-  retryOutboxEvent,
-} from "../src/outbox.js";
+import { claimOutboxBatch, markOutboxPublished, retryOutboxEvent } from "../src/outbox.js";
 import * as schema from "../src/schema.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -91,7 +87,7 @@ async function seedActorSession(
       (id, user_id, device_digest, label, browser, operating_system, first_seen_at, last_seen_at)
     values
       (${input.deviceId}, ${input.userId}, ${randomBytes(32).toString("hex")}, 'Runtime device',
-       'Chromium', 'Windows', ${issuedAt}, ${issuedAt})
+       'Chromium', 'Windows', ${issuedAt.toISOString()}, ${issuedAt.toISOString()})
   `;
   await client`
     insert into sessions
@@ -99,12 +95,13 @@ async function seedActorSession(
        idle_expires_at, absolute_expires_at)
     values
       (${input.sessionId}, ${input.userId}, ${input.deviceId},
-       ${randomBytes(32).toString("hex")}, ${input.trust}, ${issuedAt}, ${issuedAt},
-       ${absoluteExpiresAt}, ${absoluteExpiresAt})
+       ${randomBytes(32).toString("hex")}, ${input.trust}, ${issuedAt.toISOString()},
+       ${issuedAt.toISOString()}, ${absoluteExpiresAt.toISOString()},
+       ${absoluteExpiresAt.toISOString()})
   `;
 }
 
-describe("runtime security migration", () => {
+describe.runIf(process.env.PHASE2_SUITE === "integration")("runtime security migration", () => {
   let freshClient: Sql;
   let upgradeClient: Sql;
   let claimPeerClient: Sql;
@@ -172,8 +169,9 @@ describe("runtime security migration", () => {
     expect(columnKey("oauth_transactions", "current_method_confirmed_at")).toBe(true);
     expect(columnKey("outbox_events", "claim_token")).toBe(true);
     expect(columnKey("outbox_events", "lease_expires_at")).toBe(true);
-    expect(columns.find((row) => row.table_name === "sessions" && row.column_name === "trust"))
-      .toMatchObject({ is_nullable: "NO" });
+    expect(
+      columns.find((row) => row.table_name === "sessions" && row.column_name === "trust"),
+    ).toMatchObject({ is_nullable: "NO" });
 
     const enumLabels = await freshClient`
       select enumlabel
@@ -334,7 +332,7 @@ describe("runtime security migration", () => {
     const actorB = { userId: randomUUID(), deviceId: randomUUID(), sessionId: randomUUID() };
     await seedActorSession(freshClient, { ...actorA, trust: "trusted" });
     await seedActorSession(freshClient, { ...actorB, trust: "trusted" });
-    const now = new Date("2026-08-24T08:01:00.000Z");
+    const now = new Date("2026-08-24T12:00:00.000Z");
 
     await expectPostgresError(
       freshClient`
@@ -342,7 +340,8 @@ describe("runtime security migration", () => {
           (id, user_id, session_id, email_digest, purpose, code_digest, expires_at)
         values
           (${randomUUID()}, ${actorA.userId}, ${actorB.sessionId}, ${randomBytes(32).toString("hex")},
-           'step-up', ${randomBytes(32).toString("hex")}, ${new Date(now.getTime() + 60_000)})
+           'step-up', ${randomBytes(32).toString("hex")},
+           ${new Date(now.getTime() + 60_000).toISOString()})
       `,
       "23503",
     );
@@ -353,7 +352,8 @@ describe("runtime security migration", () => {
           (id, user_id, session_id, email_digest, purpose, code_digest, expires_at)
         values
           (${randomUUID()}, ${actorA.userId}, ${actorA.sessionId}, ${randomBytes(32).toString("hex")},
-           'sign-in', ${randomBytes(32).toString("hex")}, ${new Date(now.getTime() + 60_000)})
+           'sign-in', ${randomBytes(32).toString("hex")},
+           ${new Date(now.getTime() + 60_000).toISOString()})
       `,
       "23514",
     );
@@ -364,18 +364,20 @@ describe("runtime security migration", () => {
         (id, user_id, session_id, provider, provider_subject, expires_at, created_at)
       values
         (${proofId}, ${actorA.userId}, ${actorA.sessionId}, 'discord', 'candidate-discord-subject',
-         ${new Date(now.getTime() + 60_000)}, ${now})
+         ${new Date(now.getTime() + 60_000).toISOString()}, ${now.toISOString()})
     `;
     const firstConsume = await freshClient`
-      update identity_link_proofs set consumed_at = ${new Date(now.getTime() + 1_000)}
+      update identity_link_proofs
+      set consumed_at = ${new Date(now.getTime() + 1_000).toISOString()}
       where id = ${proofId} and user_id = ${actorA.userId} and session_id = ${actorA.sessionId}
-        and consumed_at is null and expires_at > ${now}
+        and consumed_at is null and expires_at > ${now.toISOString()}
       returning id
     `;
     const replay = await freshClient`
-      update identity_link_proofs set consumed_at = ${new Date(now.getTime() + 2_000)}
+      update identity_link_proofs
+      set consumed_at = ${new Date(now.getTime() + 2_000).toISOString()}
       where id = ${proofId} and user_id = ${actorA.userId} and session_id = ${actorA.sessionId}
-        and consumed_at is null and expires_at > ${now}
+        and consumed_at is null and expires_at > ${now.toISOString()}
       returning id
     `;
     expect(firstConsume).toHaveLength(1);
@@ -391,7 +393,7 @@ describe("runtime security migration", () => {
          status, attempts, available_at, occurred_at)
       values
         (${eventId}, 'runtime-security.claim', 1, 'migration-test', ${eventId}, '{}'::jsonb,
-         'pending', 0, ${now}, ${now})
+         'pending', 0, ${now.toISOString()}, ${now.toISOString()})
     `;
 
     const [firstClaim, competingClaim] = await Promise.all([
@@ -416,7 +418,8 @@ describe("runtime security migration", () => {
     const reclaimDb = firstOwner === "claim-owner-a" ? claimPeerDb : freshDb;
 
     await freshClient`
-      update outbox_events set lease_expires_at = ${new Date(now.getTime() - 1)} where id = ${eventId}
+      update outbox_events set lease_expires_at = ${new Date(now.getTime() - 1).toISOString()}
+      where id = ${eventId}
     `;
     const reclaimed = await claimOutboxBatch(reclaimDb, {
       now,

@@ -70,7 +70,13 @@ describe("transactional outbox", () => {
     expect(executor.queries[0]?.sql.toLowerCase()).toContain("for update skip locked");
     expect(executor.queries[0]?.sql).toContain("lease_expires_at");
     expect(executor.queries[0]?.params).toEqual(
-      expect.arrayContaining([now, "claim-1", new Date("2026-08-24T08:01:00.000Z"), 10, 5]),
+      expect.arrayContaining([
+        now.toISOString(),
+        "claim-1",
+        new Date("2026-08-24T08:01:00.000Z").toISOString(),
+        10,
+        5,
+      ]),
     );
   });
 
@@ -98,7 +104,7 @@ describe("transactional outbox", () => {
     expect(query?.sql).toContain("claim_token");
     expect(query?.sql).toContain("published_at");
     expect(query?.params).toEqual(
-      expect.arrayContaining(["event-1", "current-claim", publishedAt]),
+      expect.arrayContaining(["event-1", "current-claim", publishedAt.toISOString()]),
     );
   });
 

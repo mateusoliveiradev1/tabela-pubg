@@ -1,5 +1,5 @@
 import type { EventEnvelope } from "@pubg-camp/contracts";
-import { sql, type SQL } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { type NewOutboxEventRow, type OutboxEventRow, outboxEvents } from "./schema.js";
 
@@ -110,6 +110,8 @@ export async function claimOutboxBatch(
   assertIntegerInRange(input.batchSize, "outbox batch size", 1, 100);
   assertIntegerInRange(input.maxAttempts, "outbox maximum attempts", 1, 100);
   const leaseExpiresAt = new Date(input.now.getTime() + input.leaseMs);
+  const nowIso = input.now.toISOString();
+  const leaseExpiresAtIso = leaseExpiresAt.toISOString();
 
   const result = await executor.execute(sql`
     /* outbox:claim */
@@ -120,11 +122,11 @@ export async function claimOutboxBatch(
         and (
           (
             "candidate"."status" in ('pending', 'failed')
-            and "candidate"."available_at" <= ${input.now}
+            and "candidate"."available_at" <= ${nowIso}::timestamptz
           )
           or (
             "candidate"."status" = 'publishing'
-            and "candidate"."lease_expires_at" <= ${input.now}
+            and "candidate"."lease_expires_at" <= ${nowIso}::timestamptz
           )
         )
       order by "candidate"."available_at", "candidate"."occurred_at", "candidate"."id"
@@ -136,7 +138,7 @@ export async function claimOutboxBatch(
       "status" = 'publishing',
       "attempts" = "event"."attempts" + 1,
       "claim_token" = ${input.claimToken},
-      "lease_expires_at" = ${leaseExpiresAt},
+      "lease_expires_at" = ${leaseExpiresAtIso}::timestamptz,
       "last_error" = null
     from "eligible"
     where "event"."id" = "eligible"."id"
@@ -152,20 +154,21 @@ export async function markOutboxPublished(
 ): Promise<boolean> {
   assertNonEmptyBounded(input.eventId, "outbox event id", 128);
   assertNonEmptyBounded(input.claimToken, "outbox claim token", 128);
+  const publishedAtIso = input.publishedAt.toISOString();
 
   const result = await executor.execute(sql`
     /* outbox:publish */
     update "outbox_events" as "event"
     set
       "status" = 'published',
-      "published_at" = ${input.publishedAt},
+      "published_at" = ${publishedAtIso}::timestamptz,
       "claim_token" = null,
       "lease_expires_at" = null,
       "last_error" = null
     where "event"."id" = ${input.eventId}
       and "event"."status" = 'publishing'
       and "event"."claim_token" = ${input.claimToken}
-      and "event"."lease_expires_at" > ${input.publishedAt}
+      and "event"."lease_expires_at" > ${publishedAtIso}::timestamptz
     returning "event"."id"
   `);
 
@@ -187,13 +190,14 @@ export async function retryOutboxEvent(
   assertIntegerInRange(input.maxRetryMs, "outbox maximum retry", input.baseRetryMs, 3_600_000);
   assertIntegerInRange(input.maxAttempts, "outbox maximum attempts", 1, 100);
   const lastError = redactErrorCode(input.errorCode);
+  const nowIso = input.now.toISOString();
 
   const result = await executor.execute(sql`
     /* outbox:retry */
     update "outbox_events" as "event"
     set
       "status" = 'failed',
-      "available_at" = ${input.now} + (
+      "available_at" = ${nowIso}::timestamptz + (
         least(
           ${input.maxRetryMs}::numeric,
           ${input.baseRetryMs}::numeric * power(2::numeric, greatest("event"."attempts" - 1, 0))
@@ -205,7 +209,7 @@ export async function retryOutboxEvent(
     where "event"."id" = ${input.eventId}
       and "event"."status" = 'publishing'
       and "event"."claim_token" = ${input.claimToken}
-      and "event"."lease_expires_at" > ${input.now}
+      and "event"."lease_expires_at" > ${nowIso}::timestamptz
       and "event"."attempts" <= ${input.maxAttempts}
     returning "event"."id"
   `);
