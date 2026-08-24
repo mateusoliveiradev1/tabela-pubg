@@ -51,9 +51,7 @@ export class E2EOrganizationLogoStorage implements OrganizationLogoStorage {
   constructor(options: E2EOrganizationLogoStorageOptions) {
     if (!RUN_ID.test(options.runId)) throw new Error("E2E_RUN_ID is invalid");
     if (!path.isAbsolute(options.root)) throw new Error("E2E object root must be absolute");
-    if (!options.publicBasePath.startsWith("/") || options.publicBasePath.startsWith("//")) {
-      throw new Error("E2E public base path must be same-origin");
-    }
+    assertE2EPublicBasePath(options.publicBasePath);
     this.runRoot = path.resolve(options.root, options.runId);
     this.publicBasePath = `${options.publicBasePath.replace(/\/$/, "")}/${options.runId}`;
   }
@@ -115,5 +113,22 @@ export class E2EOrganizationLogoStorage implements OrganizationLogoStorage {
       throw new Error("E2E logo object key escapes the run root");
     }
     return objectPath;
+  }
+}
+
+function assertE2EPublicBasePath(candidate: string): void {
+  if (candidate.startsWith("/") && !candidate.startsWith("//")) return;
+  const url = new URL(candidate);
+  if (
+    url.protocol !== "http:" ||
+    url.hostname !== "127.0.0.1" ||
+    !url.port ||
+    url.pathname !== "/objects" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error("E2E public base path must be same-origin or exact loopback origin");
   }
 }

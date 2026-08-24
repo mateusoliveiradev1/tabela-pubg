@@ -43,6 +43,7 @@ export interface ApiProviderEnvironment {
   E2E_PROVIDER_MODE?: string | undefined;
   E2E_RUN_ID?: string | undefined;
   E2E_OBJECT_ROOT?: string | undefined;
+  E2E_LOGO_ORIGIN?: string | undefined;
 }
 
 export type ApiProviderMode =
@@ -51,6 +52,7 @@ export type ApiProviderMode =
       mode: "fake";
       runId: string;
       objectRoot: string;
+      logoOrigin?: string;
       redisScope: { mode: "run"; runScopeId: string };
       discordFetch: typeof globalThis.fetch;
     };
@@ -61,7 +63,8 @@ export async function resolveApiProviderMode(
   const fakeFieldsPresent =
     environment.E2E_PROVIDER_MODE !== undefined ||
     environment.E2E_RUN_ID !== undefined ||
-    environment.E2E_OBJECT_ROOT !== undefined;
+    environment.E2E_OBJECT_ROOT !== undefined ||
+    environment.E2E_LOGO_ORIGIN !== undefined;
   if (!fakeFieldsPresent) return { mode: "production", redisScope: { mode: "production" } };
   if (
     environment.NODE_ENV !== "test" ||
@@ -75,10 +78,15 @@ export async function resolveApiProviderMode(
     throw new Error("E2E run scope is invalid");
   }
   const objectRoot = await resolveOwnedE2ERoot(environment.E2E_OBJECT_ROOT);
+  const logoOrigin =
+    environment.E2E_LOGO_ORIGIN === undefined
+      ? undefined
+      : resolveLoopbackE2ELogoOrigin(environment.E2E_LOGO_ORIGIN);
   return {
     mode: "fake",
     runId: environment.E2E_RUN_ID,
     objectRoot,
+    ...(logoOrigin === undefined ? {} : { logoOrigin }),
     redisScope: { mode: "run", runScopeId: environment.E2E_RUN_ID },
     discordFetch: createFakeDiscordFetch(environment.E2E_RUN_ID),
   };
@@ -97,7 +105,7 @@ export function createFakeDiscordFetch(runId: string): typeof globalThis.fetch {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.origin !== "https://discord.com")
       throw new Error("E2E Discord transport rejected origin");
-    if (url.pathname === "/api/v10/oauth2/token") {
+    if (url.pathname === "/api/oauth2/token") {
       return Response.json({
         access_token: token,
         token_type: "Bearer",
@@ -105,17 +113,33 @@ export function createFakeDiscordFetch(runId: string): typeof globalThis.fetch {
         scope: "identify email",
       });
     }
-    if (url.pathname === "/api/v10/users/@me") {
+    if (url.pathname === "/api/users/@me") {
       return Response.json({
         id: `1000${profileSuffix}`,
         username: `e2e-${profileSuffix.slice(-8)}`,
-        email: `e2e-${profileSuffix}@example.test`,
-        verified: true,
+        verified: false,
       });
     }
-    if (url.pathname === "/api/v10/oauth2/token/revoke") return new Response(null, { status: 200 });
+    if (url.pathname === "/api/oauth2/token/revoke") return new Response(null, { status: 200 });
     throw new Error("E2E Discord transport rejected endpoint");
   };
+}
+
+function resolveLoopbackE2ELogoOrigin(candidate: string): string {
+  const origin = new URL(candidate);
+  if (
+    origin.protocol !== "http:" ||
+    origin.hostname !== "127.0.0.1" ||
+    !origin.port ||
+    origin.pathname !== "/" ||
+    origin.username ||
+    origin.password ||
+    origin.search ||
+    origin.hash
+  ) {
+    throw new Error("E2E logo origin must be an exact loopback HTTP origin");
+  }
+  return origin.origin;
 }
 
 async function resolveOwnedE2ERoot(candidate: string): Promise<string> {
@@ -315,6 +339,9 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
           : {
               environment: process.env,
               e2eObjectRoot: providerMode.objectRoot,
+              ...(providerMode.logoOrigin === undefined
+                ? {}
+                : { e2eLogoPublicBasePath: `${providerMode.logoOrigin}/objects` }),
             }),
         logoFallbackUrl: `${env.APP_ORIGIN.replace(/\/$/, "")}/images/organization-fallback.svg`,
         logoSignedUrlTtlSeconds: 300,

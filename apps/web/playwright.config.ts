@@ -21,23 +21,32 @@ export default defineConfig({
   projects: [
     {
       name: "mobile-320",
+      testIgnore: "phase2-runtime.spec.ts",
       use: { ...devices["Desktop Chrome"], viewport: { width: 320, height: 800 } },
     },
     {
       name: "tablet-768",
+      testIgnore: "phase2-runtime.spec.ts",
       use: { ...devices["Desktop Chrome"], viewport: { width: 768, height: 1024 } },
     },
     {
       name: "desktop-1440",
+      testIgnore: "phase2-runtime.spec.ts",
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
     {
       name: "reduced-motion",
+      testIgnore: "phase2-runtime.spec.ts",
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1440, height: 900 },
         reducedMotion: "reduce",
       },
+    },
+    {
+      name: "phase2-runtime",
+      testMatch: "phase2-runtime.spec.ts",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],
 });

@@ -85,12 +85,11 @@ describe("real API provider composition", () => {
     const profileResponse = await fakeFetch("https://discord.com/api/users/@me", {
       headers: { authorization: "Bearer opaque-test-token" },
     });
+    const profile = await profileResponse.json();
 
     await expect(tokenResponse.json()).resolves.toMatchObject({ token_type: "Bearer" });
-    await expect(profileResponse.json()).resolves.toEqual(
-      expect.objectContaining({ verified: false }),
-    );
-    await expect(profileResponse.clone().json()).resolves.not.toHaveProperty("email");
+    expect(profile).toEqual(expect.objectContaining({ verified: false }));
+    expect(profile).not.toHaveProperty("email");
     await expect(fakeFetch("https://example.com/not-discord")).rejects.toThrow(/Discord/i);
   });
 });
