@@ -158,8 +158,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build browser workspace dependencies
         run: pnpm turbo run build --filter=@pubg-camp/web^...
-      - name: Build authorization dependency for API security contracts
-        run: pnpm turbo run build --filter=@pubg-camp/authorization...
+      - name: Build API and worker workspace dependencies
+        run: pnpm turbo run build --filter=@pubg-camp/api^... --filter=@pubg-camp/worker^...
       - name: Validate final phase 2 workflow structure
         run: pnpm verify:phase2-ci
       - name: Run mandatory PostgreSQL and Redis preflight
