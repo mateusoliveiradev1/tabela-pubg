@@ -20,6 +20,11 @@
 
 - O gate focal real de 02-36 passou 25/25 casos contra branch Neon isolada e Redis loopback. A suíte ampla `phase2:integration` manteve 43 casos verdes, mas `identity-security-change.integration.spec.ts` excedeu o `testTimeout` preexistente de 15 segundos e `runtime-security-migration.integration.spec.ts` excedeu o `hookTimeout` preexistente de 30 segundos sob a latência Neon. Uma repetição com conexão direta eliminou as falhas de isolamento vistas no endpoint pooled, mas preservou esses dois timeouts; ajustar orçamentos do harness permanece fora do escopo dos endpoints OTP.
 
+## Plano 02-33
+
+- O gate amplo `pnpm phase2:integration` passou o preflight e 38 casos, mas manteve falhas fora do escopo dos providers: `runtime-security-migration.integration.spec.ts` excedeu o `hookTimeout` de 30 segundos, `identity-security-change.integration.spec.ts` excedeu o `testTimeout` de 15 segundos e quatro casos concorrentes tentaram consultar relações depois que seus hooks/schemas falharam. Os 11 testes focais de 02-33, o seed real e o cleanup exato passaram em branch Neon isolada e Redis loopback.
+- O typecheck completo do worker continua bloqueado por erros preexistentes de propriedades duplicadas (`eventType` e `payload`) em `apps/worker/src/outbox/publisher.spec.ts`; o build de produção do worker e os arquivos alterados por 02-33 passam.
+
 ## Plano 02-42
 
 - O caso cross-actor de `runtime-security-migration.integration.spec.ts` usa timestamps absolutos de 2026-08-24 e, quando executado depois desse instante, recebe primeiro o check `23514` de expiração em vez do FK `23503` esperado. Fresh apply, upgrade e os outros três casos passaram; tornar o clock desse harness relativo pertence ao plano de tooling/migrations.

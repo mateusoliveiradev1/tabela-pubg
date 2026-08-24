@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 38 planos executados; `02-38` contratou as 39 combinações BFF contra o router Nest/Fastify real; restam 4 planos de remediação antes da Fase 2.1.
+**Progresso:** 39 planos executados; `02-33` confinou providers e seed E2E por run para a API e o worker reais; restam 3 planos de remediação antes da Fase 2.1.
 
 ### Entregas
 

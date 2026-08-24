@@ -26,9 +26,9 @@
 | ORG-004 | Concluído | Matriz de menor privilégio sem wildcard e default-deny verificada por testes. |
 | ORG-005 | Concluído | Lock e testes concorrentes protegem o último proprietário e exigem transferência explícita. |
 | AUD-001 | Concluído | Auditoria transacional grava autor, data, motivo e valores anterior/novo sanitizados. |
-| NFR-005 | Bloqueado | Gestão de identidade/sessão e tenant no BFF foram fechados pelos planos 02-32/02-38; resta a evidência real-stack pós-remediação e a revalidação final dos planos 02-33/02-34/02-39/02-40. |
+| NFR-005 | Bloqueado | Gestão de identidade/sessão, tenant no BFF e providers/seed run-scoped foram fechados pelos planos 02-32/02-38/02-33; resta a evidência real-stack e a revalidação final dos planos 02-34/02-39/02-40. |
 
-**Fase 2:** 38/42 planos executados; verificação em `gaps_found` (12/13 requisitos). O plano 02-38 fechou o contrato BFF→Nest e o contexto tenant; NFR-005 permanece bloqueado pela evidência real-stack pós-remediação e pela revalidação final.
+**Fase 2:** 39/42 planos executados; verificação em `gaps_found` (12/13 requisitos). O plano 02-33 fechou providers e seed run-scoped; NFR-005 permanece bloqueado pela evidência real-stack pós-remediação e pela revalidação final.
 
 ## 1. Contas, organizações e acesso
 
