@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 36 planos executados; `02-41` isolou limiter e PKCE Redis por runScopeId validado e tornou o spec real não-skippable; restam 6 planos de remediação antes da Fase 2.1.
+**Progresso:** 38 planos executados; `02-38` contratou as 39 combinações BFF contra o router Nest/Fastify real; restam 4 planos de remediação antes da Fase 2.1.
 
 ### Entregas
 

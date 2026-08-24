@@ -16,19 +16,19 @@
 |---|---|---|
 | AUTH-001 | Concluído | Login Discord OAuth2 real com redirect exato, state/browser binding e PKCE S256 required aprovado. |
 | AUTH-002 | Concluído | O plano 02-36 publicou sign-in OTP real que persiste sessão trusted e alerta de novo dispositivo antes de cookie/CSRF. |
-| AUTH-003 | Bloqueado | Token opaco, trust/touch, enforcement global, step-up email/Discord bound e rotação/revogação D-08 atômica foram fechados nos planos 02-27/02-35/02-36/02-37/02-42; ainda faltam rotas reais de gestão de sessões. |
+| AUTH-003 | Concluído | Token opaco, trust/touch, enforcement global, step-up bound e D-08 atômica foram fechados; o plano 02-32 publicou as rotas reais de gestão de sessões e o 02-38 as contratou no inventário BFF→Nest. |
 | AUTH-004 | Concluído | Memberships independentes permitem várias organizações e assignments aceitam escopo explícito. |
-| AUTH-005 | Bloqueado | A matriz default-deny e o gate trust-first existem, mas o BFF ainda não fornece o contexto tenant necessário ao caminho autorizado. |
+| AUTH-005 | Concluído | Matriz default-deny e gate trust-first recebem contexto tenant derivado somente dos captures UUID do inventário canônico BFF→Nest, provado pelo plano 02-38. |
 | AUTH-006 | Concluído | Tokens, codes, cookies e contextos permaneceram fora de DOM, JSON público, URL e logs persistidos; o evento D-08 do plano 02-42 também é allowlisted e redigido. |
 | ORG-001 | Concluído | Criação/persistência e membros existem; CSP e convite compartilham allowlist exata para a logo externa assinada. |
-| ORG-002 | Bloqueado | O plano 02-36 provou aceite somente para o e-mail confirmado após promoção provisional, mas gestão de convites/revogações ainda não completa o fluxo real sem contexto tenant. |
-| ORG-003 | Bloqueado | Os seis papéis estão modelados, mas a gestão real via BFF falha sem contexto tenant. |
+| ORG-002 | Concluído | Aceite exige e-mail confirmado e as rotas reais de convite, resend e revoke agora atravessam o BFF com contexto tenant server-derived contratado pelo plano 02-38. |
+| ORG-003 | Concluído | Os seis papéis estão modelados e as rotas reais de membros/ownership usam contexto tenant server-derived contratado pelo plano 02-38. |
 | ORG-004 | Concluído | Matriz de menor privilégio sem wildcard e default-deny verificada por testes. |
 | ORG-005 | Concluído | Lock e testes concorrentes protegem o último proprietário e exigem transferência explícita. |
 | AUD-001 | Concluído | Auditoria transacional grava autor, data, motivo e valores anterior/novo sanitizados. |
-| NFR-005 | Bloqueado | CSP, compensação pós-commit, outbox, lifecycle, trust-first authorization, OTP/OAuth duráveis e atomicidade D-08 foram fechados; persistem gaps em gestão de identidade/sessão, tenant no BFF e revalidação final. |
+| NFR-005 | Bloqueado | Gestão de identidade/sessão e tenant no BFF foram fechados pelos planos 02-32/02-38; resta a evidência real-stack pós-remediação e a revalidação final dos planos 02-33/02-34/02-39/02-40. |
 
-**Fase 2:** 35/42 planos executados; verificação em `gaps_found` (8/13 requisitos). O plano 02-37 fechou OAuth autenticado e o wiring BFF purpose-specific; NFR-005 permanece bloqueado pelos demais fluxos runtime e pela revalidação final.
+**Fase 2:** 38/42 planos executados; verificação em `gaps_found` (12/13 requisitos). O plano 02-38 fechou o contrato BFF→Nest e o contexto tenant; NFR-005 permanece bloqueado pela evidência real-stack pós-remediação e pela revalidação final.
 
 ## 1. Contas, organizações e acesso
 

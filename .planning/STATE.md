@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T14:30:22.056Z"
+last_updated: "2026-08-24T14:42:59.785Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 40
+  completed_plans: 41
   percent: 33
 ---
 
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: 02-32 concluído; próximo plano pendente 02-33
-- Status: remediação em execução, com controllers reais de sessões/identidades protegidos e mudanças sensíveis bound/owner-scoped
-- Progresso: 40/45 planos do milestone concluídos; restam 5 planos de gap closure da Fase 2
+- Plano: 02-38 concluído; próximo plano pendente 02-33
+- Status: remediação em execução, com inventário canônico BFF→Nest provado contra o router Fastify real
+- Progresso: 41/45 planos do milestone concluídos; restam 4 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -108,7 +108,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos pendentes `02-33`–`02-34` e `02-38`–`02-40` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar os planos pendentes `02-33`–`02-34` e `02-39`–`02-40` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -117,7 +117,7 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano 02-32 publicou controllers reais de sessões/identidades, proof D-08 bound e remoção owner-scoped transacional
+- Última ação: plano 02-38 publicou inventário exato de 39 rotas e contratou o BFF contra o router Nest/Fastify real
 - Próxima ação: executar o plano 02-33, próximo gap de integração pendente
 - Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-33-PLAN.md
 
@@ -138,6 +138,7 @@ progress:
 | Phase 02 P37 | 18min | 2 tasks | 14 files |
 | Phase 02 P41 | 16min | 1 tasks | 5 files |
 | Phase 02 P32 | 13min | 1 tasks | 10 files |
+| Phase 02 P38 | 8min | 1 tasks | 6 files |
 
 ## Decisions
 
@@ -163,3 +164,5 @@ progress:
 - [Phase 02]: candidateIdentityId identifica somente a pending proof server-side; actor, sessao, trust e candidate de provider nunca vem do browser.
 - [Phase 02]: Confirmacao Discord consulta a proof bound sem consumir e delega exatamente uma vez ao comando atomico D-08.
 - [Phase 02]: Remocao de identidade serializa na conta e confirma target, token atual e revoke-others na mesma transaction.
+- [Phase 02]: Cada combinacao method/path do BFF ocupa uma entrada propria no inventario canonico. — Evita que metodos agrupados escondam duplicatas ou metadata divergente.
+- [Phase 02]: Fastify 5 valida hasRoute pelo template registrado; amostras concretas validam matching e materializacao. — Segue a semantica oficial do router sem executar handlers protegidos.
