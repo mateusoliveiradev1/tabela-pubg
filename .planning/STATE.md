@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T11:11:31.564Z"
+last_updated: "2026-08-24T11:14:23.000Z"
 progress:
   total_phases: 3
   completed_phases: 1
@@ -95,7 +95,7 @@ progress:
 
 ## Métricas de execução
 
-- Plano 02-35: 7 min, 1 tarefa TDD, 8 arquivos.
+- Plano 02-35: 11 min, 1 tarefa TDD + 1 fix de build pós-wave, 9 arquivos.
 - Plano 02-27: 25 min, 1 tarefa TDD, 6 arquivos.
 - Plano 02-26: 9 min, 2 tarefas, 5 arquivos.
 - Plano 02-28: 38 min, 2 tarefas, 8 arquivos.

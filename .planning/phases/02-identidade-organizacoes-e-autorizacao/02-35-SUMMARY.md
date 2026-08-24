@@ -28,6 +28,7 @@ key-files:
     - apps/api/src/authorization/decorators.ts
     - apps/api/src/authorization/permission.guard.ts
     - apps/api/src/authorization/authorization.module.ts
+    - apps/api/src/security/csrf.service.ts
     - apps/api/src/main.ts
     - apps/api/src/identity/identity.controller.ts
     - apps/api/src/app.module.spec.ts
@@ -45,7 +46,7 @@ patterns-established:
 
 requirements-completed: [AUTH-003, AUTH-005, NFR-005]
 
-duration: 7min
+duration: 11min
 completed: 2026-08-24
 ---
 
@@ -55,11 +56,11 @@ completed: 2026-08-24
 
 ## Performance
 
-- **Duration:** 7 min
+- **Duration:** 11 min
 - **Started:** 2026-08-24T11:03:14Z
-- **Completed:** 2026-08-24T11:09:57Z
+- **Completed:** 2026-08-24T11:14:23Z
 - **Tasks:** 1
-- **Files modified:** 8
+- **Files modified:** 9
 
 ## Accomplishments
 
@@ -74,6 +75,7 @@ completed: 2026-08-24
 A tarefa TDD produziu commits RED e GREEN separados:
 
 1. **Task 1: Aplicar trust provisional fail-closed** — `d48c305` (RED), `d1e0632` (GREEN)
+2. **Post-wave build fix: alinhar request CSRF ao auth context global** — `3296ae4` (fix)
 
 ## Files Created/Modified
 
@@ -81,6 +83,7 @@ A tarefa TDD produziu commits RED e GREEN separados:
 - `apps/api/src/authorization/decorators.ts` — metadata `AllowProvisional` dedicada.
 - `apps/api/src/authorization/permission.guard.ts` — gate trust-first, bypass estreito e negação antes de RBAC.
 - `apps/api/src/authorization/authorization.module.ts` — wiring obrigatório do security log port.
+- `apps/api/src/security/csrf.service.ts` — cookie-aware request preserva o `AuthenticatedSession` global com trust obrigatório.
 - `apps/api/src/main.ts` — sink de produção do evento de autorização usando o logger estruturado existente.
 - `apps/api/src/identity/identity.controller.ts` — request protegido usa o `AuthenticatedSession` completo, incluindo trust.
 - `apps/api/src/app.module.spec.ts` — composição do módulo fornece o novo port obrigatório.
@@ -113,31 +116,43 @@ A tarefa TDD produziu commits RED e GREEN separados:
 - **Verification:** Typecheck, lint, composição Nest e suíte completa da API passaram.
 - **Committed in:** `d1e0632`
 
+**3. [Rule 1 - Bug] Corrigida a colisão de tipos CookieAwareRequest após trust obrigatório**
+- **Found during:** Gate agregado pós-wave (`rtk pnpm build`)
+- **Issue:** `CookieAwareRequest` estendia o `FastifyRequest` aumentado globalmente, mas redeclarava `auth` sem `trust`; a incompatibilidade também invalidava os casts que exigiam cookies do plugin Fastify.
+- **Fix:** Removida a duplicação de `auth` e modelado o estado do cookie plugin como interseção `FastifyRequest & { cookies: ... }`, preservando o contexto autenticado autoritativo.
+- **Files modified:** `apps/api/src/security/csrf.service.ts`
+- **Verification:** Build API e raiz, regressões CSRF/segurança, lint e typecheck passaram sem relaxar validação de origem ou binding.
+- **Committed in:** `3296ae4`
+
 ---
 
-**Total deviations:** 2 auto-fixed (1 bug, 1 missing critical)
-**Impact on plan:** As correções foram necessárias para provar missing trust e tornar o logging de produção efetivo; nenhuma superfície ou comportamento fora da autorização foi ampliado.
+**Total deviations:** 3 auto-fixed (2 bugs, 1 missing critical)
+**Impact on plan:** As correções foram necessárias para provar missing trust, tornar o logging de produção efetivo e manter CSRF compilável com o novo contrato; nenhuma superfície ou comportamento fora da autorização foi ampliado.
 
 ## Issues Encountered
 
 - O primeiro helper de teste representava trust ausente com `undefined`, mas o default parameter do JavaScript convertia esse caso em `trusted`; o sentinel explícito removeu a ambiguidade.
+- O gate agregado encontrou uma redeclaração histórica incompleta de `request.auth` no serviço CSRF; o tipo passou a consumir diretamente a augmentação global do guard de sessão.
 
 ## Known Stubs
 
-None — o scan dos oito arquivos modificados não encontrou TODO, FIXME, placeholder ou fonte de dados de produção vazia.
+None — o scan dos nove arquivos modificados não encontrou TODO, FIXME, placeholder ou fonte de dados de produção vazia.
 
 ## Verification
 
 - `rtk pnpm --filter @pubg-camp/api exec vitest run test/security.integration.spec.ts` — PASS; 14/14 testes.
+- `rtk pnpm --filter @pubg-camp/api build` — PASS; contrato Fastify/CSRF compilado com trust obrigatório.
 - `rtk pnpm --filter @pubg-camp/api typecheck` — PASS; sem erros TypeScript.
 - `rtk pnpm --filter @pubg-camp/api lint` — PASS; 53 arquivos Biome.
 - `rtk pnpm --filter @pubg-camp/api test` — PASS; 30 arquivos e 165 testes, com 2 arquivos/6 casos preexistentes skipped.
+- `rtk pnpm build` — PASS; 13/13 pacotes no gate agregado.
 - Cleanup — PASS; apps Nest/Fastify foram fechados por `afterEach`, sem providers, cookies ou sinks globais restantes.
 
 ## TDD Gate Compliance
 
 - RED `d48c305` falhou com `AllowProvisional is not a function`, antes de qualquer implementação.
 - GREEN `d1e0632` veio depois do RED e passou matriz HTTP, typecheck, lint e a suíte completa da API.
+- O gate de compilação pós-wave expôs a regressão de tipo sem mudança comportamental; `3296ae4` fechou esse RED de build mantendo os mesmos testes CSRF verdes.
 
 ## Threat Flags
 
@@ -154,8 +169,8 @@ None — nenhum segredo, serviço externo ou recurso temporário foi necessário
 
 ## Self-Check: PASSED
 
-- Os oito arquivos modificados e este SUMMARY existem no working tree.
-- Os commits TDD `d48c305` e `d1e0632` existem no histórico na ordem RED→GREEN.
+- Os nove arquivos modificados e este SUMMARY existem no working tree.
+- Os commits `d48c305`, `d1e0632` e `3296ae4` existem no histórico na ordem RED→GREEN→build fix.
 - Nenhuma deleção rastreada, segredo, recurso temporário ou arquivo gerado não rastreado permaneceu.
 
 ---
