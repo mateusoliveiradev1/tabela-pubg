@@ -11,7 +11,9 @@ import { loadAuthorizationSnapshot } from "../src/repositories/authorization.js"
 import {
   completeOtpChallenge,
   consumeAuthChallenge,
+  consumeIdentityLinkProof,
   consumeOAuthTransaction,
+  createIdentityLinkProof,
   createOAuthTransaction,
   identityDigests,
   linkIdentity,
@@ -149,6 +151,335 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
       ),
     ).resolves.toBeNull();
   });
+
+  it("round-trips the server-bound actor and session for step-up without a prior proof", async () => {
+    const issuedAt = new Date("2026-08-24T12:00:00.000Z");
+    const now = new Date(issuedAt.getTime() + 60_000);
+    const actorId = randomUUID();
+    const sessionId = randomUUID();
+    const state = `step-up-${randomUUID()}`;
+    const browserBinding = `browser-${randomUUID()}`;
+    await seedSession({
+      userId: actorId,
+      sessionId,
+      token: `step-up-token-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+
+    await createOAuthTransaction(
+      db,
+      {
+        id: randomUUID(),
+        state,
+        browserBinding,
+        purpose: "step-up",
+        expiresAt: new Date(now.getTime() + 600_000),
+        userId: actorId,
+        sessionId,
+      },
+      () => now,
+    );
+
+    await expect(
+      consumeOAuthTransaction(db, { state, browserBinding, purpose: "link-identity" }, () => now),
+    ).resolves.toBeNull();
+    await expect(
+      consumeOAuthTransaction(db, { state, browserBinding, purpose: "step-up" }, () => now),
+    ).resolves.toMatchObject({
+      purpose: "step-up",
+      userId: actorId,
+      sessionId,
+      currentMethodConfirmedAt: null,
+    });
+  });
+
+  it("rejects protected OAuth starts without the exact active actor session", async () => {
+    const issuedAt = new Date("2026-08-24T13:00:00.000Z");
+    const now = new Date(issuedAt.getTime() + 60_000);
+    const activeActorId = randomUUID();
+    const activeSessionId = randomUUID();
+    const revokedActorId = randomUUID();
+    const revokedSessionId = randomUUID();
+    const expiredActorId = randomUUID();
+    const expiredSessionId = randomUUID();
+    const inactiveActorId = randomUUID();
+    const inactiveSessionId = randomUUID();
+    await seedSession({
+      userId: activeActorId,
+      sessionId: activeSessionId,
+      token: `active-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await seedSession({
+      userId: revokedActorId,
+      sessionId: revokedSessionId,
+      token: `revoked-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await seedSession({
+      userId: expiredActorId,
+      sessionId: expiredSessionId,
+      token: `expired-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await seedSession({
+      userId: inactiveActorId,
+      sessionId: inactiveSessionId,
+      token: `inactive-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await client`update sessions set revoked_at = ${now.toISOString()}, revocation_reason = 'logout' where id = ${revokedSessionId}`;
+    await client`update sessions set idle_expires_at = ${now.toISOString()} where id = ${expiredSessionId}`;
+    await client`update users set status = 'suspended' where id = ${inactiveActorId}`;
+
+    const rejectedBindings = [
+      { userId: activeActorId, sessionId: randomUUID() },
+      { userId: randomUUID(), sessionId: activeSessionId },
+      { userId: revokedActorId, sessionId: revokedSessionId },
+      { userId: expiredActorId, sessionId: expiredSessionId },
+      { userId: inactiveActorId, sessionId: inactiveSessionId },
+    ];
+    for (const binding of rejectedBindings) {
+      const transactionId = randomUUID();
+      await expect(
+        createOAuthTransaction(
+          db,
+          {
+            id: transactionId,
+            state: `rejected-${randomUUID()}`,
+            browserBinding: `browser-${randomUUID()}`,
+            purpose: "step-up",
+            expiresAt: new Date(now.getTime() + 600_000),
+            ...binding,
+          },
+          () => now,
+        ),
+      ).rejects.toThrow("active session required");
+      const [stored] = await client`select count(*)::int as count from oauth_transactions where id = ${transactionId}`;
+      expect(stored?.count).toBe(0);
+    }
+
+    const signInId = randomUUID();
+    await expect(
+      createOAuthTransaction(
+        db,
+        {
+          id: signInId,
+          state: `sign-in-smuggling-${randomUUID()}`,
+          browserBinding: `browser-${randomUUID()}`,
+          purpose: "sign-in",
+          expiresAt: new Date(now.getTime() + 600_000),
+          userId: activeActorId,
+          sessionId: activeSessionId,
+        },
+        () => now,
+      ),
+    ).rejects.toThrow("purpose binding is invalid");
+    const [signInStored] =
+      await client`select count(*)::int as count from oauth_transactions where id = ${signInId}`;
+    expect(signInStored?.count).toBe(0);
+  });
+
+  it("requires a fresh same-session current-method proof for identity link starts", async () => {
+    const issuedAt = new Date("2026-08-24T14:00:00.000Z");
+    const now = new Date(issuedAt.getTime() + 20 * 60_000);
+    const actorId = randomUUID();
+    const freshSessionId = randomUUID();
+    const missingSessionId = randomUUID();
+    const staleSessionId = randomUUID();
+    const expiredSessionId = randomUUID();
+    await seedSession({
+      userId: actorId,
+      sessionId: freshSessionId,
+      token: `fresh-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    for (const sessionId of [missingSessionId, staleSessionId, expiredSessionId]) {
+      await seedAdditionalSession({
+        userId: actorId,
+        sessionId,
+        token: `link-${randomUUID()}`,
+        trust: "trusted",
+        now: issuedAt,
+      });
+    }
+    const confirmedAt = new Date(now.getTime() - 60_000);
+    await client`update sessions set reauthenticated_at = ${confirmedAt.toISOString()} where id = ${freshSessionId}`;
+    await client`update sessions set reauthenticated_at = ${new Date(now.getTime() - 10 * 60_000).toISOString()} where id = ${staleSessionId}`;
+    await client`update sessions set reauthenticated_at = ${confirmedAt.toISOString()}, idle_expires_at = ${now.toISOString()} where id = ${expiredSessionId}`;
+
+    const state = `link-${randomUUID()}`;
+    const browserBinding = `browser-${randomUUID()}`;
+    await createOAuthTransaction(
+      db,
+      {
+        id: randomUUID(),
+        state,
+        browserBinding,
+        purpose: "link-identity",
+        expiresAt: new Date(now.getTime() + 600_000),
+        userId: actorId,
+        sessionId: freshSessionId,
+      },
+      () => now,
+    );
+    await expect(
+      consumeOAuthTransaction(db, { state, browserBinding, purpose: "link-identity" }, () => now),
+    ).resolves.toMatchObject({
+      purpose: "link-identity",
+      userId: actorId,
+      sessionId: freshSessionId,
+      currentMethodConfirmedAt: confirmedAt,
+    });
+
+    for (const sessionId of [missingSessionId, staleSessionId, expiredSessionId]) {
+      const transactionId = randomUUID();
+      await expect(
+        createOAuthTransaction(
+          db,
+          {
+            id: transactionId,
+            state: `link-rejected-${randomUUID()}`,
+            browserBinding,
+            purpose: "link-identity",
+            expiresAt: new Date(now.getTime() + 600_000),
+            userId: actorId,
+            sessionId,
+          },
+          () => now,
+        ),
+      ).rejects.toThrow(/fresh current-method proof required|active session required/);
+      const [stored] = await client`select count(*)::int as count from oauth_transactions where id = ${transactionId}`;
+      expect(stored?.count).toBe(0);
+    }
+  });
+
+  it("creates an opaque candidate proof and allows exactly one bound concurrent consume", async () => {
+    const issuedAt = new Date("2026-08-24T15:00:00.000Z");
+    const now = new Date(issuedAt.getTime() + 60_000);
+    const actorId = randomUUID();
+    const sessionId = randomUUID();
+    const otherSessionId = randomUUID();
+    const proofId = randomUUID();
+    await seedSession({
+      userId: actorId,
+      sessionId,
+      token: `proof-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await seedAdditionalSession({
+      userId: actorId,
+      sessionId: otherSessionId,
+      token: `other-proof-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await createIdentityLinkProof(
+      db,
+      {
+        id: proofId,
+        actorId,
+        sessionId,
+        provider: "discord",
+        providerSubject: "discord-candidate-42",
+        displayName: "Candidate",
+        expiresAt: new Date(now.getTime() + 600_000),
+      },
+      () => now,
+    );
+    await expect(
+      consumeIdentityLinkProof(
+        db,
+        { proofId, actorId, sessionId: otherSessionId, provider: "discord" },
+        () => now,
+      ),
+    ).resolves.toBeNull();
+
+    if (!databaseUrl) throw new Error("DATABASE_URL is required");
+    const peerClient = postgres(databaseUrl, { max: 1, prepare: false, onnotice: () => undefined });
+    await peerClient.unsafe(`set search_path to ${quoteIdentifier(schemaName)}`);
+    const peerDb = drizzle(peerClient, { schema });
+    try {
+      const results = await Promise.all([
+        consumeIdentityLinkProof(
+          db,
+          { proofId, actorId, sessionId, provider: "discord" },
+          () => now,
+        ),
+        consumeIdentityLinkProof(
+          peerDb,
+          { proofId, actorId, sessionId, provider: "discord" },
+          () => now,
+        ),
+      ]);
+      const winner = results.filter((result) => result !== null);
+      expect(winner).toHaveLength(1);
+      expect(winner[0]).toMatchObject({
+        id: proofId,
+        userId: actorId,
+        sessionId,
+        provider: "discord",
+        providerSubject: "discord-candidate-42",
+        displayName: "Candidate",
+      });
+    } finally {
+      await peerClient.end({ timeout: 5 });
+    }
+    await expect(
+      consumeIdentityLinkProof(
+        db,
+        { proofId, actorId, sessionId, provider: "discord" },
+        () => now,
+      ),
+    ).resolves.toBeNull();
+
+    const expiredProofId = randomUUID();
+    await createIdentityLinkProof(
+      db,
+      {
+        id: expiredProofId,
+        actorId,
+        sessionId,
+        provider: "discord",
+        providerSubject: "expired-candidate",
+        expiresAt: new Date(now.getTime() + 1_000),
+      },
+      () => now,
+    );
+    await expect(
+      consumeIdentityLinkProof(
+        db,
+        { proofId: expiredProofId, actorId, sessionId, provider: "discord" },
+        () => new Date(now.getTime() + 2_000),
+      ),
+    ).resolves.toBeNull();
+
+    const [stored] = await client`
+      select id, user_id, session_id, provider, provider_subject, display_name,
+             expires_at, consumed_at, created_at
+      from identity_link_proofs where id = ${proofId}
+    `;
+    expect(Object.keys(stored ?? {}).sort()).toEqual(
+      [
+        "consumed_at",
+        "created_at",
+        "display_name",
+        "expires_at",
+        "id",
+        "provider",
+        "provider_subject",
+        "session_id",
+        "user_id",
+      ].sort(),
+    );
+  }, 15_000);
 
   it("supersedes OTP challenges, decrements attempts and rejects replay", async () => {
     const now = new Date("2026-08-21T05:00:00.000Z");
