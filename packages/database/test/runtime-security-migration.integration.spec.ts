@@ -337,11 +337,11 @@ describe.runIf(process.env.PHASE2_SUITE === "integration")("runtime security mig
     await expectPostgresError(
       freshClient`
         insert into auth_challenges
-          (id, user_id, session_id, email_digest, purpose, code_digest, expires_at)
+          (id, user_id, session_id, email_digest, purpose, code_digest, expires_at, created_at)
         values
           (${randomUUID()}, ${actorA.userId}, ${actorB.sessionId}, ${randomBytes(32).toString("hex")},
            'step-up', ${randomBytes(32).toString("hex")},
-           ${new Date(now.getTime() + 60_000).toISOString()})
+           ${new Date(now.getTime() + 60_000).toISOString()}, ${now.toISOString()})
       `,
       "23503",
     );
@@ -349,11 +349,11 @@ describe.runIf(process.env.PHASE2_SUITE === "integration")("runtime security mig
     await expectPostgresError(
       freshClient`
         insert into auth_challenges
-          (id, user_id, session_id, email_digest, purpose, code_digest, expires_at)
+          (id, user_id, session_id, email_digest, purpose, code_digest, expires_at, created_at)
         values
           (${randomUUID()}, ${actorA.userId}, ${actorA.sessionId}, ${randomBytes(32).toString("hex")},
            'sign-in', ${randomBytes(32).toString("hex")},
-           ${new Date(now.getTime() + 60_000).toISOString()})
+           ${new Date(now.getTime() + 60_000).toISOString()}, ${now.toISOString()})
       `,
       "23514",
     );
