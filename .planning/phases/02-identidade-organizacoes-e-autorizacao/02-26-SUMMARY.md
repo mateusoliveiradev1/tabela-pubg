@@ -72,6 +72,8 @@ As duas tarefas TDD produziram commits RED e GREEN separados:
 1. **Task 1: Publicar claims do outbox com job id idempotente** — `2947140` (RED), `e76d1ea` (GREEN)
 2. **Task 2: Compor publisher e endurecer terminalidade do delivery** — `cd35c1e` (RED), `ab55c1e` (GREEN)
 
+**Post-plan CI remediation:** `1f2dfed` corrigiu TS2783 no helper de fixture sem alterar comportamento ou cobertura.
+
 ## Files Created/Modified
 
 - `apps/worker/src/outbox/publisher.ts` — publisher injetável com claim bounded, mapper estrito, retry estável e polling abortável.
@@ -94,6 +96,7 @@ None - plan executed exactly as written.
 ## Issues Encountered
 
 - Context7 não estava instalado e o fallback Bash estava indisponível no host Windows. A API BullMQ 6 foi confirmada na documentação oficial e nas declarações locais da versão instalada 6.1.2 (`waitUntilReady`, `add` e `close`).
+- O `ci:verify` de uma wave posterior detectou propriedades obrigatórias repetidas antes do spread de overrides no helper de teste. O helper passou a separar `eventType`/`payload` dos overrides opcionais e manteve os mesmos nove casos do publisher.
 
 ## Known Stubs
 
@@ -108,6 +111,8 @@ None — o scan dos cinco arquivos criados/modificados não encontrou TODO, FIXM
 - `rtk pnpm --filter @pubg-camp/worker typecheck` — PASS.
 - `rtk pnpm exec biome check ...` nos cinco arquivos — PASS.
 - Gate estrutural de readiness/shutdown — PASS em 11/11 relações de ordem e idempotência.
+- Follow-up: typecheck, lint e 45/45 testes atuais do worker — PASS.
+- Follow-up: `rtk pnpm ci:verify` raiz — PASS completo em secrets, migrations, Compose/CI structure, lint/boundaries, typecheck, testes e builds.
 
 ## TDD Gate Compliance
 
@@ -127,7 +132,7 @@ None — nenhuma credencial, serviço externo ou configuração adicional foi pe
 ## Self-Check: PASSED
 
 - Os cinco arquivos criados/modificados existem.
-- Os quatro commits TDD existem no histórico: `2947140`, `e76d1ea`, `cd35c1e`, `ab55c1e`.
+- Os quatro commits TDD e a remediação de CI existem no histórico: `2947140`, `e76d1ea`, `cd35c1e`, `ab55c1e`, `1f2dfed`.
 - Nenhuma deleção rastreada, segredo persistido ou arquivo gerado não rastreado permaneceu.
 
 ---
