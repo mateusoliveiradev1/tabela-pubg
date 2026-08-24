@@ -162,8 +162,19 @@ jobs:
         run: pnpm verify:phase2-ci
       - name: Run mandatory PostgreSQL and Redis preflight
         run: pnpm phase2:integration:preflight
+      - name: Run mandatory phase 2 security contracts
+        run: >-
+          pnpm --filter @pubg-camp/authorization exec vitest run
+          src/authorization.spec.ts &&
+          pnpm --filter @pubg-camp/api exec vitest run
+          src/authorization/permission.guard.spec.ts
+          src/identity/adapters/discord-oauth.pkce.spec.ts &&
+          pnpm --filter @pubg-camp/web exec vitest run
+          "src/app/api/platform/[...path]/route.spec.ts"
       - name: Install official Chromium and operating-system dependencies
         run: pnpm --filter @pubg-camp/web exec playwright install --with-deps chromium
+      - name: Run mandatory real-stack phase 2 runtime
+        run: pnpm test:e2e:runtime
       - name: Run phase 2 browser smoke first
         run: pnpm --filter @pubg-camp/web test:e2e:smoke
       - name: Run complete phase 2 browser suite
