@@ -32,7 +32,7 @@ import {
 import type { IdentityModuleServices } from "./identity.module.js";
 import { type IdentityRepository, IdentityService } from "./identity.service.js";
 import { OAuthService, type OAuthTransactionRepository } from "./oauth.service.js";
-import { type OtpRepository, OtpService } from "./otp.service.js";
+import { type OtpRepository, OtpService, type SecureOtpDeliveryPort } from "./otp.service.js";
 import type { TokenGenerator } from "./ports/token-generator.js";
 import { type SessionRepositoryPort, SessionService } from "./session.service.js";
 
@@ -51,6 +51,27 @@ export interface IdentityRuntimeOptions {
 export interface IdentityRuntime {
   services: IdentityModuleServices;
   close(): Promise<void>;
+}
+
+export function buildOtpNotificationDelivery(
+  input: Parameters<SecureOtpDeliveryPort["enqueue"]>[0],
+  now = new Date(),
+) {
+  return {
+    id: input.deliveryId,
+    template: "otp" as const,
+    recipient: input.recipient,
+    idempotencyKey: `otp:${input.challengeId}`,
+    payload: {
+      recipient: input.recipient,
+      code: input.code,
+      expiresAt: input.expiresAt.toISOString(),
+    },
+    payloadExpiresAt: input.expiresAt,
+    availableAt: now,
+    occurredAt: now,
+    correlationId: input.correlationId,
+  };
 }
 
 export async function createIdentityRuntime(
@@ -89,19 +110,8 @@ export async function createIdentityRuntime(
       enqueue: async (input) => {
         const now = clock.now();
         await createEncryptedNotificationDelivery(options.database, {
-          id: input.deliveryId,
-          template: "email-otp",
-          recipient: input.recipient,
-          idempotencyKey: `otp:${input.challengeId}`,
+          ...buildOtpNotificationDelivery(input, now),
           encryptionKey: options.encryptionKey,
-          payload: {
-            recipient: input.recipient,
-            code: input.code,
-            challengeId: input.challengeId,
-          },
-          payloadExpiresAt: input.expiresAt,
-          availableAt: now,
-          occurredAt: now,
           outboxEventId: options.tokens.id(),
         });
       },
