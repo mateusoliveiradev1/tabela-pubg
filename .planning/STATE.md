@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T04:51:56.302Z"
+last_updated: "2026-08-24T05:01:14.598Z"
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 27
-  completed_plans: 26
-  percent: 96
+  completed_plans: 27
+  percent: 100
 ---
 
 # Estado do projeto
@@ -17,10 +17,10 @@ progress:
 ## Posição atual
 
 - Milestone: v1 completo
-- Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 23 de 24 concluídos
-- Status: consolidação Nyquist automatizada concluída; três checkpoints externos/assistivos do plano 02-15 permanecem pendentes
-- Progresso: 96% do milestone (26 de 27 planos)
+- Fase: 2.1 — Direção visual e sistema de experiência Impeccable
+- Plano: fase pronta para discussão e planejamento
+- Status: Fase 2 concluída em 24/24 planos; Discord/PKCE, acessibilidade assistiva e Resend/TLS aprovados com evidência humana
+- Progresso: 100% dos planos atualmente definidos no milestone (27 de 27)
 
 ## Decisões acumuladas
 
@@ -73,7 +73,11 @@ progress:
 - Skips só são aceitos nos passos mutuamente exclusivos da matriz e em evidência condicionada a falha; suites obrigatórias devem executar.
 - As flags Nyquist só são promovidas após validação da cópia candidata com flags falsas, validação do conteúdo promovido e revalidação pós-rename.
 - O gate inicial 02-17 e o run CI final 32676449341 de 02-24 são evidências obrigatórias e distintas; plans, requirements, arquivos e comandos ausentes falham fechado.
-- Nyquist automatizado não aprova Discord/PKCE sandbox, acessibilidade assistiva ou Resend/TLS; os três checkpoints continuam pendentes no plano 02-15.
+- Discord aceitou PKCE S256 required no fluxo real; nenhuma exceção documentada foi necessária.
+- OAuth inicia por navegação POST com allowlist CSP exata para discord.com, sem state ou authorization URL no DOM/JSON.
+- NVDA 2026.1.1, teclado, zoom 200%, contraste AA e reduced motion foram aprovados manualmente no fluxo crítico.
+- Impeccable é obrigatório para toda superfície visual; DROP MANIFEST é o contrato aprovado dos e-mails transacionais.
+- Branches e dados sandbox são destruídos após aprovação, preservando credenciais somente no Environment User.
 
 ## Métricas de execução
 
@@ -81,10 +85,11 @@ progress:
 - Plano 02-18: 34 min, 3 tarefas, 19 arquivos.
 - Plano 02-24: 2d 14h, 1 tarefa, 3 arquivos.
 - Plano 02-20: 14 min, 1 tarefa, 3 arquivos.
+- Plano 02-15: 3h 36m, 3 checkpoints humanos, 40 arquivos/artefatos rastreados.
 
 ## Tarefas pendentes
 
-- 1 tarefa de UI: redesenhar a experiência visual completa do produto após concluir os checkpoints externos da Fase 2.
+- A direção visual integral foi promovida para a Fase 2.1 oficial; discutir e planejar o redesign Impeccable é a próxima ação.
 
 ## Bloqueadores
 
@@ -92,9 +97,9 @@ progress:
 
 ## Continuidade
 
-- Última ação: matriz Nyquist promovida e revalidada após preflight Neon/Redis e smoke Chromium 2/2 no plano 02-20.
-- Próxima ação: executar os três checkpoints humanos do plano 02-15.
-- Arquivo de retomada: nenhum; plano 02-20 completo.
+- Última ação: plano 02-15 aprovado; Discord/PKCE, acessibilidade assistiva e três e-mails DROP MANIFEST reais concluídos com cleanup sandbox.
+- Próxima ação: discutir e planejar a Fase 2.1 — Direção visual e sistema de experiência Impeccable.
+- Arquivo de retomada: nenhum; Fase 2 completa em 24/24 planos.
 
 ## Accumulated Context
 

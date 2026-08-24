@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 23/24 planos concluídos — identidade, operações, branding, CI remoto e consolidação Nyquist entregues; checkpoints externos/assistivos do plano 02-15 pendentes.
+**Progresso:** 24/24 planos concluídos — identidade, operações, branding, CI remoto, Nyquist e checkpoints reais de Discord/PKCE, acessibilidade e Resend/TLS aprovados.
 
 ### Entregas
 

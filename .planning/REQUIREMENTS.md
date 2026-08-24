@@ -10,6 +10,18 @@
 - A fonte de verdade é o banco de dados da plataforma; integrações apenas alimentam ou consomem esse estado.
 - Toda correção administrativa que altere resultado, pontuação, inscrição ou permissão deve gerar auditoria.
 
+## Estado de validação da Fase 2
+
+| Requisito | Estado | Evidência de encerramento |
+|---|---|---|
+| AUTH-001 | Concluído | Login Discord OAuth2 real com redirect exato, state/browser binding e PKCE S256 required aprovado. |
+| AUTH-002 | Concluído | OTP por e-mail real entregue pelo Resend com resposta uniforme e payload apagado. |
+| AUTH-003 | Concluído | Sessões revogáveis, cookie `__Host-session` TLS e alerta de novo dispositivo aprovados. |
+| AUTH-006 | Concluído | Tokens, codes, cookies e contextos permaneceram fora de DOM, JSON público, URL e logs persistidos. |
+| NFR-005 | Concluído | Menor privilégio, CSRF, CSP exata, TLS, cifra AES-GCM, secret scan e cleanup sandbox comprovados. |
+
+**Fase 2:** 24/24 planos concluídos em 2026-08-24. Próxima fase oficial: 2.1 — Direção visual e sistema de experiência Impeccable.
+
 ## 1. Contas, organizações e acesso
 
 - **AUTH-001:** permitir login com Discord OAuth2.
