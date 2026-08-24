@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T10:34:09.942Z"
+last_updated: "2026-08-24T11:01:39.129Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 31
-  percent: 69
+  completed_plans: 32
+  percent: 33
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: `02-27` concluído; próximo plano pendente `02-29` (`02-28` já concluído)
-- Status: remediação em execução, com token opaco single-owner, trust persistido e resolve-and-touch aprovados
-- Progresso: 31/45 planos do milestone concluídos; restam 14 planos de gap closure da Fase 2
+- Plano: 02-30 concluido fora de ordem; proximo plano pendente 02-29 (02-28 ja concluido)
+- Status: remediacao em execucao, com OTP bound, identidade email sem merge e promocao provisional atomica aprovados
+- Progresso: 32/45 planos do milestone concluidos; restam 13 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -113,9 +113,9 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano `02-27` unificou emissão do token, persistiu trust explícito e ativou resolve-and-touch no runtime.
-- Próxima ação: executar o plano `02-29` para fechar o contexto tenant same-path e o deny cross-tenant auditável.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-29-PLAN.md`.
+- Última ação: plano 02-30 persistiu OTP bound, proof email e promocao provisional atomica
+- Próxima ação: executar o plano 02-29 para fechar contexto tenant same-path e deny cross-tenant auditavel
+- Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-29-PLAN.md
 
 ## Accumulated Context
 
