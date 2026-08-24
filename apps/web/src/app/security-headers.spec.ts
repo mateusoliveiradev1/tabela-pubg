@@ -40,8 +40,9 @@ describe("browser security headers", () => {
     expect(imageSource).toBe(
       "img-src 'self' data: blob: https://logos.example.test https://assets.example.test:8443",
     );
-    expect(imageSource?.split(/\s+/)).not.toContain("*");
-    expect(imageSource).not.toContain("https:");
+    const sourceTokens = imageSource?.split(/\s+/) ?? [];
+    expect(sourceTokens).not.toContain("*");
+    expect(sourceTokens).not.toContain("https:");
   });
 
   it("rejects the complete production origin configuration when one entry is unsafe", async () => {

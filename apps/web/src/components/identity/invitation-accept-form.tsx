@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
+import { parseOrganizationLogoOrigins } from "../../lib/organization-logo-origins";
 import { Button } from "../ui/button";
 import { InlineAlert } from "../ui/feedback";
 
@@ -285,10 +286,10 @@ function safeInvitationLogoUrl(value: string | null): string | null {
     ) {
       return null;
     }
-    const configuredOrigins = (process.env.NEXT_PUBLIC_ORGANIZATION_LOGO_ORIGINS ?? "")
-      .split(",")
-      .map((origin) => origin.trim())
-      .filter(Boolean);
+    const configuredOrigins = parseOrganizationLogoOrigins(
+      process.env.NEXT_PUBLIC_ORGANIZATION_LOGO_ORIGINS,
+      process.env.NODE_ENV === "development" ? "development" : "production",
+    );
     return configuredOrigins.includes(url.origin) ? url.toString() : null;
   } catch {
     return null;

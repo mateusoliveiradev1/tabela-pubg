@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { NextConfig } from "next";
+import { organizationLogoImageSourceDirective } from "./src/lib/organization-logo-origins";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
@@ -48,7 +49,10 @@ function contentSecurityPolicy(): string {
     "default-src 'self'",
     scriptSource,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    organizationLogoImageSourceDirective(
+      process.env.NEXT_PUBLIC_ORGANIZATION_LOGO_ORIGINS,
+      process.env.NODE_ENV === "development" ? "development" : "production",
+    ),
     "font-src 'self' data:",
     "connect-src 'self'",
     "frame-ancestors 'self'",
