@@ -82,7 +82,7 @@ export async function createIdentityRuntime(
   await pingRedis(redis);
 
   const sessions = new SessionService(
-    sessionRepository(options.database, options.tokens, options.encryptionKey),
+    sessionRepository(options.database, options.tokens, options.encryptionKey, clock),
     options.tokens,
     clock,
   );
@@ -204,6 +204,7 @@ function sessionRepository(
   database: DatabaseConnection["db"],
   tokens: TokenGenerator,
   encryptionKey: EncryptionKey,
+  clock: { now(): Date },
 ): SessionRepositoryPort {
   return {
     issue: (input) =>
@@ -211,6 +212,7 @@ function sessionRepository(
         id: input.id,
         userId: input.userId,
         token: input.token,
+        trust: input.trust,
         issuedAt: input.issuedAt,
         absoluteExpiresAt:
           input.expiresAt ?? new Date(input.issuedAt.getTime() + sessionDurations.absoluteMs),
@@ -221,23 +223,25 @@ function sessionRepository(
         database,
         {
           userId: input.userId,
+          trust: input.trust,
           deviceFingerprint: input.deviceFingerprint,
           device: input.device,
           newDeviceNotification: {
             recipient: input.newDeviceNotification.recipient,
             template: "new-device",
-            idempotencyKey: `new-device:${input.id}`,
+            idempotencyKey: `new-device:${tokens.id()}`,
             encryptionKey,
           },
         },
         {
-          clock: () => input.issuedAt,
+          clock: () => clock.now(),
           generateId: () => tokens.id(),
           randomBytes: (size) => Buffer.from(tokens.opaque(size), "base64url"),
         },
       );
       return {
         sessionId: issued.session.id,
+        token: issued.token,
         isNewDevice: issued.isNewDevice,
         notificationScheduled: issued.notificationDeliveryId !== undefined,
       };

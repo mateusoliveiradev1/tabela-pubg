@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, exists, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import { devices, type SessionRow, sessionAlertContexts, sessions, users } from "../schema.js";
 import type { Clock, RepositoryExecutor } from "./identity.js";
 import { createEncryptedNotificationDelivery, type EncryptionKey } from "./notifications.js";
 
 const IDLE_TTL_MS = 30 * 24 * 60 * 60_000;
 const ABSOLUTE_TTL_MS = 90 * 24 * 60 * 60_000;
+const PROVISIONAL_TTL_MS = 15 * 60_000;
 const ALERT_TTL_MS = 24 * 60 * 60_000;
 const TOUCH_COALESCE_MS = 5 * 60_000;
 
@@ -45,6 +46,7 @@ export interface NewDeviceNotification {
 
 export interface IssueSessionForDeviceInput {
   userId: string;
+  trust: SessionRow["trust"];
   deviceFingerprint: string;
   device: DeviceMetadata;
   newDeviceNotification: NewDeviceNotification;
@@ -117,7 +119,9 @@ export async function issueSessionForDevice(
   }
 
   const token = encodeOpaqueToken(dependencies.randomBytes(32));
-  const absoluteExpiresAt = new Date(now.getTime() + ABSOLUTE_TTL_MS);
+  const lifetimeMs = input.trust === "trusted" ? ABSOLUTE_TTL_MS : PROVISIONAL_TTL_MS;
+  const idleTtlMs = input.trust === "trusted" ? IDLE_TTL_MS : PROVISIONAL_TTL_MS;
+  const absoluteExpiresAt = new Date(now.getTime() + lifetimeMs);
   const [session] = await executor
     .insert(sessions)
     .values({
@@ -125,10 +129,10 @@ export async function issueSessionForDevice(
       userId: input.userId,
       deviceId: existingDevice.id,
       tokenDigest: digest(token),
-      trust: "trusted",
+      trust: input.trust,
       issuedAt: now,
       lastSeenAt: now,
-      idleExpiresAt: new Date(now.getTime() + IDLE_TTL_MS),
+      idleExpiresAt: new Date(Math.min(now.getTime() + idleTtlMs, absoluteExpiresAt.getTime())),
       absoluteExpiresAt,
       createdAt: now,
       updatedAt: now,
@@ -193,6 +197,7 @@ export async function issueIdentitySession(
     id: string;
     userId: string;
     token: string;
+    trust: SessionRow["trust"];
     issuedAt: Date;
     absoluteExpiresAt: Date;
     deviceId: string;
@@ -218,8 +223,13 @@ export async function issueIdentitySession(
     .where(and(eq(devices.userId, input.userId), eq(devices.deviceDigest, deviceDigest)))
     .limit(1);
   if (!device) throw new Error("identity device unavailable");
+  const maximumLifetimeMs = input.trust === "trusted" ? ABSOLUTE_TTL_MS : PROVISIONAL_TTL_MS;
+  const idleTtlMs = input.trust === "trusted" ? IDLE_TTL_MS : PROVISIONAL_TTL_MS;
+  const absoluteExpiresAt = new Date(
+    Math.min(input.absoluteExpiresAt.getTime(), input.issuedAt.getTime() + maximumLifetimeMs),
+  );
   const idleExpiresAt = new Date(
-    Math.min(input.issuedAt.getTime() + IDLE_TTL_MS, input.absoluteExpiresAt.getTime()),
+    Math.min(input.issuedAt.getTime() + idleTtlMs, absoluteExpiresAt.getTime()),
   );
   const [session] = await executor
     .insert(sessions)
@@ -228,11 +238,11 @@ export async function issueIdentitySession(
       userId: input.userId,
       deviceId: device.id,
       tokenDigest: digest(input.token),
-      trust: "trusted",
+      trust: input.trust,
       issuedAt: input.issuedAt,
       lastSeenAt: input.issuedAt,
       idleExpiresAt,
-      absoluteExpiresAt: input.absoluteExpiresAt,
+      absoluteExpiresAt,
       createdAt: input.issuedAt,
       updatedAt: input.issuedAt,
     })
@@ -363,14 +373,14 @@ export async function resolveSession(executor: RepositoryExecutor, token: string
     )
     .limit(1);
 
-  return resolved ?? null;
+  return resolved ? { ...resolved, trust: resolved.session.trust } : null;
 }
 
-export async function touchSession(
+export async function resolveAndTouchSession(
   executor: RepositoryExecutor,
   token: string,
   clock: Clock,
-): Promise<SessionRow | null> {
+) {
   const now = clock();
   const coalescingCutoff = new Date(now.getTime() - TOUCH_COALESCE_MS);
   const idleCandidate = new Date(now.getTime() + IDLE_TTL_MS);
@@ -388,15 +398,34 @@ export async function touchSession(
         gt(sessions.idleExpiresAt, now),
         gt(sessions.absoluteExpiresAt, now),
         lte(sessions.lastSeenAt, coalescingCutoff),
+        exists(
+          executor
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.id, sessions.userId), eq(users.status, "active"))),
+        ),
       ),
     )
     .returning();
 
   if (touched) {
-    return touched;
+    const [device] = await executor
+      .select()
+      .from(devices)
+      .where(and(eq(devices.userId, touched.userId), eq(devices.id, touched.deviceId)))
+      .limit(1);
+    return device ? { session: touched, device, trust: touched.trust } : null;
   }
 
-  const resolved = await resolveSession(executor, token, clock);
+  return resolveSession(executor, token, () => now);
+}
+
+export async function touchSession(
+  executor: RepositoryExecutor,
+  token: string,
+  clock: Clock,
+): Promise<SessionRow | null> {
+  const resolved = await resolveAndTouchSession(executor, token, clock);
   return resolved?.session ?? null;
 }
 
@@ -579,4 +608,5 @@ export const sessionDurations = {
   absoluteMs: ABSOLUTE_TTL_MS,
   alertMs: ALERT_TTL_MS,
   touchCoalescingMs: TOUCH_COALESCE_MS,
+  provisionalMs: PROVISIONAL_TTL_MS,
 };

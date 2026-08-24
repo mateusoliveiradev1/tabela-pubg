@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -122,7 +122,9 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
 
     expect(Buffer.from(issued.token, "base64url")).toHaveLength(32);
     const [stored] = await db.select().from(sessions).where(eq(sessions.id, issued.session.id));
-    expect(stored?.tokenDigest).not.toBe(issued.token);
+    expect(stored?.tokenDigest).toBe(
+      createHash("sha256").update(issued.token, "utf8").digest("hex"),
+    );
     expect(JSON.stringify(stored)).not.toContain(issued.token);
 
     await expect(resolveSession(db, issued.token, () => now)).resolves.toMatchObject({
@@ -225,9 +227,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
       deterministicDependencies(issuedAt),
     );
     expect(deviceIssued.session.trust).toBe("provisional");
-    expect(deviceIssued.session.idleExpiresAt).toEqual(
-      new Date(issuedAt.getTime() + 15 * 60_000),
-    );
+    expect(deviceIssued.session.idleExpiresAt).toEqual(new Date(issuedAt.getTime() + 15 * 60_000));
     expect(deviceIssued.session.absoluteExpiresAt).toEqual(
       new Date(issuedAt.getTime() + 15 * 60_000),
     );
@@ -258,7 +258,9 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
       );
       issuedCases.push({ ...current, issued });
     }
-    await revokeSession(db, userId, issuedCases[0]!.issued.session.id, "test", () => requestAt);
+    const revokedCase = issuedCases[0];
+    if (!revokedCase) throw new Error("revoked lifecycle fixture was not issued");
+    await revokeSession(db, userId, revokedCase.issued.session.id, "test", () => requestAt);
 
     const suspendedUserId = randomUUID();
     await client`

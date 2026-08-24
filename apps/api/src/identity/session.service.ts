@@ -31,18 +31,20 @@ export interface SessionRepositoryPort {
     expiresAt?: Date;
   }): Promise<{ sessionId: string }>;
   issueForDevice(input: {
-    id: string;
     userId: string;
-    token: string;
-    alertToken: string;
+    trust: SessionTrust;
     deviceFingerprint: string;
     device: SessionRecord["device"] & { summarizedUserAgent?: string };
-    issuedAt: Date;
     newDeviceNotification: {
       recipient: string;
       correlationId: string;
     };
-  }): Promise<{ sessionId: string; isNewDevice: boolean; notificationScheduled: boolean }>;
+  }): Promise<{
+    sessionId: string;
+    token: string;
+    isNewDevice: boolean;
+    notificationScheduled: boolean;
+  }>;
   list(userId: string): Promise<readonly SessionRecord[]>;
   revoke(input: { userId: string; sessionId: string; reason: string; now: Date }): Promise<boolean>;
   revokeOthers(input: {
@@ -126,6 +128,7 @@ export class SessionService {
 
   async startDeviceSession(input: {
     userId: string;
+    trust: SessionTrust;
     deviceFingerprint: string;
     device: SessionRecord["device"] & { summarizedUserAgent?: string };
     newDeviceNotification: { recipient: string; correlationId: string };
@@ -135,18 +138,14 @@ export class SessionService {
     isNewDevice: boolean;
     notificationScheduled: boolean;
   }> {
-    const token = this.tokens.opaque(32);
     const issued = await this.repository.issueForDevice({
-      id: this.tokens.id(),
       userId: input.userId,
-      token,
-      alertToken: this.tokens.opaque(32),
+      trust: input.trust,
       deviceFingerprint: input.deviceFingerprint,
       device: input.device,
-      issuedAt: this.clock.now(),
       newDeviceNotification: input.newDeviceNotification,
     });
-    return { ...issued, token };
+    return issued;
   }
 
   async list(userId: string, currentSessionId: string): Promise<readonly SessionSummary[]> {

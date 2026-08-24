@@ -121,7 +121,7 @@ describe("SessionService", () => {
   });
 
   it("issues a new-device alert without using IP or user agent as authentication authority", async () => {
-    const { service, repository } = setup();
+    const { service, repository, tokens } = setup();
 
     const result = await service.startDeviceSession({
       userId: "user-1",

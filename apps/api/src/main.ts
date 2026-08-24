@@ -15,7 +15,7 @@ import {
   createDatabase,
   hasRecentReauthentication,
   loadAuthorizationSnapshot,
-  resolveSession,
+  resolveAndTouchSession,
 } from "@pubg-camp/database";
 import { migrateDatabase } from "@pubg-camp/database/migrator";
 import { createLogger } from "@pubg-camp/logger";
@@ -141,9 +141,13 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
       authorization: {
         sessionCookieName: env.SESSION_COOKIE_NAME,
         authenticate: async (opaqueToken) => {
-          const resolved = await resolveSession(database.db, opaqueToken, () => new Date());
+          const resolved = await resolveAndTouchSession(database.db, opaqueToken, () => new Date());
           return resolved
-            ? { actorId: resolved.session.userId, sessionId: resolved.session.id }
+            ? {
+                actorId: resolved.session.userId,
+                sessionId: resolved.session.id,
+                trust: resolved.trust,
+              }
             : null;
         },
         loadSnapshot: async ({ actorId, organizationId }) => {
