@@ -26,6 +26,11 @@ export const authChallengePurpose = pgEnum("auth_challenge_purpose", [
   "verify-provisional-email",
 ]);
 export const oauthPurpose = pgEnum("oauth_purpose", ["sign-in", "link-identity", "step-up"]);
+export const identityLinkProofPurpose = pgEnum("identity_link_proof_purpose", [
+  "link-identity",
+  "link-email",
+  "change-email",
+]);
 export const sessionTrust = pgEnum("session_trust", ["provisional", "trusted"]);
 
 export const users = pgTable(
@@ -258,6 +263,7 @@ export const identityLinkProofs = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     sessionId: uuid("session_id").notNull(),
+    purpose: identityLinkProofPurpose("purpose").notNull(),
     provider: identityProvider("provider").notNull(),
     providerSubject: text("provider_subject").notNull(),
     displayName: text("display_name"),

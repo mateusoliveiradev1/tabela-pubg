@@ -203,6 +203,7 @@ export interface CreateIdentityLinkProofInput {
   id: string;
   actorId: string;
   sessionId: string;
+  purpose: "link-identity" | "link-email" | "change-email";
   provider: IdentityProvider;
   providerSubject: string;
   displayName?: string;
@@ -222,6 +223,7 @@ export async function createIdentityLinkProof(
     id: input.id,
     userId: input.actorId,
     sessionId: input.sessionId,
+    purpose: input.purpose,
     provider: input.provider,
     providerSubject: input.providerSubject,
     ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
@@ -900,6 +902,7 @@ export async function completeOtpChallenge(
           id: input.ids.proofId,
           userId: actorId,
           sessionId,
+          purpose: input.purpose,
           provider: "email",
           providerSubject: emailDigest(input.email),
           expiresAt: new Date(input.now.getTime() + 10 * 60_000),

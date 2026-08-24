@@ -5,12 +5,12 @@ import { fileURLToPath } from "node:url";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createIdentityLinkProof, identityDigests } from "../src/repositories/identity.js";
 import {
   executeIdentitySecurityChange,
   type IdentitySecurityChangeBoundary,
   type IdentitySecurityChangeInput,
 } from "../src/repositories/identity-security-change.js";
-import { createIdentityLinkProof, identityDigests } from "../src/repositories/identity.js";
 import { resolveSession } from "../src/repositories/sessions.js";
 import * as schema from "../src/schema.js";
 
@@ -61,7 +61,7 @@ describe("identity security change transaction", () => {
     }
     schemaName = `phase2_identity_security_change_${process.pid}_${randomBytes(6).toString("hex")}`;
     client = postgres(databaseUrl, {
-      max: 4,
+      max: 1,
       connect_timeout: 5,
       prepare: false,
       onnotice: () => undefined,
