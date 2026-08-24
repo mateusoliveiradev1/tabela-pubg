@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 26 planos executados; `02-28` aprovou CSP exata para logos assinadas e compensação pós-commit, e restam 16 planos de remediação (`02-26`–`02-27`, `02-29`–`02-42`) antes da Fase 2.1.
+**Progresso:** 27 planos executados; `02-26` conectou o outbox durável ao BullMQ e `02-28` aprovou CSP/compensação de logos; restam 15 planos de remediação (`02-27`, `02-29`–`02-42`) antes da Fase 2.1.
 
 ### Entregas
 

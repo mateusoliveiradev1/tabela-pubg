@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T09:49:48.081Z"
+last_updated: "2026-08-24T10:04:06.221Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 29
-  percent: 64
+  completed_plans: 30
+  percent: 67
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: `02-28` concluído fora da ordem; próximo plano pendente `02-26`
-- Status: remediação em execução, com CSP de logos assinadas e compensação pós-commit aprovadas em PostgreSQL/Redis reais
-- Progresso: 29/45 planos do milestone concluídos; restam 16 planos de gap closure da Fase 2
+- Plano: `02-26` concluído; próximo plano pendente `02-27`
+- Status: remediação em execução, com publisher durável PostgreSQL→BullMQ e terminalidade de delivery aprovados
+- Progresso: 30/45 planos do milestone concluídos; restam 15 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -83,9 +83,13 @@ progress:
 - Erros persistidos pelo publisher são códigos estáveis redigidos, nunca texto de provider, recipient ou token.
 - CSP e convite consomem o mesmo parser de origins exatas; produção aceita somente HTTPS e desenvolvimento adiciona HTTP apenas para loopback.
 - Compensação de logo termina no commit do repository; assinatura e validação de resposta pós-commit nunca removem a key ativa.
+- Jobs BullMQ carregam somente deliveryId ou cleanupId e usam o UUID do evento de outbox como jobId.
+- Queue e Worker confirmam readiness antes do publisher iniciar e do health server anunciar disponibilidade.
+- Falha de clear só é idempotente quando o reload encontra exatamente o mesmo estado terminal persistido.
 
 ## Métricas de execução
 
+- Plano 02-26: 9 min, 2 tarefas, 5 arquivos.
 - Plano 02-28: 38 min, 2 tarefas, 8 arquivos.
 - Plano 02-25: 20 min, 3 tarefas, 10 arquivos.
 - Plano 02-23: 8 min, 2 tarefas, 10 arquivos.
@@ -96,7 +100,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos `02-26`–`02-27` e `02-29`–`02-42` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar os planos `02-27` e `02-29`–`02-42` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -105,9 +109,9 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano `02-28` concluiu CSP exata de logos assinadas e fronteira de compensação pós-commit, com gate PostgreSQL/Redis real.
-- Próxima ação: executar o plano `02-26` para publicar o outbox durável em BullMQ.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-26-PLAN.md`.
+- Última ação: plano `02-26` conectou o outbox durável às filas BullMQ opacas e endureceu a terminalidade de delivery.
+- Próxima ação: executar o plano `02-27` para promover trust de sessão no runtime.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-27-PLAN.md`.
 
 ## Accumulated Context
 
