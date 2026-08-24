@@ -6,8 +6,8 @@ import { InlineAlert } from "../ui/feedback";
 import { Input } from "../ui/input";
 import { OtpInput } from "./otp-input";
 
-const OTP_REQUEST_PATH = "/api/platform/identity/email/otp/request";
-const OTP_VERIFY_PATH = "/api/platform/identity/email/otp/verify";
+const OTP_REQUEST_PATH = "/api/platform/identity/email/otp/sign-in/request";
+const OTP_VERIFY_PATH = "/api/platform/identity/email/otp/sign-in/verify";
 const UNIFORM_REQUEST_COPY =
   "Se este e-mail puder receber mensagens, enviaremos um código em instantes.";
 
@@ -55,7 +55,7 @@ export function EmailOtpForm() {
           "content-type": "application/json",
           "x-csrf-token": csrf,
         },
-        body: JSON.stringify({ email: normalizedEmail, purpose: "sign-in" }),
+        body: JSON.stringify({ email: normalizedEmail }),
       });
       const opaqueChallenge = response.headers.get("x-otp-challenge-id");
       if (!response.ok || !opaqueChallenge) throw new Error();
@@ -97,7 +97,7 @@ export function EmailOtpForm() {
           "content-type": "application/json",
           "x-csrf-token": csrf,
         },
-        body: JSON.stringify({ challengeId, email, code, purpose: "sign-in" }),
+        body: JSON.stringify({ challengeId, email, code }),
       });
       if (!response.ok) {
         setOtpFailure(

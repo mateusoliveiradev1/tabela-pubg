@@ -6,11 +6,9 @@ interface DiscordNavigationInput {
   returnPath?: string;
 }
 
-const DISCORD_START_PATH = "/api/platform/identity/oauth/discord/start";
-
 export function submitDiscordNavigation(input: DiscordNavigationInput): void {
   const form = document.createElement("form");
-  form.action = DISCORD_START_PATH;
+  form.action = `/api/platform/identity/oauth/discord/${input.purpose}/start`;
   form.method = "post";
   form.hidden = true;
 

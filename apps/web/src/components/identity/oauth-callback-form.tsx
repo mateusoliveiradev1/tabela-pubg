@@ -65,7 +65,7 @@ async function completeCallback(
 ): Promise<CallbackStatus> {
   try {
     const csrf = await acquireCsrf();
-    const response = await fetch("/api/platform/identity/oauth/discord/callback", {
+    const response = await fetch(`/api/platform/identity/oauth/discord/${purpose}/callback`, {
       method: "POST",
       cache: "no-store",
       credentials: "same-origin",

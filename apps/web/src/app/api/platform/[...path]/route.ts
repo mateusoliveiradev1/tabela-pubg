@@ -18,6 +18,13 @@ type RouteRule = {
   bodyLimit?: number;
   csrfRotation?: "reacquire" | "clear";
   noReferrer?: boolean;
+  identityPurpose?:
+    | "sign-in"
+    | "link-identity"
+    | "step-up"
+    | "link-email"
+    | "change-email"
+    | "verify-provisional-email";
 };
 
 const JSON_BODY_LIMIT = 64 * 1024;
@@ -39,32 +46,42 @@ const ROUTES: readonly RouteRule[] = [
     upstream: "root",
     noReferrer: true,
   },
-  {
-    pattern: /^identity\/oauth\/discord\/start$/,
-    methods: ["POST"],
-    upstream: "root",
-    noReferrer: true,
-  },
-  {
-    pattern: /^identity\/oauth\/discord\/callback$/,
-    methods: ["POST"],
-    upstream: "root",
-    csrfRotation: "reacquire",
-    noReferrer: true,
-  },
-  {
-    pattern: /^identity\/email\/otp\/request$/,
-    methods: ["POST"],
-    upstream: "root",
-    noReferrer: true,
-  },
-  {
-    pattern: /^identity\/email\/otp\/verify$/,
-    methods: ["POST"],
-    upstream: "root",
-    csrfRotation: "reacquire",
-    noReferrer: true,
-  },
+  ...(["sign-in", "link-identity", "step-up"] as const).flatMap((purpose) => [
+    {
+      pattern: new RegExp(`^identity/oauth/discord/${purpose}/start$`),
+      methods: ["POST"] as const,
+      upstream: "root" as const,
+      noReferrer: true,
+      identityPurpose: purpose,
+    },
+    {
+      pattern: new RegExp(`^identity/oauth/discord/${purpose}/callback$`),
+      methods: ["POST"] as const,
+      upstream: "root" as const,
+      csrfRotation: "reacquire" as const,
+      noReferrer: true,
+      identityPurpose: purpose,
+    },
+  ]),
+  ...(
+    ["sign-in", "link-email", "change-email", "step-up", "verify-provisional-email"] as const
+  ).flatMap((purpose) => [
+    {
+      pattern: new RegExp(`^identity/email/otp/${purpose}/request$`),
+      methods: ["POST"] as const,
+      upstream: "root" as const,
+      noReferrer: true,
+      identityPurpose: purpose,
+    },
+    {
+      pattern: new RegExp(`^identity/email/otp/${purpose}/verify$`),
+      methods: ["POST"] as const,
+      upstream: "root" as const,
+      csrfRotation: "reacquire" as const,
+      noReferrer: true,
+      identityPurpose: purpose,
+    },
+  ]),
   {
     pattern: /^identity\/session-alerts\/resolve$/,
     methods: ["GET"],
@@ -207,7 +224,9 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
   const apiOrigin = resolveApiOrigin();
   if (!apiOrigin) return unavailable(503);
 
-  const body = await readBoundedBody(request, resolved.rule.bodyLimit ?? JSON_BODY_LIMIT);
+  let body = await readBoundedBody(request, resolved.rule.bodyLimit ?? JSON_BODY_LIMIT);
+  if (body instanceof Response) return body;
+  body = validateIdentityJsonPayload(request, resolved.path, resolved.rule, body);
   if (body instanceof Response) return body;
   const oauthNavigation = readDiscordOAuthNavigation(request, resolved.path, body);
   if (oauthNavigation instanceof Response) return oauthNavigation;
@@ -302,7 +321,8 @@ function readDiscordOAuthNavigation(
   path: string,
   body: ArrayBuffer | null,
 ): { csrfToken: string; payload: { purpose: string; returnPath?: string } } | Response | undefined {
-  if (path !== "identity/oauth/discord/start") return undefined;
+  const match = /^identity\/oauth\/discord\/(sign-in|link-identity|step-up)\/start$/.exec(path);
+  if (!match) return undefined;
   const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (contentType !== "application/x-www-form-urlencoded") return undefined;
   if (!body) return unavailable(400);
@@ -314,7 +334,7 @@ function readDiscordOAuthNavigation(
   const purpose = form.get("purpose");
   const returnPath = form.get("returnPath");
   if (!csrfToken || csrfToken.length < 16 || csrfToken.length > 2_048) return unavailable(403);
-  if (!purpose || !["sign-in", "link-identity", "step-up"].includes(purpose)) {
+  if (!purpose || purpose !== match[1]) {
     return unavailable(400);
   }
   if (returnPath && !isSafeReturnPath(returnPath)) return unavailable(400);
@@ -323,6 +343,55 @@ function readDiscordOAuthNavigation(
     csrfToken,
     payload: { purpose, ...(returnPath ? { returnPath } : {}) },
   };
+}
+
+function validateIdentityJsonPayload(
+  request: Request,
+  path: string,
+  rule: RouteRule,
+  body: ArrayBuffer | null,
+): ArrayBuffer | null | Response {
+  if (!rule.identityPurpose || !body) return body;
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") return body;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return unavailable(400);
+  }
+  if (!isRecord(payload) || containsBrowserAuthority(payload)) return unavailable(400);
+  if ("purpose" in payload && payload.purpose !== rule.identityPurpose) return unavailable(400);
+
+  if (path.startsWith("identity/oauth/")) {
+    if (payload.purpose !== rule.identityPurpose) return unavailable(400);
+    return body;
+  }
+  if ("purpose" in payload) {
+    const { purpose: _purpose, ...sanitized } = payload;
+    return new TextEncoder().encode(JSON.stringify(sanitized)).buffer;
+  }
+  return body;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function containsBrowserAuthority(value: unknown): boolean {
+  const pending: unknown[] = [value];
+  let visited = 0;
+  while (pending.length > 0) {
+    if (++visited > 10_000) return true;
+    const current = pending.pop();
+    if (typeof current !== "object" || current === null) continue;
+    for (const [key, child] of Object.entries(current)) {
+      if (["actorId", "userId", "sessionId", "trust"].includes(key)) return true;
+      pending.push(child);
+    }
+  }
+  return false;
 }
 
 function isSafeReturnPath(value: string): boolean {
