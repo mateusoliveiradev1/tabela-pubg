@@ -381,9 +381,7 @@ function extractRouteContext(
   const organizationId = match.groups?.[rule.context.organizationGroup];
   if (!organizationId || !CANONICAL_UUID.test(organizationId)) return undefined;
 
-  const scopeId = rule.context.scopeGroup
-    ? match.groups?.[rule.context.scopeGroup]
-    : undefined;
+  const scopeId = rule.context.scopeGroup ? match.groups?.[rule.context.scopeGroup] : undefined;
   if (rule.context.scopeGroup && (!scopeId || !CANONICAL_UUID.test(scopeId))) return undefined;
 
   return {
