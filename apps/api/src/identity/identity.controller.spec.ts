@@ -117,10 +117,28 @@ describe("IdentityController", () => {
     ).toBeUndefined();
   });
 
+  it("keeps only Discord sign-in public and protects link/step-up routes", () => {
+    expect(
+      Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.startDiscordSignIn),
+    ).toBe(true);
+    expect(
+      Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.callbackDiscordSignIn),
+    ).toBe(true);
+    expect(
+      Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.startDiscordStepUp),
+    ).toBeUndefined();
+    expect(
+      Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.startDiscordIdentityLink),
+    ).toBeUndefined();
+    expect(
+      Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.callbackDiscordStepUp),
+    ).toBeUndefined();
+  });
+
   it("returns only the public Discord redirect contract", async () => {
     const { controller, oauth } = setup();
     const response = reply();
-    const result = await controller.startDiscord(
+    const result = await controller.startDiscordSignIn(
       { purpose: "sign-in", returnPath: "/dashboard" },
       "browser-binding-secret",
       response,
@@ -138,17 +156,137 @@ describe("IdentityController", () => {
     expect(response.status).toHaveBeenCalledWith(302);
   });
 
+  it.each(["step-up", "link-identity"] as const)(
+    "derives protected Discord %s authority only from request.auth",
+    async (purpose) => {
+      const { controller, oauth } = setup();
+      const body = { purpose, returnPath: "/account/identities" };
+      const response = reply();
+
+      if (purpose === "step-up") {
+        await controller.startDiscordStepUp(
+          body,
+          "browser-binding-secret",
+          request(),
+          response,
+        );
+      } else {
+        await controller.startDiscordIdentityLink(
+          body,
+          "browser-binding-secret",
+          request(),
+          response,
+        );
+      }
+
+      expect(oauth.start).toHaveBeenCalledWith({
+        purpose,
+        actorId: authenticated.actorId,
+        sessionId: authenticated.sessionId,
+        returnPath: "/account/identities",
+        browserBinding: "browser-binding-secret",
+      });
+    },
+  );
+
+  it("rejects public purpose escalation and browser-supplied OAuth authority", async () => {
+    const { controller, oauth } = setup();
+
+    await expect(
+      controller.startDiscordSignIn(
+        { purpose: "step-up", returnPath: "/account" },
+        "browser-binding-secret",
+        reply(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.startDiscordStepUp(
+        {
+          purpose: "step-up",
+          actorId: "attacker",
+          sessionId: "other",
+        },
+        "browser-binding-secret",
+        request(),
+        reply(),
+      ),
+    ).rejects.toThrow();
+    expect(oauth.start).not.toHaveBeenCalled();
+  });
+
   it("maps unavailable callback state to a stable public error", async () => {
     const { controller, oauth } = setup();
     vi.mocked(oauth.callback).mockRejectedValueOnce(new Error("provider secret response"));
     const thrown = await controller
-      .callbackDiscord(
+      .callbackDiscordSignIn(
         { code: "provider-code", state: "oauth-state-long-enough", purpose: "sign-in" },
         "browser-binding",
       )
       .catch((error: unknown) => error);
     expect(thrown).toBeInstanceOf(BadRequestException);
     expect((thrown as BadRequestException).getResponse()).toEqual({ status: "cancelled" });
+  });
+
+  it("passes request.auth only as protected callback constraint and rotates CSRF after step-up", async () => {
+    const { controller, oauth, csrf, events } = setup();
+    vi.mocked(oauth.callback).mockImplementationOnce(async () => {
+      events.push("oauth-step-up");
+      return { status: "step-up-confirmed", nextPath: "/organizations/one/members" };
+    });
+    const req = request();
+    const response = reply();
+
+    const result = await controller.callbackDiscordStepUp(
+      {
+        code: "provider-code",
+        state: "oauth-state-long-enough",
+        purpose: "step-up",
+      },
+      "browser-binding",
+      req,
+      response,
+    );
+
+    expect(oauth.callback).toHaveBeenCalledWith({
+      code: "provider-code",
+      state: "oauth-state-long-enough",
+      purpose: "step-up",
+      browserBinding: "browser-binding",
+      actorId: authenticated.actorId,
+      sessionId: authenticated.sessionId,
+    });
+    expect(csrf.rotateCurrent).toHaveBeenCalledWith(req, response);
+    expect(events).toEqual(["oauth-step-up", "csrf-current"]);
+    expect(result).toEqual({
+      status: "authenticated",
+      nextPath: "/organizations/one/members",
+    });
+  });
+
+  it("does not publish link credentials because callback only creates a pending proof", async () => {
+    const { controller, oauth, csrf } = setup();
+    vi.mocked(oauth.callback).mockResolvedValueOnce({
+      status: "link-confirmation-required",
+      nextPath: "/account/identities",
+    });
+
+    const result = await controller.callbackDiscordIdentityLink(
+      {
+        code: "provider-code",
+        state: "oauth-state-long-enough",
+        purpose: "link-identity",
+      },
+      "browser-binding",
+      request(),
+      reply(),
+    );
+
+    expect(csrf.rotateToSession).not.toHaveBeenCalled();
+    expect(csrf.rotateCurrent).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: "link-confirmation-required",
+      nextPath: "/account/identities",
+    });
   });
 
   it("accepts only sign-in on the public OTP contract", async () => {
