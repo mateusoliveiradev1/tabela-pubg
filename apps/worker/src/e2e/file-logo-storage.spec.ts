@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FileLogoStorage } from "./file-logo-storage.js";
 
 const runId = "run-fedcba9876543210fedcba98";
-const objectKey = "branding/00000000-0000-4000-8000-000000000111/11111111-1111-4111-8111-111111111111";
+const objectKey =
+  "branding/00000000-0000-4000-8000-000000000111/11111111-1111-4111-8111-111111111111";
 const roots: string[] = [];
 
 afterEach(async () => {
@@ -33,7 +34,7 @@ describe("FileLogoStorage", () => {
     await expect(stat(foreignPath)).resolves.toBeDefined();
   });
 
-  it.each(["../outside", "branding/../../outside", "branding/not-a-valid-key"]) (
+  it.each(["../outside", "branding/../../outside", "branding/not-a-valid-key"])(
     "rejects %s before touching the filesystem",
     async (candidate) => {
       const root = await mkdtemp(path.join(tmpdir(), "pubg-camp-phase2-e2e-"));

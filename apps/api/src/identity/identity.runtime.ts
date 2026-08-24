@@ -47,6 +47,7 @@ export interface IdentityRuntimeOptions {
   redisUrl: string;
   redisScope?: IdentityRedisScope;
   discord: DiscordOAuthConfig;
+  discordFetch?: typeof globalThis.fetch;
   csrf: CsrfService;
   tokens: TokenGenerator;
   otpPepper: Uint8Array;
@@ -145,7 +146,10 @@ export async function createIdentityRuntime(
     new DiscordOAuthAdapter(
       options.discord,
       new RedisDiscordOAuthVerifierStore(redis, redisPrefixes.oauthPkceKeyPrefix),
-      { now: () => clock.now() },
+      {
+        now: () => clock.now(),
+        ...(options.discordFetch === undefined ? {} : { fetch: options.discordFetch }),
+      },
     ),
     oauthRepository(options.database, clock),
     identity,

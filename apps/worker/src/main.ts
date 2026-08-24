@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { BaseEnvSchema, loadEnv, Phase2EnvSchema } from "@pubg-camp/config";
 import {
   claimOutboxBatch,
@@ -14,12 +16,15 @@ import { createQueue, createRedisConnection, createWorker, pingRedis } from "@pu
 import { createStorage } from "@pubg-camp/storage";
 import Fastify from "fastify";
 import { z } from "zod";
+import { FileEmailSender, resolveWorkerProviderMode } from "./e2e/file-email-sender.js";
+import { FileLogoStorage } from "./e2e/file-logo-storage.js";
 import { live, ready } from "./health.js";
 import { createNotificationProcessor } from "./notifications/processor.js";
 import { ResendEmailSender } from "./notifications/resend-email-sender.js";
 import { OutboxPublisher } from "./outbox/publisher.js";
 import { createLogoCleanupProcessor } from "./storage/logo-cleanup.processor.js";
 
+const providerMode = await resolveWorkerProviderMode(process.env);
 const env = loadEnv(
   BaseEnvSchema.extend({
     PORT: z.coerce.number().int().positive().default(3002),
@@ -49,15 +54,21 @@ const telemetry = initializeTelemetry({
 });
 const database = createDatabase(env.DATABASE_URL);
 const redis = createRedisConnection(env.REDIS_URL);
-const logoStorage = createStorage({
-  endpoint: env.S3_ENDPOINT,
-  region: env.S3_REGION,
-  bucket: env.S3_BUCKET,
-  accessKeyId: env.S3_ACCESS_KEY,
-  secretAccessKey: env.S3_SECRET_KEY,
-  forcePathStyle: true,
-});
-const sender = new ResendEmailSender({ apiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM });
+const logoStorage =
+  providerMode.mode === "fake"
+    ? await FileLogoStorage.create({ root: providerMode.root, runId: providerMode.runId })
+    : createStorage({
+        endpoint: env.S3_ENDPOINT,
+        region: env.S3_REGION,
+        bucket: env.S3_BUCKET,
+        accessKeyId: env.S3_ACCESS_KEY,
+        secretAccessKey: env.S3_SECRET_KEY,
+        forcePathStyle: true,
+      });
+const sender =
+  providerMode.mode === "fake"
+    ? await FileEmailSender.create({ root: providerMode.root, runId: providerMode.runId })
+    : new ResendEmailSender({ apiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM });
 const notificationProcessor = createNotificationProcessor({
   store: {
     findById: async (deliveryId: string): Promise<NotificationDeliveryRow | undefined> =>
@@ -99,8 +110,8 @@ server.get("/health/ready", async (_request, reply) => {
 
 let notificationQueue: ReturnType<typeof createQueue> | undefined;
 let logoCleanupQueue: ReturnType<typeof createQueue> | undefined;
-let notificationWorker: ReturnType<typeof createWorker> | undefined;
-let logoCleanupWorker: ReturnType<typeof createWorker> | undefined;
+let notificationWorker: { close(): Promise<void> } | undefined;
+let logoCleanupWorker: { close(): Promise<void> } | undefined;
 let publisher: OutboxPublisher | undefined;
 
 let shutdownStarted = false;
@@ -144,8 +155,12 @@ async function start(): Promise<void> {
   try {
     await Promise.all([database.ping(), pingRedis(redis)]);
 
-    notificationQueue = createQueue<{ deliveryId: string }>("outbox-delivery", redis);
-    logoCleanupQueue = createQueue<{ cleanupId: string }>("storage-logo-cleanup", redis);
+    notificationQueue = createQueue<{ deliveryId: string }>("outbox-delivery", redis, {
+      prefix: providerMode.queuePrefix,
+    });
+    logoCleanupQueue = createQueue<{ cleanupId: string }>("storage-logo-cleanup", redis, {
+      prefix: providerMode.queuePrefix,
+    });
     notificationQueue.on("error", () =>
       logger.error({ component: "notification-queue" }, "worker queue error"),
     );
@@ -154,15 +169,29 @@ async function start(): Promise<void> {
     );
     await Promise.all([notificationQueue.waitUntilReady(), logoCleanupQueue.waitUntilReady()]);
 
-    notificationWorker = createWorker("outbox-delivery", redis, notificationProcessor);
-    logoCleanupWorker = createWorker("storage-logo-cleanup", redis, logoCleanupProcessor);
-    notificationWorker.on("error", () =>
+    const readyNotificationWorker = createWorker("outbox-delivery", redis, notificationProcessor, {
+      prefix: providerMode.queuePrefix,
+    });
+    const readyLogoCleanupWorker = createWorker(
+      "storage-logo-cleanup",
+      redis,
+      logoCleanupProcessor,
+      {
+        prefix: providerMode.queuePrefix,
+      },
+    );
+    readyNotificationWorker.on("error", () =>
       logger.error({ component: "notification-worker" }, "worker consumer error"),
     );
-    logoCleanupWorker.on("error", () =>
+    readyLogoCleanupWorker.on("error", () =>
       logger.error({ component: "logo-cleanup-worker" }, "worker consumer error"),
     );
-    await Promise.all([notificationWorker.waitUntilReady(), logoCleanupWorker.waitUntilReady()]);
+    await Promise.all([
+      readyNotificationWorker.waitUntilReady(),
+      readyLogoCleanupWorker.waitUntilReady(),
+    ]);
+    notificationWorker = readyNotificationWorker;
+    logoCleanupWorker = readyLogoCleanupWorker;
 
     const readyNotificationQueue = notificationQueue;
     const readyLogoCleanupQueue = logoCleanupQueue;
@@ -188,4 +217,5 @@ async function start(): Promise<void> {
   }
 }
 
-await start();
+const entrypoint = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
+if (entrypoint === import.meta.url) await start();

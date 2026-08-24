@@ -30,6 +30,7 @@ describe("real API provider composition", () => {
     });
 
     expect(mode).toMatchObject({ mode: "fake", runId, objectRoot: root });
+    if (mode.mode !== "fake") throw new Error("expected fake provider mode");
     expect(mode.redisScope).toEqual({ mode: "run", runScopeId: runId });
     expect(resolveIdentityRedisPrefixes(mode.redisScope)).toEqual({
       authKeyPrefix: `pubg-camp:${runId}:auth`,
@@ -55,9 +56,19 @@ describe("real API provider composition", () => {
     const redisWrite = vi.fn();
     const invalid = [
       { E2E_PROVIDER_MODE: "fake" },
-      { NODE_ENV: "test", E2E_PROVIDER_MODE: "fake", E2E_RUN_ID: "run-all-012345678901", E2E_OBJECT_ROOT: root },
+      {
+        NODE_ENV: "test",
+        E2E_PROVIDER_MODE: "fake",
+        E2E_RUN_ID: "run-all-012345678901",
+        E2E_OBJECT_ROOT: root,
+      },
       { NODE_ENV: "test", E2E_PROVIDER_MODE: "fake", E2E_RUN_ID: runId, E2E_OBJECT_ROOT: tmpdir() },
-      { NODE_ENV: "production", E2E_PROVIDER_MODE: "fake", E2E_RUN_ID: runId, E2E_OBJECT_ROOT: root },
+      {
+        NODE_ENV: "production",
+        E2E_PROVIDER_MODE: "fake",
+        E2E_RUN_ID: runId,
+        E2E_OBJECT_ROOT: root,
+      },
     ];
 
     for (const environment of invalid) {

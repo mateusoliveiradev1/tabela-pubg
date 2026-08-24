@@ -1,7 +1,9 @@
 import "reflect-metadata";
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
+import { realpath, stat } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import path, { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import cookie from "@fastify/cookie";
 import csrfProtection from "@fastify/csrf-protection";
@@ -23,7 +25,7 @@ import { initializeTelemetry } from "@pubg-camp/observability";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import { registerAppModule } from "./app.module.js";
-import { createIdentityRuntime } from "./identity/identity.runtime.js";
+import { createIdentityRuntime, type IdentityRedisScope } from "./identity/identity.runtime.js";
 import { S3OrganizationLogoStorage } from "./organizations/adapters/s3-organization-logo-storage.js";
 import {
   collectOrganizationMultipartBody,
@@ -31,6 +33,120 @@ import {
 } from "./organizations/organizations.controller.js";
 import { CsrfService, registerCsrfPlugins } from "./security/csrf.service.js";
 import { HttpExceptionFilter } from "./security/http-exception.filter.js";
+
+const E2E_RUN_ID = /^run-[a-z0-9][a-z0-9-]{14,62}$/;
+const BROAD_E2E_RUN_ID = /^run-(?:all|any|default|shared|global|public|phase2|e2e|test)(?:-|$)/;
+const E2E_ROOT_PREFIX = "pubg-camp-phase2-e2e-";
+
+export interface ApiProviderEnvironment {
+  NODE_ENV?: string | undefined;
+  E2E_PROVIDER_MODE?: string | undefined;
+  E2E_RUN_ID?: string | undefined;
+  E2E_OBJECT_ROOT?: string | undefined;
+}
+
+export type ApiProviderMode =
+  | { mode: "production"; redisScope: { mode: "production" } }
+  | {
+      mode: "fake";
+      runId: string;
+      objectRoot: string;
+      redisScope: { mode: "run"; runScopeId: string };
+      discordFetch: typeof globalThis.fetch;
+    };
+
+export async function resolveApiProviderMode(
+  environment: ApiProviderEnvironment,
+): Promise<ApiProviderMode> {
+  const fakeFieldsPresent =
+    environment.E2E_PROVIDER_MODE !== undefined ||
+    environment.E2E_RUN_ID !== undefined ||
+    environment.E2E_OBJECT_ROOT !== undefined;
+  if (!fakeFieldsPresent) return { mode: "production", redisScope: { mode: "production" } };
+  if (
+    environment.NODE_ENV !== "test" ||
+    environment.E2E_PROVIDER_MODE !== "fake" ||
+    !environment.E2E_RUN_ID ||
+    !environment.E2E_OBJECT_ROOT
+  ) {
+    throw new Error("E2E fake providers require the complete test-only provider conjunction");
+  }
+  if (!E2E_RUN_ID.test(environment.E2E_RUN_ID) || BROAD_E2E_RUN_ID.test(environment.E2E_RUN_ID)) {
+    throw new Error("E2E run scope is invalid");
+  }
+  const objectRoot = await resolveOwnedE2ERoot(environment.E2E_OBJECT_ROOT);
+  return {
+    mode: "fake",
+    runId: environment.E2E_RUN_ID,
+    objectRoot,
+    redisScope: { mode: "run", runScopeId: environment.E2E_RUN_ID },
+    discordFetch: createFakeDiscordFetch(environment.E2E_RUN_ID),
+  };
+}
+
+export function createFakeDiscordFetch(runId: string): typeof globalThis.fetch {
+  if (!E2E_RUN_ID.test(runId) || BROAD_E2E_RUN_ID.test(runId)) {
+    throw new Error("E2E Discord run scope is invalid");
+  }
+  const token = createHash("sha256").update(`discord-token:${runId}`, "utf8").digest("base64url");
+  const profileSuffix = BigInt(`0x${createHash("sha256").update(runId).digest("hex").slice(0, 12)}`)
+    .toString(10)
+    .padStart(14, "0")
+    .slice(0, 14);
+  return async (input) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+    if (url.origin !== "https://discord.com")
+      throw new Error("E2E Discord transport rejected origin");
+    if (url.pathname === "/api/v10/oauth2/token") {
+      return Response.json({
+        access_token: token,
+        token_type: "Bearer",
+        expires_in: 300,
+        scope: "identify email",
+      });
+    }
+    if (url.pathname === "/api/v10/users/@me") {
+      return Response.json({
+        id: `1000${profileSuffix}`,
+        username: `e2e-${profileSuffix.slice(-8)}`,
+        email: `e2e-${profileSuffix}@example.test`,
+        verified: true,
+      });
+    }
+    if (url.pathname === "/api/v10/oauth2/token/revoke") return new Response(null, { status: 200 });
+    throw new Error("E2E Discord transport rejected endpoint");
+  };
+}
+
+async function resolveOwnedE2ERoot(candidate: string): Promise<string> {
+  if (!path.isAbsolute(candidate)) throw new Error("E2E object root must be absolute");
+  let root: string;
+  let systemTemp: string;
+  try {
+    [root, systemTemp] = await Promise.all([realpath(candidate), realpath(tmpdir())]);
+  } catch {
+    throw new Error("E2E object root must be an existing mkdtemp directory");
+  }
+  const relative = path.relative(systemTemp, root);
+  if (
+    !(await stat(root)).isDirectory() ||
+    relative === "" ||
+    relative.startsWith("..") ||
+    path.isAbsolute(relative) ||
+    !path.basename(root).startsWith(E2E_ROOT_PREFIX) ||
+    path.basename(root).length <= E2E_ROOT_PREFIX.length
+  ) {
+    throw new Error("E2E object root is outside the owned mkdtemp scope");
+  }
+  return root;
+}
+
+function requireProductionLogoStorage(
+  storage: S3OrganizationLogoStorage | undefined,
+): S3OrganizationLogoStorage {
+  if (!storage) throw new Error("production logo storage is unavailable");
+  return storage;
+}
 
 const ApiEnvSchema = Phase2EnvSchema.extend({
   PORT: z.coerce.number().int().positive().default(3001),
@@ -58,6 +174,7 @@ export function trustedProxyConfiguration(mode: "none" | "loopback" | "private")
 }
 
 export async function bootstrap(): Promise<NestFastifyApplication> {
+  const providerMode = await resolveApiProviderMode(process.env);
   const env = loadEnv(ApiEnvSchema, {
     ...process.env,
     SERVICE_NAME: process.env.SERVICE_NAME ?? "api",
@@ -77,14 +194,17 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
     await migrateDatabase(env.DATABASE_URL);
   }
   const database = createDatabase(env.DATABASE_URL);
-  const logoStorage = new S3OrganizationLogoStorage({
-    endpoint: env.S3_ENDPOINT,
-    region: env.S3_REGION,
-    bucket: env.S3_BUCKET,
-    accessKeyId: env.S3_ACCESS_KEY,
-    secretAccessKey: env.S3_SECRET_KEY,
-    forcePathStyle: true,
-  });
+  const logoStorage =
+    providerMode.mode === "production"
+      ? new S3OrganizationLogoStorage({
+          endpoint: env.S3_ENDPOINT,
+          region: env.S3_REGION,
+          bucket: env.S3_BUCKET,
+          accessKeyId: env.S3_ACCESS_KEY,
+          secretAccessKey: env.S3_SECRET_KEY,
+          forcePathStyle: true,
+        })
+      : undefined;
   const tokens = {
     id: () => randomUUID(),
     opaque: (bytes: number) => randomBytes(bytes).toString("base64url"),
@@ -103,6 +223,7 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
   const identity = await createIdentityRuntime({
     database: database.db,
     redisUrl: env.REDIS_URL,
+    redisScope: providerMode.redisScope satisfies IdentityRedisScope,
     discord: {
       clientId: env.DISCORD_CLIENT_ID,
       clientSecret: env.DISCORD_CLIENT_SECRET,
@@ -112,6 +233,7 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
         ? {}
         : { pkceExceptionId: env.DISCORD_PKCE_EXCEPTION_ID }),
     },
+    ...(providerMode.mode === "fake" ? { discordFetch: providerMode.discordFetch } : {}),
     csrf,
     tokens,
     otpPepper: Buffer.from(env.OTP_PEPPER, "utf8"),
@@ -188,7 +310,12 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
             }
           },
         },
-        logoStorage,
+        ...(providerMode.mode === "production"
+          ? { logoStorage: requireProductionLogoStorage(logoStorage) }
+          : {
+              environment: process.env,
+              e2eObjectRoot: providerMode.objectRoot,
+            }),
         logoFallbackUrl: `${env.APP_ORIGIN.replace(/\/$/, "")}/images/organization-fallback.svg`,
         logoSignedUrlTtlSeconds: 300,
       },
@@ -233,7 +360,7 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
     await app.close();
     await database.close();
     await identity.close();
-    logoStorage.close();
+    logoStorage?.close();
     await telemetry.shutdown();
   };
   process.once("SIGINT", () => void shutdown("SIGINT"));

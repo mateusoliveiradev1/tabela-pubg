@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,8 +23,18 @@ describe("worker E2E provider mode", () => {
     const partials = [
       { E2E_PROVIDER_MODE: "fake" },
       { NODE_ENV: "test", E2E_RUN_ID: runId, E2E_OBJECT_ROOT: root },
-      { NODE_ENV: "production", E2E_PROVIDER_MODE: "fake", E2E_RUN_ID: runId, E2E_OBJECT_ROOT: root },
-      { NODE_ENV: "test", E2E_PROVIDER_MODE: "fake", E2E_RUN_ID: "run-shared-0123456789", E2E_OBJECT_ROOT: root },
+      {
+        NODE_ENV: "production",
+        E2E_PROVIDER_MODE: "fake",
+        E2E_RUN_ID: runId,
+        E2E_OBJECT_ROOT: root,
+      },
+      {
+        NODE_ENV: "test",
+        E2E_PROVIDER_MODE: "fake",
+        E2E_RUN_ID: "run-shared-0123456789",
+        E2E_OBJECT_ROOT: root,
+      },
       { NODE_ENV: "test", E2E_PROVIDER_MODE: "fake", E2E_RUN_ID: runId, E2E_OBJECT_ROOT: tmpdir() },
     ];
 
@@ -85,7 +95,14 @@ describe("FileEmailSender", () => {
       idempotencyKey: request.idempotencyKey,
       message: request.message,
     });
-    expect((await stat(mailboxPath)).mode & 0o077).toBe(0);
-    expect((await stat(path.dirname(mailboxPath))).mode & 0o077).toBe(0);
+    const mailboxMode = (await stat(mailboxPath)).mode;
+    const directoryMode = (await stat(path.dirname(mailboxPath))).mode;
+    if (process.platform === "win32") {
+      expect(mailboxMode & 0o111).toBe(0);
+      expect(directoryMode & 0o111).toBe(0);
+    } else {
+      expect(mailboxMode & 0o077).toBe(0);
+      expect(directoryMode & 0o077).toBe(0);
+    }
   });
 });
