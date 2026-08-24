@@ -10,6 +10,7 @@ import { OtpInput } from "./otp-input";
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 function csrfResponse(token = "csrf-token-with-safe-length") {
@@ -274,6 +275,80 @@ describe("convite seguro", () => {
     expect(String(acceptInit?.body)).toBe(JSON.stringify({ confirmation: true }));
     expect(String(acceptInit?.body)).not.toContain("invite-secret");
     expect((await screen.findByRole("status")).textContent).toContain("Convite aceito");
+  });
+
+  it("renders a signed logo from the normalized second approved origin without a referrer", async () => {
+    vi.stubEnv(
+      "NEXT_PUBLIC_ORGANIZATION_LOGO_ORIGINS",
+      "https://primary.example.test, https://logos.example.test:443",
+    );
+    window.history.replaceState({}, "", "/convites/aceitar?token=invite-secret-token-value");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(csrfResponse())
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              status: "valid",
+              organization: {
+                name: "Liga da Comunidade",
+                logoUrl: "https://logos.example.test/liga.png?expires=300&signature=opaque",
+              },
+              invitedBy: "Organizador",
+              maskedEmail: "j***@example.com",
+              organizationRole: "member",
+              expiresAt: "2026-08-28T12:00:00.000Z",
+              emailMatches: true,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        ),
+    );
+
+    render(<InvitationAcceptForm />);
+
+    const logo = await screen.findByRole("img", {
+      name: "Logo da organiza\u00e7\u00e3o Liga da Comunidade",
+    });
+    expect(logo.getAttribute("src")).toBe(
+      "https://logos.example.test/liga.png?expires=300&signature=opaque",
+    );
+    expect(logo.getAttribute("referrerpolicy")).toBe("no-referrer");
+  });
+
+  it("uses the local fallback for a signed logo from an unapproved origin", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ORGANIZATION_LOGO_ORIGINS", "https://logos.example.test");
+    window.history.replaceState({}, "", "/convites/aceitar?token=invite-secret-token-value");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(csrfResponse())
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              status: "valid",
+              organization: {
+                name: "Camps do Interior",
+                logoUrl: "https://unapproved.example.test/logo.png?signature=opaque",
+              },
+              invitedBy: "Organizador",
+              maskedEmail: "c***@example.com",
+              organizationRole: "member",
+              expiresAt: "2026-08-28T12:00:00.000Z",
+              emailMatches: true,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        ),
+    );
+
+    render(<InvitationAcceptForm />);
+
+    expect(await screen.findByText("CI")).toBeTruthy();
+    expect(screen.queryByRole("img")).toBeNull();
   });
 
   it("não monta imagem antes do preview e usa iniciais quando a URL assinada falha", async () => {
