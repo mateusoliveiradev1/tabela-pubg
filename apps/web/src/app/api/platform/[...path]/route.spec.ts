@@ -178,6 +178,40 @@ describe("same-origin platform BFF", () => {
     expect(setCookies(response).join(";")).toContain("__Host-csrf=secret");
   });
 
+  it("translates a native OAuth form navigation into a bounded JSON API request", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://discord.com/oauth2/authorize?opaque=provider-state" },
+      }),
+    );
+    const body = new URLSearchParams({
+      csrfToken: "csrf-token-with-safe-length",
+      purpose: "sign-in",
+      returnPath: "/primeiro-acesso",
+    });
+
+    const response = await POST(
+      request("identity/oauth/discord/start", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      }),
+      context("identity", "oauth", "discord", "start"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toMatch(/^https:\/\/discord\.com\/oauth2\/authorize/);
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const headers = new Headers(init?.headers);
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(headers.get("x-csrf-token")).toBe("csrf-token-with-safe-length");
+    expect(new TextDecoder().decode(init?.body as ArrayBuffer)).toBe(
+      JSON.stringify({ purpose: "sign-in", returnPath: "/primeiro-acesso" }),
+    );
+    expect(await response.text()).toBe("");
+  });
+
   it("accepts browser-owned same-origin metadata across a trusted dev host normalization", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ csrfToken: "metadata-csrf-token-123" }));
     const browserRequest = new Request("http://localhost:3000/api/platform/security/csrf", {

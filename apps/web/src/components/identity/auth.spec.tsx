@@ -17,6 +17,37 @@ function csrfResponse(token = "csrf-token-with-safe-length") {
 }
 
 describe("login Discord-first", () => {
+  it("uses a native POST navigation so the browser can follow Discord without exposing its URL", async () => {
+    const user = userEvent.setup();
+    const submitted: Array<{ action: string; method: string; fields: Record<string, string> }> = [];
+    vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(function submit() {
+      submitted.push({
+        action: this.action,
+        method: this.method,
+        fields: Object.fromEntries(new FormData(this).entries()) as Record<string, string>,
+      });
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(csrfResponse()));
+
+    render(<DiscordButton returnPath="/primeiro-acesso" />);
+    await user.click(screen.getByRole("button", { name: "Continuar com Discord" }));
+
+    await waitFor(() => expect(submitted).toHaveLength(1));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(submitted[0]).toEqual({
+      action: "http://localhost:3000/api/platform/identity/oauth/discord/start",
+      method: "post",
+      fields: {
+        csrfToken: "csrf-token-with-safe-length",
+        purpose: "sign-in",
+        returnPath: "/primeiro-acesso",
+      },
+    });
+    expect(document.documentElement.innerHTML).not.toContain("discord.com/oauth2/authorize");
+    expect(document.documentElement.innerHTML).not.toContain("state=");
+    expect(document.documentElement.innerHTML).not.toContain("code_challenge");
+  });
+
   it("blocks duplicate Discord starts and keeps the provider URL out of the DOM", async () => {
     const user = userEvent.setup();
     const redirect = vi.fn();
