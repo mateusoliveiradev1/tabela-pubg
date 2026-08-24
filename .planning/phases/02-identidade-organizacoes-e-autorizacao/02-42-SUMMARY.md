@@ -85,6 +85,7 @@ completed: 2026-08-24
 1. **TDD RED: contrato PostgreSQL completo da fronteira D-08** — `53b7e3c`
 2. **TDD GREEN: comando atômico, purpose-bound proof e migration** — `2286614`
 3. **Harness: integração real isolada da suíte offline** — `9b0f14d`
+4. **Contrato estrutural: cadeia dedicada phase2 travada ponta a ponta** — `5b04a6a`
 
 ## Files Created/Modified
 
@@ -140,7 +141,7 @@ completed: 2026-08-24
 - **Fix:** o comando offline exclui explicitamente os globs `integration`/`concurrent`; um teste estrutural garante que o config dedicado continua incluindo o spec D-08, executa preflight antes da suíte e não aceita `skip`, `todo` ou `passWithNoTests`.
 - **Files modified:** `packages/database/package.json` e `packages/database/src/identity-security-change-harness.test.ts`.
 - **Verification:** teste estrutural 2/2, pacote offline 24/24, exact selector sem `DATABASE_URL` falha fechado no `beforeAll`, root test 22/22 e root build 13/13.
-- **Committed in:** `9b0f14d`
+- **Committed in:** `9b0f14d`, `5b04a6a`
 
 ---
 
@@ -193,7 +194,7 @@ None — nenhuma credencial, URL de serviço ou segredo foi persistido.
 ## Self-Check: PASSED
 
 - SUMMARY e todos os arquivos-chave criados existem no working tree.
-- Commits TDD `53b7e3c` e `2286614` existem no histórico na ordem RED→GREEN; o fix de harness `9b0f14d` também está presente.
+- Commits TDD `53b7e3c` e `2286614` existem no histórico na ordem RED→GREEN; o fix de harness `9b0f14d` e seu contrato estrutural `5b04a6a` também estão presentes.
 - Nenhuma deleção rastreada, segredo, stub, processo, listener ou diretório temporário do gate permaneceu.
 
 ---
