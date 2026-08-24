@@ -130,6 +130,10 @@ function validate(input) {
     [/^ {6}redis:\s*$/m, "Redis browser service"],
     [/pnpm install --frozen-lockfile/, "frozen browser dependency install"],
     [/pnpm turbo run build --filter=@pubg-camp\/web\^\.\.\./, "fresh-checkout browser build"],
+    [
+      /pnpm --filter @pubg-camp\/authorization build/,
+      "fresh-checkout authorization dependency build",
+    ],
     [/pnpm phase2:integration:preflight/, "browser Redis/PostgreSQL preflight"],
     [/pnpm --filter @pubg-camp\/authorization exec vitest run/, "authorization suite"],
     [/src\/authorization\.spec\.ts/, "authorization selector"],
@@ -150,6 +154,7 @@ function validate(input) {
 
   const order = [
     e2e.indexOf("pnpm turbo run build --filter=@pubg-camp/web^..."),
+    e2e.indexOf("pnpm --filter @pubg-camp/authorization build"),
     e2e.indexOf("pnpm phase2:integration:preflight"),
     e2e.indexOf("pnpm --filter @pubg-camp/authorization exec vitest run"),
     e2e.indexOf("playwright install --with-deps chromium"),
@@ -162,7 +167,7 @@ function validate(input) {
     order.some((index, offset) => offset > 0 && index <= order[offset - 1])
   ) {
     throw new Error(
-      "phase 2 CI order must be build, preflight, security, Chromium, runtime, smoke, full browser",
+      "phase 2 CI order must be browser dependencies, authorization build, preflight, security, Chromium, runtime, smoke, full browser",
     );
   }
 
@@ -426,6 +431,26 @@ function runSelfTest(baseline) {
         ),
     ],
     [
+      "missing-authorization-build",
+      (value) =>
+        mutate(
+          value,
+          "workflow",
+          "pnpm --filter @pubg-camp/authorization build",
+          "pnpm --filter @pubg-camp/authorization exec true",
+        ),
+    ],
+    [
+      "authorization-build-after-security",
+      (value) =>
+        swap(
+          value,
+          "workflow",
+          "pnpm --filter @pubg-camp/authorization build",
+          "pnpm --filter @pubg-camp/authorization exec vitest run",
+        ),
+    ],
+    [
       "missing-authorization-suite",
       (value) =>
         mutate(
@@ -468,7 +493,7 @@ function runSelfTest(baseline) {
       (value) => mutateAll(value, "accessibilitySpec", "test(", "removed("),
     ],
   ];
-  if (cases.length !== 31) throw new Error("CI validator self-test inventory cardinality changed");
+  if (cases.length !== 33) throw new Error("CI validator self-test inventory cardinality changed");
   const executed = [];
   for (const [name, change] of cases) {
     let rejected = false;
