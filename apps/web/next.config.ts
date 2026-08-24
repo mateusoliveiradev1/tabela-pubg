@@ -54,7 +54,7 @@ function contentSecurityPolicy(): string {
     "frame-ancestors 'self'",
     "object-src 'none'",
     "base-uri 'self'",
-    "form-action 'self'",
+    "form-action 'self' https://discord.com",
   ].join("; ");
 }
 
