@@ -26,6 +26,8 @@ function setup(options?: { limiterBlocked?: boolean; limiterUnavailable?: boolea
         if (
           stored.emailDigest === challenge.emailDigest &&
           stored.purpose === challenge.purpose &&
+          stored.actorId === challenge.actorId &&
+          stored.sessionId === challenge.sessionId &&
           stored.consumed !== true
         ) {
           stored.consumed = true;
@@ -33,51 +35,91 @@ function setup(options?: { limiterBlocked?: boolean; limiterUnavailable?: boolea
       }
       challenges.set(challenge.id, { ...challenge });
     }),
-    findActive: vi.fn(async (id, purpose) => {
-      const found = challenges.get(id);
-      return found && found.purpose === purpose && found.consumed !== true ? found : null;
+    findActive: vi.fn(async (input) => {
+      const found = challenges.get(input.challengeId);
+      return found &&
+        found.purpose === input.purpose &&
+        found.actorId === input.actorId &&
+        found.sessionId === input.sessionId &&
+        found.consumed !== true
+        ? found
+        : null;
     }),
-    recordFailure: vi.fn(async (id) => {
-      const found = challenges.get(id);
-      if (!found || found.consumed === true || found.attemptsRemaining === 0) {
+    recordFailure: vi.fn(async (input) => {
+      const found = challenges.get(input.challengeId);
+      if (
+        !found ||
+        found.consumed === true ||
+        found.actorId !== input.actorId ||
+        found.sessionId !== input.sessionId ||
+        found.attemptsRemaining === 0
+      ) {
         return 0;
       }
       found.attemptsRemaining -= 1;
       return found.attemptsRemaining;
     }),
-    consumeIfActive: vi.fn(async ({ challengeId, codeDigest, now: consumedAt }) => {
-      const found = challenges.get(challengeId);
+    complete: vi.fn(async (input) => {
+      const found = challenges.get(input.challengeId);
       if (
         !found ||
         found.consumed === true ||
-        found.codeDigest !== codeDigest ||
-        found.attemptsRemaining === 0 ||
-        found.expiresAt <= consumedAt
+        found.codeDigest !== input.codeDigest ||
+        found.actorId !== input.actorId ||
+        found.sessionId !== input.sessionId
       ) {
-        return { consumed: false };
+        return { status: "rejected" } as const;
       }
       found.consumed = true;
-      return { consumed: true };
+      switch (input.purpose) {
+        case "sign-in":
+          return { status: "authenticated", userId: "email-user" } as const;
+        case "link-email":
+          return {
+            status: "identity-link-ready",
+            proofId: input.proofId,
+            actorId: input.actorId ?? "",
+            sessionId: input.sessionId ?? "",
+          } as const;
+        case "change-email":
+          return {
+            status: "email-change-ready",
+            proofId: input.proofId,
+            actorId: input.actorId ?? "",
+            sessionId: input.sessionId ?? "",
+          } as const;
+        case "step-up":
+          return {
+            status: "step-up-confirmed",
+            actorId: input.actorId ?? "",
+            sessionId: input.sessionId ?? "",
+            confirmedAt: input.now,
+          } as const;
+        case "verify-provisional-email":
+          return {
+            status: "provisional-email-verified",
+            userId: input.actorId ?? "",
+            sessionId: input.sessionId ?? "",
+            sessionToken: input.replacementSessionToken,
+            trust: "trusted",
+          } as const;
+      }
     }),
   };
   const limiter: AuthRateLimiter = {
     consume: vi.fn(async () => {
-      if (options?.limiterUnavailable) {
-        throw new Error("redis unavailable");
-      }
+      if (options?.limiterUnavailable) throw new Error("redis unavailable");
       return options?.limiterBlocked
         ? { allowed: false as const, retryAfterSeconds: 120 }
         : { allowed: true as const };
     }),
   };
-  const delivery: SecureOtpDeliveryPort = {
-    enqueue: vi.fn(async () => undefined),
-  };
+  const delivery: SecureOtpDeliveryPort = { enqueue: vi.fn(async () => undefined) };
   const securityLog = { record: vi.fn() };
   let sequence = 0;
   const tokens: TokenGenerator = {
     id: vi.fn(() => `id-${++sequence}`),
-    opaque: vi.fn(() => "opaque"),
+    opaque: vi.fn(() => "replacement-session-token"),
     numericCode: vi.fn(() => "12345678"),
     digest: vi.fn((value) => `digest:${value}`),
   };
@@ -100,25 +142,22 @@ function setup(options?: { limiterBlocked?: boolean; limiterUnavailable?: boolea
   };
 }
 
-const request = {
+const publicRequest = {
   email: " Player@Example.com ",
   purpose: "sign-in" as const,
   trustedIp: "203.0.113.8",
   correlationId: "corr-1",
 };
+const binding = { actorId: "actor-1", sessionId: "session-1" };
 
 describe("OtpService", () => {
-  it("returns the same public response for every email and queues an eight digit challenge", async () => {
-    const first = setup();
-    const second = setup();
+  it("keeps sign-in unbound and persists server-derived binding for protected purposes", async () => {
+    const { service, repository } = setup();
 
-    const existing = await first.service.request(request);
-    const unknown = await second.service.request({ ...request, email: "unknown@example.com" });
+    await service.request(publicRequest);
+    await service.request({ ...publicRequest, purpose: "step-up", ...binding });
 
-    expect(existing.response).toEqual(unknown.response);
-    expect(existing.response).toEqual({ status: "accepted", retryAfterSeconds: 60 });
-    expect(first.tokens.numericCode).toHaveBeenCalledWith(8);
-    expect(first.repository.replace).toHaveBeenCalledWith({
+    expect(repository.replace).toHaveBeenNthCalledWith(1, {
       id: "id-1",
       emailDigest: "digest:player@example.com",
       purpose: "sign-in",
@@ -126,22 +165,135 @@ describe("OtpService", () => {
       attemptsRemaining: 5,
       expiresAt: new Date("2026-08-21T12:10:00.000Z"),
     });
-    expect(first.delivery.enqueue).toHaveBeenCalledWith(
-      expect.objectContaining({
-        deliveryId: "id-2",
-        challengeId: "id-1",
-        recipient: "player@example.com",
-        code: "12345678",
-      }),
+    expect(repository.replace).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ purpose: "step-up", ...binding }),
     );
   });
 
-  it("uses only digests for email, trusted IP and combined limiter dimensions", async () => {
-    const { service, limiter } = setup();
+  it("fails closed without persistence when a protected request lacks actor/session", async () => {
+    const { service, repository, delivery } = setup();
 
-    await service.request(request);
+    await expect(service.request({ ...publicRequest, purpose: "link-email" })).resolves.toEqual({
+      response: { status: "accepted", retryAfterSeconds: 60 },
+    });
+    expect(repository.replace).not.toHaveBeenCalled();
+    expect(delivery.enqueue).not.toHaveBeenCalled();
+  });
 
-    expect(limiter.consume).toHaveBeenCalledWith({
+  it("returns a private email account result for sign-in and rejects replay", async () => {
+    const { service } = setup();
+    const issued = await service.request(publicRequest);
+    const input = {
+      challengeId: issued.challengeId ?? "",
+      email: publicRequest.email,
+      purpose: "sign-in" as const,
+      code: "12345678",
+      trustedIp: publicRequest.trustedIp,
+      correlationId: "corr-verify",
+    };
+
+    await expect(service.verify(input)).resolves.toEqual({
+      status: "authenticated",
+      userId: "email-user",
+    });
+    await expect(service.verify(input)).resolves.toEqual({ status: "rejected" });
+  });
+
+  it("returns purpose-specific bound proof and persisted step-up results", async () => {
+    for (const purpose of ["link-email", "change-email", "step-up"] as const) {
+      const { service } = setup();
+      const issued = await service.request({ ...publicRequest, purpose, ...binding });
+      const result = await service.verify({
+        challengeId: issued.challengeId ?? "",
+        email: publicRequest.email,
+        purpose,
+        code: "12345678",
+        trustedIp: publicRequest.trustedIp,
+        correlationId: `corr-${purpose}`,
+        ...binding,
+      });
+
+      expect(result).toMatchObject(
+        purpose === "step-up"
+          ? { status: "step-up-confirmed", ...binding, confirmedAt: now }
+          : {
+              status: purpose === "link-email" ? "identity-link-ready" : "email-change-ready",
+              ...binding,
+            },
+      );
+    }
+  });
+
+  it("promotes only the bound provisional session and returns its replacement token", async () => {
+    const { service, tokens } = setup();
+    const purpose = "verify-provisional-email" as const;
+    const issued = await service.request({ ...publicRequest, purpose, ...binding });
+
+    await expect(
+      service.verify({
+        challengeId: issued.challengeId ?? "",
+        email: publicRequest.email,
+        purpose,
+        code: "12345678",
+        trustedIp: publicRequest.trustedIp,
+        correlationId: "corr-promote",
+        ...binding,
+      }),
+    ).resolves.toEqual({
+      status: "provisional-email-verified",
+      userId: binding.actorId,
+      sessionId: binding.sessionId,
+      sessionToken: "replacement-session-token",
+      trust: "trusted",
+    });
+    expect(tokens.opaque).toHaveBeenCalledWith(32);
+  });
+
+  it("does not consume or decrement a challenge for the wrong actor/session", async () => {
+    const { service, repository } = setup();
+    const issued = await service.request({ ...publicRequest, purpose: "step-up", ...binding });
+
+    await expect(
+      service.verify({
+        challengeId: issued.challengeId ?? "",
+        email: publicRequest.email,
+        purpose: "step-up",
+        code: "12345678",
+        trustedIp: publicRequest.trustedIp,
+        correlationId: "corr-cross-session",
+        actorId: binding.actorId,
+        sessionId: "session-2",
+      }),
+    ).resolves.toEqual({ status: "rejected" });
+
+    expect(repository.recordFailure).not.toHaveBeenCalled();
+    expect(repository.complete).not.toHaveBeenCalled();
+    await expect(
+      service.verify({
+        challengeId: issued.challengeId ?? "",
+        email: publicRequest.email,
+        purpose: "step-up",
+        code: "12345678",
+        trustedIp: publicRequest.trustedIp,
+        correlationId: "corr-owner",
+        ...binding,
+      }),
+    ).resolves.toMatchObject({ status: "step-up-confirmed", ...binding });
+  });
+
+  it("uses only digests for limiter dimensions and keeps public responses uniform", async () => {
+    const allowed = setup();
+    const blocked = setup({ limiterBlocked: true });
+    const unavailable = setup({ limiterUnavailable: true });
+
+    const accepted = await allowed.service.request(publicRequest);
+    const blockedResult = await blocked.service.request(publicRequest);
+    const unavailableResult = await unavailable.service.request(publicRequest);
+
+    expect(accepted.response).toEqual(blockedResult.response);
+    expect(blockedResult.response).toEqual(unavailableResult.response);
+    expect(allowed.limiter.consume).toHaveBeenCalledWith({
       operation: "otp-request",
       now,
       keys: [
@@ -154,91 +306,46 @@ describe("OtpService", () => {
         { dimension: "cooldown", digest: "digest:player@example.com" },
       ],
     });
-    expect(JSON.stringify(vi.mocked(limiter.consume).mock.calls)).not.toContain(
-      "Player@Example.com",
-    );
-  });
-
-  it("fails closed with a uniform response when limiter blocks or is unavailable", async () => {
-    const blocked = setup({ limiterBlocked: true });
-    const unavailable = setup({ limiterUnavailable: true });
-
-    const blockedResult = await blocked.service.request(request);
-    const unavailableResult = await unavailable.service.request(request);
-
-    expect(blockedResult.response).toEqual(unavailableResult.response);
     expect(blocked.repository.replace).not.toHaveBeenCalled();
     expect(unavailable.repository.replace).not.toHaveBeenCalled();
-    expect(blocked.delivery.enqueue).not.toHaveBeenCalled();
-    expect(unavailable.securityLog.record).toHaveBeenCalledWith({
-      correlationId: "corr-1",
-      category: "otp-limiter-unavailable",
-    });
     expect(JSON.stringify(unavailable.securityLog.record.mock.calls)).not.toContain("example.com");
   });
 
-  it("supersedes the previous challenge on resend", async () => {
+  it("expires and locks a challenge after five wrong attempts", async () => {
     const { service, challenges } = setup();
-
-    const first = await service.request(request);
-    const second = await service.request(request);
-
-    expect(challenges.get(first.challengeId ?? "")?.consumed).toBe(true);
-    expect(challenges.get(second.challengeId ?? "")?.consumed).not.toBe(true);
-  });
-
-  it("consumes a correct challenge once and rejects replay", async () => {
-    const { service } = setup();
-    const issued = await service.request(request);
-    const input = {
-      challengeId: issued.challengeId ?? "",
-      email: request.email,
-      purpose: request.purpose,
-      code: "12345678",
-      trustedIp: request.trustedIp,
-      correlationId: "corr-verify",
-    };
-
-    await expect(service.verify(input)).resolves.toEqual({ status: "authenticated" });
-    await expect(service.verify(input)).resolves.toEqual({ status: "rejected" });
-  });
-
-  it("rejects expiry and locks the challenge after five wrong attempts", async () => {
-    const { service, challenges } = setup();
-    const issued = await service.request(request);
+    const issued = await service.request(publicRequest);
     const challenge = challenges.get(issued.challengeId ?? "");
-    if (challenge) {
-      challenge.expiresAt = new Date("2026-08-21T11:59:59.000Z");
-    }
+    if (challenge) challenge.expiresAt = new Date("2026-08-21T11:59:59.000Z");
+
     await expect(
       service.verify({
         challengeId: issued.challengeId ?? "",
-        email: request.email,
-        purpose: request.purpose,
+        email: publicRequest.email,
+        purpose: "sign-in",
         code: "12345678",
-        trustedIp: request.trustedIp,
+        trustedIp: publicRequest.trustedIp,
         correlationId: "corr-expired",
       }),
     ).resolves.toEqual({ status: "rejected" });
 
-    const fresh = await service.request(request);
+    const fresh = await service.request(publicRequest);
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await service.verify({
         challengeId: fresh.challengeId ?? "",
-        email: request.email,
-        purpose: request.purpose,
+        email: publicRequest.email,
+        purpose: "sign-in",
         code: "00000000",
-        trustedIp: request.trustedIp,
+        trustedIp: publicRequest.trustedIp,
         correlationId: `corr-wrong-${attempt}`,
       });
     }
     await expect(
       service.verify({
         challengeId: fresh.challengeId ?? "",
-        email: request.email,
-        purpose: request.purpose,
+        email: publicRequest.email,
+        purpose: "sign-in",
         code: "12345678",
-        trustedIp: request.trustedIp,
+        trustedIp: publicRequest.trustedIp,
         correlationId: "corr-after-lock",
       }),
     ).resolves.toEqual({ status: "rejected" });

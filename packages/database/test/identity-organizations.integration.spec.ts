@@ -6,24 +6,25 @@ import { eq } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { AuditWriter } from "../src/repositories/audit.js";
+import { loadAuthorizationSnapshot } from "../src/repositories/authorization.js";
 import {
+  completeOtpChallenge,
   consumeAuthChallenge,
   consumeOAuthTransaction,
   createOAuthTransaction,
+  identityDigests,
   linkIdentity,
   replaceAuthChallenge,
+  resolveOrCreateEmailAccount,
 } from "../src/repositories/identity.js";
-import { AuditWriter } from "../src/repositories/audit.js";
-import { loadAuthorizationSnapshot } from "../src/repositories/authorization.js";
 import {
   clearNotificationPayload,
   createEncryptedNotificationDelivery,
   decryptNotificationPayload,
 } from "../src/repositories/notifications.js";
-import {
-  createOrganization,
-  findMembershipById,
-} from "../src/repositories/organizations.js";
+import { createOrganization, findMembershipById } from "../src/repositories/organizations.js";
+import { resolveSession } from "../src/repositories/sessions.js";
 import * as schema from "../src/schema.js";
 import { notificationDeliveries } from "../src/schema.js";
 
@@ -554,4 +555,382 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     `;
     expect(counts).toEqual({ organizations: 0, memberships: 0, audits: 0, outbox: 0 });
   }, 15_000);
+
+  async function seedSession(input: {
+    userId: string;
+    sessionId: string;
+    token: string;
+    trust: "provisional" | "trusted";
+    now: Date;
+  }): Promise<void> {
+    const deviceId = randomUUID();
+    await client`
+      insert into users (id, display_name, created_at, updated_at)
+      values (${input.userId}, 'OTP actor', ${input.now.toISOString()}, ${input.now.toISOString()})
+    `;
+    await client`
+      insert into devices
+        (id, user_id, device_digest, label, browser, operating_system, first_seen_at, last_seen_at)
+      values
+        (${deviceId}, ${input.userId}, ${identityDigests.opaque(`device:${deviceId}`)},
+         'OTP device', 'Browser', 'OS', ${input.now.toISOString()}, ${input.now.toISOString()})
+    `;
+    const absoluteExpiresAt = new Date(
+      input.now.getTime() + (input.trust === "trusted" ? 90 * 24 * 60 * 60_000 : 15 * 60_000),
+    );
+    const idleExpiresAt = new Date(
+      input.now.getTime() + (input.trust === "trusted" ? 30 * 24 * 60 * 60_000 : 15 * 60_000),
+    );
+    await client`
+      insert into sessions
+        (id, user_id, device_id, token_digest, trust, issued_at, last_seen_at,
+         idle_expires_at, absolute_expires_at, created_at, updated_at)
+      values
+        (${input.sessionId}, ${input.userId}, ${deviceId}, ${identityDigests.opaque(input.token)},
+         ${input.trust}, ${input.now.toISOString()}, ${input.now.toISOString()},
+         ${idleExpiresAt.toISOString()}, ${absoluteExpiresAt.toISOString()},
+         ${input.now.toISOString()}, ${input.now.toISOString()})
+    `;
+  }
+
+  it("binds protected OTP consume to actor, session and purpose without mismatch mutation", async () => {
+    const issuedAt = new Date("2026-08-21T10:00:00.000Z");
+    const now = new Date(issuedAt.getTime() + 60_000);
+    const actorId = randomUUID();
+    const sessionId = randomUUID();
+    const otherSessionId = randomUUID();
+    const hmacKey = Buffer.alloc(32, 31);
+    const challengeId = randomUUID();
+    await seedSession({
+      userId: actorId,
+      sessionId,
+      token: "bound-old-token",
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await seedSession({
+      userId: randomUUID(),
+      sessionId: otherSessionId,
+      token: "other-actor-token",
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await replaceAuthChallenge(
+      db,
+      {
+        id: challengeId,
+        email: "bound@example.test",
+        purpose: "step-up",
+        code: "12345678",
+        expiresAt: new Date(now.getTime() + 10 * 60_000),
+        actorId,
+        sessionId,
+      },
+      hmacKey,
+      () => issuedAt,
+    );
+
+    await expect(
+      completeOtpChallenge(db, {
+        challengeId,
+        email: "bound@example.test",
+        purpose: "step-up",
+        code: "12345678",
+        hmacKey,
+        actorId,
+        sessionId: otherSessionId,
+        now,
+        ids: {
+          userId: randomUUID(),
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          proofId: randomUUID(),
+        },
+        replacementSessionToken: "unused-replacement",
+      }),
+    ).resolves.toEqual({ status: "rejected" });
+    const [unchanged] = await client`
+      select consumed_at, attempts_remaining from auth_challenges where id = ${challengeId}
+    `;
+    expect(unchanged).toMatchObject({ consumed_at: null, attempts_remaining: 5 });
+
+    await expect(
+      completeOtpChallenge(db, {
+        challengeId,
+        email: "bound@example.test",
+        purpose: "step-up",
+        code: "12345678",
+        hmacKey,
+        actorId,
+        sessionId,
+        now,
+        ids: {
+          userId: randomUUID(),
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          proofId: randomUUID(),
+        },
+        replacementSessionToken: "unused-replacement",
+      }),
+    ).resolves.toMatchObject({ status: "step-up-confirmed", actorId, sessionId, confirmedAt: now });
+    await expect(
+      completeOtpChallenge(db, {
+        challengeId,
+        email: "bound@example.test",
+        purpose: "step-up",
+        code: "12345678",
+        hmacKey,
+        actorId,
+        sessionId,
+        now,
+        ids: {
+          userId: randomUUID(),
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          proofId: randomUUID(),
+        },
+        replacementSessionToken: "unused-replacement",
+      }),
+    ).resolves.toEqual({ status: "rejected" });
+  });
+
+  it("resolves concurrent first email sign-in once and never merges a Discord email coincidence", async () => {
+    const now = new Date("2026-08-21T11:00:00.000Z");
+    const email = `first-${randomUUID()}@example.test`;
+    if (!databaseUrl) throw new Error("DATABASE_URL is required");
+    const secondClient = postgres(databaseUrl, {
+      max: 1,
+      prepare: false,
+      onnotice: () => undefined,
+    });
+    await secondClient.unsafe(`set search_path to ${quoteIdentifier(schemaName)}`);
+    const secondDb = drizzle(secondClient, { schema });
+    try {
+      const results = await Promise.all([
+        resolveOrCreateEmailAccount(db, {
+          email,
+          userId: randomUUID(),
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          now,
+        }),
+        resolveOrCreateEmailAccount(secondDb, {
+          email,
+          userId: randomUUID(),
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          now,
+        }),
+      ]);
+      expect(
+        new Set(
+          results.map((result) => (result.status === "conflict" ? "conflict" : result.userId)),
+        ),
+      ).toHaveSize(1);
+      const [counts] = await client`
+        select
+          count(*) filter (where provider = 'email' and provider_subject = ${identityDigests.email(email)})::int as identities,
+          count(distinct user_id) filter (where provider = 'email' and provider_subject = ${identityDigests.email(email)})::int as users
+        from identities
+      `;
+      expect(counts).toEqual({ identities: 1, users: 1 });
+    } finally {
+      await secondClient.end({ timeout: 5 });
+    }
+
+    const discordUserId = randomUUID();
+    const discordIdentityId = randomUUID();
+    const collisionEmail = `discord-${randomUUID()}@example.test`;
+    await client`insert into users (id, display_name) values (${discordUserId}, 'Discord owner')`;
+    await client`
+      insert into identities (id, user_id, provider, provider_subject, status, verified_at)
+      values (${discordIdentityId}, ${discordUserId}, 'discord', ${`discord-${randomUUID()}`}, 'verified', ${now.toISOString()})
+    `;
+    await client`
+      insert into verified_emails (id, user_id, identity_id, normalized_email, verified_at)
+      values (${randomUUID()}, ${discordUserId}, ${discordIdentityId}, ${collisionEmail}, ${now.toISOString()})
+    `;
+    await expect(
+      resolveOrCreateEmailAccount(db, {
+        email: collisionEmail,
+        userId: randomUUID(),
+        identityId: randomUUID(),
+        verifiedEmailId: randomUUID(),
+        now,
+      }),
+    ).resolves.toEqual({ status: "conflict" });
+    const [discordCount] =
+      await client`select count(*)::int as count from users where id = ${discordUserId}`;
+    expect(discordCount?.count).toBe(1);
+  }, 20_000);
+
+  it("atomically promotes a bound provisional Discord session and revokes every other session", async () => {
+    const issuedAt = new Date("2026-08-21T12:00:00.000Z");
+    const now = new Date(issuedAt.getTime() + 60_000);
+    const actorId = randomUUID();
+    const currentSessionId = randomUUID();
+    const otherSessionId = randomUUID();
+    const oldToken = `old-${randomUUID()}`;
+    const otherToken = `other-${randomUUID()}`;
+    const replacementToken = `replacement-${randomUUID()}`;
+    const email = `promote-${randomUUID()}@example.test`;
+    const hmacKey = Buffer.alloc(32, 41);
+    const challengeId = randomUUID();
+    await seedSession({
+      userId: actorId,
+      sessionId: currentSessionId,
+      token: oldToken,
+      trust: "provisional",
+      now: issuedAt,
+    });
+    const otherDeviceId = randomUUID();
+    await client`
+      insert into devices
+        (id, user_id, device_digest, label, browser, operating_system, first_seen_at, last_seen_at)
+      values (${otherDeviceId}, ${actorId}, ${identityDigests.opaque(`device:${otherDeviceId}`)}, 'Other', 'Browser', 'OS', ${issuedAt.toISOString()}, ${issuedAt.toISOString()})
+    `;
+    await client`
+      insert into sessions
+        (id, user_id, device_id, token_digest, trust, issued_at, last_seen_at, idle_expires_at, absolute_expires_at)
+      values (${otherSessionId}, ${actorId}, ${otherDeviceId}, ${identityDigests.opaque(otherToken)}, 'trusted', ${issuedAt.toISOString()}, ${issuedAt.toISOString()}, ${new Date(issuedAt.getTime() + 30 * 86_400_000).toISOString()}, ${new Date(issuedAt.getTime() + 90 * 86_400_000).toISOString()})
+    `;
+    await replaceAuthChallenge(
+      db,
+      {
+        id: challengeId,
+        email,
+        purpose: "verify-provisional-email",
+        code: "87654321",
+        expiresAt: new Date(now.getTime() + 600_000),
+        actorId,
+        sessionId: currentSessionId,
+      },
+      hmacKey,
+      () => issuedAt,
+    );
+
+    await expect(
+      completeOtpChallenge(db, {
+        challengeId,
+        email,
+        purpose: "verify-provisional-email",
+        code: "87654321",
+        hmacKey,
+        actorId,
+        sessionId: currentSessionId,
+        now,
+        ids: {
+          userId: randomUUID(),
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          proofId: randomUUID(),
+        },
+        replacementSessionToken: replacementToken,
+      }),
+    ).resolves.toEqual({
+      status: "provisional-email-verified",
+      userId: actorId,
+      sessionId: currentSessionId,
+      sessionToken: replacementToken,
+      trust: "trusted",
+    });
+
+    await expect(resolveSession(db, oldToken, () => now)).resolves.toBeNull();
+    await expect(resolveSession(db, otherToken, () => now)).resolves.toBeNull();
+    await expect(resolveSession(db, replacementToken, () => now)).resolves.toMatchObject({
+      trust: "trusted",
+      session: { id: currentSessionId, userId: actorId, reauthenticatedAt: now },
+    });
+    const [linked] = await client`
+      select i.user_id, i.provider_subject, e.normalized_email, c.consumed_at
+      from identities i
+      join verified_emails e on e.identity_id = i.id
+      join auth_challenges c on c.id = ${challengeId}
+      where i.provider = 'email' and i.provider_subject = ${identityDigests.email(email)}
+    `;
+    expect(linked).toMatchObject({
+      user_id: actorId,
+      provider_subject: identityDigests.email(email),
+      normalized_email: email,
+    });
+    expect(linked?.consumed_at).not.toBeNull();
+  }, 15_000);
+
+  it.each(["challenge", "identity", "trust", "token", "revocation"] as const)(
+    "rolls the full provisional promotion back after the %s boundary",
+    async (boundary) => {
+      const issuedAt = new Date("2026-08-21T13:00:00.000Z");
+      const now = new Date(issuedAt.getTime() + 60_000);
+      const actorId = randomUUID();
+      const sessionId = randomUUID();
+      const oldToken = `rollback-old-${randomUUID()}`;
+      const replacementToken = `rollback-new-${randomUUID()}`;
+      const email = `rollback-${randomUUID()}@example.test`;
+      const challengeId = randomUUID();
+      const hmacKey = Buffer.alloc(32, 51);
+      await seedSession({
+        userId: actorId,
+        sessionId,
+        token: oldToken,
+        trust: "provisional",
+        now: issuedAt,
+      });
+      await replaceAuthChallenge(
+        db,
+        {
+          id: challengeId,
+          email,
+          purpose: "verify-provisional-email",
+          code: "11223344",
+          expiresAt: new Date(now.getTime() + 600_000),
+          actorId,
+          sessionId,
+        },
+        hmacKey,
+        () => issuedAt,
+      );
+
+      await expect(
+        completeOtpChallenge(db, {
+          challengeId,
+          email,
+          purpose: "verify-provisional-email",
+          code: "11223344",
+          hmacKey,
+          actorId,
+          sessionId,
+          now,
+          ids: {
+            userId: randomUUID(),
+            identityId: randomUUID(),
+            verifiedEmailId: randomUUID(),
+            proofId: randomUUID(),
+          },
+          replacementSessionToken: replacementToken,
+          afterMutation: (completed) => {
+            if (completed === boundary) throw new Error(`injected-${boundary}`);
+          },
+        }),
+      ).rejects.toThrow(`injected-${boundary}`);
+
+      const [state] = await client`
+        select c.consumed_at, s.token_digest, s.trust, s.reauthenticated_at, s.revoked_at,
+          (select count(*)::int from identities i where i.provider = 'email' and i.provider_subject = ${identityDigests.email(email)}) as email_identities
+        from auth_challenges c
+        join sessions s on s.id = ${sessionId}
+        where c.id = ${challengeId}
+      `;
+      expect(state).toMatchObject({
+        consumed_at: null,
+        token_digest: identityDigests.opaque(oldToken),
+        trust: "provisional",
+        reauthenticated_at: null,
+        revoked_at: null,
+        email_identities: 0,
+      });
+      await expect(resolveSession(db, oldToken, () => now)).resolves.not.toBeNull();
+      await expect(resolveSession(db, replacementToken, () => now)).resolves.toBeNull();
+    },
+    15_000,
+  );
 });
