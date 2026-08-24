@@ -1,5 +1,6 @@
 import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
+import type { CsrfService } from "../security/csrf.service.js";
 import { IdentityController } from "./identity.controller.js";
 import type { OAuthService } from "./oauth.service.js";
 import type { OtpService } from "./otp.service.js";
@@ -11,6 +12,7 @@ function setup() {
       status: "authenticated" as const,
       nextPath: "/dashboard",
       sessionId: "internal-session-secret",
+      sessionToken: "opaque-session-token",
     })),
   } as unknown as OAuthService;
   const otp = {
@@ -20,7 +22,11 @@ function setup() {
     })),
     verify: vi.fn(async () => ({ status: "authenticated" as const })),
   } as unknown as OtpService;
-  return { controller: new IdentityController(oauth, otp), oauth, otp };
+  const csrf = {
+    browserBindingFor: vi.fn(() => "server-browser-binding"),
+    rotateToSession: vi.fn(() => ({ csrfToken: "rotated" })),
+  } as unknown as CsrfService;
+  return { controller: new IdentityController(oauth, otp, csrf), oauth, otp, csrf };
 }
 
 describe("IdentityController", () => {
@@ -49,6 +55,23 @@ describe("IdentityController", () => {
     );
     expect(reply.status).toHaveBeenCalledWith(302);
     expect(JSON.stringify(result)).not.toContain("state=secret");
+  });
+
+  it("derives OAuth browser binding from the HttpOnly CSRF context", async () => {
+    const { controller, oauth, csrf } = setup();
+    const reply = {
+      header: vi.fn().mockReturnThis(),
+      status: vi.fn().mockReturnThis(),
+    };
+    const request = { cookies: { "__Host-preauth": "opaque-preauth" } } as never;
+
+    await controller.startDiscord({ purpose: "sign-in" }, undefined, reply, request);
+
+    expect(csrf.browserBindingFor).toHaveBeenCalledWith(request);
+    expect(oauth.start).toHaveBeenCalledWith({
+      purpose: "sign-in",
+      browserBinding: "server-browser-binding",
+    });
   });
 
   it("maps unavailable callback state/browser binding to a stable public error", async () => {
@@ -90,15 +113,25 @@ describe("IdentityController", () => {
   });
 
   it("maps successful provider output without returning provider or session tokens", async () => {
-    const { controller } = setup();
+    const { controller, csrf } = setup();
+    const request = { cookies: {} } as never;
+    const reply = {} as never;
 
     const result = await controller.callbackDiscord(
       { code: "provider-code", state: "oauth-state-long-enough", purpose: "sign-in" },
       "browser-binding",
+      request,
+      reply,
     );
 
     expect(result).toEqual({ status: "authenticated", nextPath: "/dashboard" });
     expect(JSON.stringify(result)).not.toContain("internal-session-secret");
     expect(JSON.stringify(result)).not.toContain("provider-code");
+    expect(csrf.rotateToSession).toHaveBeenCalledWith(
+      request,
+      reply,
+      "internal-session-secret",
+      "opaque-session-token",
+    );
   });
 });

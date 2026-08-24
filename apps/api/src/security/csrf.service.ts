@@ -70,8 +70,9 @@ export class CsrfService {
     request: FastifyRequest,
     reply: FastifyReply,
     sessionReference: string,
+    sessionToken = sessionReference,
   ): { csrfToken: string } {
-    if (sessionReference.trim().length === 0) {
+    if (sessionReference.trim().length === 0 || sessionToken.trim().length === 0) {
       throw new Error("session reference required");
     }
     const cookieRequest = request as CookieAwareRequest;
@@ -79,12 +80,8 @@ export class CsrfService {
     this.clearContextCookie(reply, this.csrfSecretCookieName);
     delete cookieRequest.cookies[this.preauthCookieName];
     delete cookieRequest.cookies[this.csrfSecretCookieName];
-    cookieRequest.cookies[this.sessionCookieName] = sessionReference;
-    (reply as CookieReply).setCookie(
-      this.sessionCookieName,
-      sessionReference,
-      this.cookieOptions(),
-    );
+    cookieRequest.cookies[this.sessionCookieName] = sessionToken;
+    (reply as CookieReply).setCookie(this.sessionCookieName, sessionToken, this.cookieOptions());
     return { csrfToken: this.generate(request, reply) };
   }
 
@@ -95,7 +92,9 @@ export class CsrfService {
     if (!sessionReference) {
       throw new Error("authenticated session required");
     }
-    return this.rotateToSession(request, reply, sessionReference);
+    const sessionToken = cookieRequest.cookies[this.sessionCookieName];
+    if (!sessionToken) throw new Error("authenticated session token required");
+    return this.rotateToSession(request, reply, sessionReference, sessionToken);
   }
 
   invalidate(request: FastifyRequest, reply: FastifyReply): void {
@@ -112,10 +111,18 @@ export class CsrfService {
 
   bindingFor(request: FastifyRequest): string {
     const cookieRequest = request as CookieAwareRequest;
-    const session = cookieRequest.auth?.sessionId ?? cookieRequest.cookies[this.sessionCookieName];
+    const session = cookieRequest.cookies[this.sessionCookieName] ?? cookieRequest.auth?.sessionId;
     if (session) return this.digest(`session\0${session}`);
     const preauth = cookieRequest.cookies[this.preauthCookieName];
     return preauth ? this.digest(`preauth\0${preauth}`) : this.digest("missing-context");
+  }
+
+  browserBindingFor(request: FastifyRequest): string | undefined {
+    const cookieRequest = request as CookieAwareRequest;
+    const context =
+      cookieRequest.cookies[this.sessionCookieName] ??
+      cookieRequest.cookies[this.preauthCookieName];
+    return context ? this.digest(`oauth-browser\0${context}`) : undefined;
   }
 
   protectHook(): preHandlerHookHandler {

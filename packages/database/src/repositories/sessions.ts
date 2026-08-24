@@ -186,6 +186,163 @@ export async function issueSessionForDevice(
   };
 }
 
+export async function issueIdentitySession(
+  executor: RepositoryExecutor,
+  input: {
+    id: string;
+    userId: string;
+    token: string;
+    issuedAt: Date;
+    absoluteExpiresAt: Date;
+    deviceId: string;
+  },
+): Promise<{ sessionId: string }> {
+  const deviceDigest = digest(`identity:${input.userId}`);
+  await executor
+    .insert(devices)
+    .values({
+      id: input.deviceId,
+      userId: input.userId,
+      deviceDigest,
+      label: "Discord OAuth",
+      browser: "Unknown",
+      operatingSystem: "Unknown",
+      firstSeenAt: input.issuedAt,
+      lastSeenAt: input.issuedAt,
+    })
+    .onConflictDoNothing({ target: [devices.userId, devices.deviceDigest] });
+  const [device] = await executor
+    .select({ id: devices.id })
+    .from(devices)
+    .where(and(eq(devices.userId, input.userId), eq(devices.deviceDigest, deviceDigest)))
+    .limit(1);
+  if (!device) throw new Error("identity device unavailable");
+  const idleExpiresAt = new Date(
+    Math.min(input.issuedAt.getTime() + IDLE_TTL_MS, input.absoluteExpiresAt.getTime()),
+  );
+  const [session] = await executor
+    .insert(sessions)
+    .values({
+      id: input.id,
+      userId: input.userId,
+      deviceId: device.id,
+      tokenDigest: digest(input.token),
+      issuedAt: input.issuedAt,
+      lastSeenAt: input.issuedAt,
+      idleExpiresAt,
+      absoluteExpiresAt: input.absoluteExpiresAt,
+      createdAt: input.issuedAt,
+      updatedAt: input.issuedAt,
+    })
+    .returning({ id: sessions.id });
+  if (!session) throw new Error("session was not persisted");
+  return { sessionId: session.id };
+}
+
+export async function rotateIdentitySession(
+  executor: RepositoryExecutor,
+  input: { userId: string; sessionId: string; token: string; reauthenticatedAt: Date },
+): Promise<{ sessionId: string } | null> {
+  const idleCandidate = new Date(input.reauthenticatedAt.getTime() + IDLE_TTL_MS);
+  const [session] = await executor
+    .update(sessions)
+    .set({
+      tokenDigest: digest(input.token),
+      lastSeenAt: input.reauthenticatedAt,
+      idleExpiresAt: sql`least(${sessions.absoluteExpiresAt}, ${idleCandidate.toISOString()}::timestamptz)`,
+      reauthenticatedAt: input.reauthenticatedAt,
+      updatedAt: input.reauthenticatedAt,
+    })
+    .where(
+      and(
+        eq(sessions.userId, input.userId),
+        eq(sessions.id, input.sessionId),
+        isNull(sessions.revokedAt),
+        gt(sessions.idleExpiresAt, input.reauthenticatedAt),
+        gt(sessions.absoluteExpiresAt, input.reauthenticatedAt),
+      ),
+    )
+    .returning({ id: sessions.id });
+  return session ? { sessionId: session.id } : null;
+}
+
+export async function findSessionForStepUp(
+  executor: RepositoryExecutor,
+  userId: string,
+  sessionId: string,
+) {
+  const [resolved] = await executor
+    .select({ session: sessions, device: devices })
+    .from(sessions)
+    .innerJoin(devices, and(eq(devices.userId, sessions.userId), eq(devices.id, sessions.deviceId)))
+    .where(and(eq(sessions.userId, userId), eq(sessions.id, sessionId)))
+    .limit(1);
+  return resolved ?? null;
+}
+
+export async function markSessionStepUp(
+  executor: RepositoryExecutor,
+  input: { userId: string; sessionId: string; confirmedAt: Date },
+): Promise<boolean> {
+  const [session] = await executor
+    .update(sessions)
+    .set({ reauthenticatedAt: input.confirmedAt, updatedAt: input.confirmedAt })
+    .where(
+      and(
+        eq(sessions.userId, input.userId),
+        eq(sessions.id, input.sessionId),
+        isNull(sessions.revokedAt),
+        gt(sessions.idleExpiresAt, input.confirmedAt),
+        gt(sessions.absoluteExpiresAt, input.confirmedAt),
+      ),
+    )
+    .returning({ id: sessions.id });
+  return Boolean(session);
+}
+
+export async function resolveAlertContextByDigest(
+  executor: RepositoryExecutor,
+  input: { actorId: string; contextDigest: string; now: Date },
+): Promise<
+  | { status: "active"; sessionId: string }
+  | { status: "already-revoked"; sessionId: string }
+  | { status: "expired" }
+  | { status: "not-found" }
+> {
+  const [resolved] = await executor
+    .select({
+      sessionId: sessionAlertContexts.sessionId,
+      contextExpiresAt: sessionAlertContexts.expiresAt,
+      sessionRevokedAt: sessions.revokedAt,
+      idleExpiresAt: sessions.idleExpiresAt,
+      absoluteExpiresAt: sessions.absoluteExpiresAt,
+    })
+    .from(sessionAlertContexts)
+    .innerJoin(
+      sessions,
+      and(
+        eq(sessions.userId, sessionAlertContexts.userId),
+        eq(sessions.id, sessionAlertContexts.sessionId),
+      ),
+    )
+    .where(
+      and(
+        eq(sessionAlertContexts.userId, input.actorId),
+        eq(sessionAlertContexts.tokenDigest, input.contextDigest),
+      ),
+    )
+    .limit(1);
+  if (!resolved) return { status: "not-found" };
+  if (resolved.contextExpiresAt <= input.now) return { status: "expired" };
+  if (resolved.sessionRevokedAt) {
+    return { status: "already-revoked", sessionId: resolved.sessionId };
+  }
+  if (resolved.idleExpiresAt <= input.now || resolved.absoluteExpiresAt <= input.now) {
+    return { status: "expired" };
+  }
+  return { status: "active", sessionId: resolved.sessionId };
+}
+
 export async function resolveSession(executor: RepositoryExecutor, token: string, clock: Clock) {
   const now = clock();
   const [resolved] = await executor

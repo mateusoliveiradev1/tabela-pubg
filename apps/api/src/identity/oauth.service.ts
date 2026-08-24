@@ -38,8 +38,14 @@ export interface OAuthClock {
 }
 
 export type OAuthCallbackResult =
-  | { status: "authenticated"; nextPath: string; sessionId: string }
-  | { status: "linked"; nextPath: string; sessionId: string; otherSessionsRevoked: number }
+  | { status: "authenticated"; nextPath: string; sessionId: string; sessionToken: string }
+  | {
+      status: "linked";
+      nextPath: string;
+      sessionId: string;
+      sessionToken: string;
+      otherSessionsRevoked: number;
+    }
   | { status: "step-up-confirmed"; nextPath: string };
 
 @Injectable()
@@ -131,7 +137,12 @@ export class OAuthService {
     const nextPath = transaction.returnPath ?? "/";
     if (transaction.purpose === "sign-in") {
       const result = await this.identity.signInWithDiscord(profile);
-      return { status: "authenticated", nextPath, sessionId: result.sessionId };
+      return {
+        status: "authenticated",
+        nextPath,
+        sessionId: result.sessionId,
+        sessionToken: result.sessionToken,
+      };
     }
     if (transaction.userId === undefined || transaction.sessionId === undefined) {
       throw new Error("authenticated context required");
@@ -150,6 +161,7 @@ export class OAuthService {
         status: "linked",
         nextPath,
         sessionId: result.sessionId,
+        sessionToken: result.sessionToken,
         otherSessionsRevoked: result.otherSessionsRevoked,
       };
     }

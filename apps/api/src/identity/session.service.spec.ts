@@ -189,7 +189,11 @@ describe("SessionService", () => {
       reason: "ownership-transfer",
       now,
     });
-    expect(result).toEqual({ sessionId: "session-1-rotated", otherSessionsRevoked: 2 });
+    expect(result).toEqual({
+      sessionId: "session-1-rotated",
+      token: "opaque-1",
+      otherSessionsRevoked: 2,
+    });
   });
 
   it.each([

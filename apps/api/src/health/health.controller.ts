@@ -1,12 +1,12 @@
-import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
+import { Controller, Get, Inject, ServiceUnavailableException } from "@nestjs/common";
 import type { HealthResponse } from "@pubg-camp/contracts";
 import { Public } from "../authorization/decorators.js";
-import type { HealthService } from "./health.service.js";
+import { HealthService } from "./health.service.js";
 
 @Controller("health")
 @Public()
 export class HealthController {
-  constructor(private readonly health: HealthService) {}
+  constructor(@Inject(HealthService) private readonly health: HealthService) {}
 
   @Get("live")
   live(): HealthResponse {

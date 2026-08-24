@@ -23,6 +23,7 @@ import { initializeTelemetry } from "@pubg-camp/observability";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import { registerAppModule } from "./app.module.js";
+import { createIdentityRuntime } from "./identity/identity.runtime.js";
 import { S3OrganizationLogoStorage } from "./organizations/adapters/s3-organization-logo-storage.js";
 import {
   collectOrganizationMultipartBody,
@@ -99,6 +100,29 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
     secureCookies: env.SESSION_COOKIE_SECURE,
     sessionCookieName: env.SESSION_COOKIE_NAME,
   });
+  const identity = await createIdentityRuntime({
+    database: database.db,
+    redisUrl: env.REDIS_URL,
+    discord: {
+      clientId: env.DISCORD_CLIENT_ID,
+      clientSecret: env.DISCORD_CLIENT_SECRET,
+      redirectUri: env.DISCORD_REDIRECT_URI,
+      pkceMode: env.DISCORD_PKCE_MODE,
+      ...(env.DISCORD_PKCE_EXCEPTION_ID === undefined
+        ? {}
+        : { pkceExceptionId: env.DISCORD_PKCE_EXCEPTION_ID }),
+    },
+    csrf,
+    tokens,
+    otpPepper: Buffer.from(env.OTP_PEPPER, "utf8"),
+    encryptionKey: {
+      version: env.ENCRYPTION_KEY_VERSION,
+      key: Buffer.from(env.AES_GCM_KEY_V1, "hex"),
+    },
+    securityLog: {
+      record: (event) => logger.warn(event, "identity security event"),
+    },
+  });
   const adapter = new FastifyAdapter({
     bodyLimit: 1_048_576,
     trustProxy: trustedProxyConfiguration(env.TRUSTED_PROXY),
@@ -159,6 +183,7 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
         logoSignedUrlTtlSeconds: 300,
       },
       audit: { database: database.db },
+      identity: identity.services,
     }),
     adapter,
     { bufferLogs: true },
@@ -197,6 +222,7 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
     logger.info({ signal }, "api shutting down");
     await app.close();
     await database.close();
+    await identity.close();
     logoStorage.close();
     await telemetry.shutdown();
   };

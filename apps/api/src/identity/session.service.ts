@@ -110,16 +110,18 @@ export class SessionService {
     userId: string;
     trust: SessionTrust;
     expiresAt?: Date;
-  }): Promise<{ sessionId: string }> {
+  }): Promise<{ sessionId: string; token: string }> {
     const issuedAt = this.clock.now();
-    return this.repository.issue({
+    const token = this.tokens.opaque(32);
+    const issued = await this.repository.issue({
       id: this.tokens.id(),
       userId: input.userId,
-      token: this.tokens.opaque(32),
+      token,
       trust: input.trust,
       issuedAt,
       ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
     });
+    return { ...issued, token };
   }
 
   async startDeviceSession(input: {
@@ -243,12 +245,13 @@ export class SessionService {
     userId: string;
     sessionId: string;
     reason: SensitiveSessionChange;
-  }): Promise<{ sessionId: string; otherSessionsRevoked: number }> {
+  }): Promise<{ sessionId: string; token: string; otherSessionsRevoked: number }> {
     await this.requireFreshStepUp(input.userId, input.sessionId);
+    const token = this.tokens.opaque(32);
     const rotated = await this.repository.rotate({
       userId: input.userId,
       sessionId: input.sessionId,
-      token: this.tokens.opaque(32),
+      token,
       reauthenticatedAt: this.clock.now(),
     });
     if (rotated === null) {
@@ -260,7 +263,7 @@ export class SessionService {
       reason: input.reason,
       now: this.clock.now(),
     });
-    return { sessionId: rotated.sessionId, otherSessionsRevoked };
+    return { sessionId: rotated.sessionId, token, otherSessionsRevoked };
   }
 
   async resolveAlertContext(

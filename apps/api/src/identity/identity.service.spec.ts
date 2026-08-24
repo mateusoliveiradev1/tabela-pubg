@@ -25,10 +25,11 @@ function setup(options?: { existingSubject?: string; linkConflict?: boolean }) {
     ),
   };
   const sessions: IdentitySessionPort = {
-    issue: vi.fn(async () => ({ sessionId: "session-new" })),
+    issue: vi.fn(async () => ({ sessionId: "session-new", token: "session-token-new" })),
     hasFreshStepUp: vi.fn(async () => true),
     rotateCurrentAndRevokeOthers: vi.fn(async () => ({
       sessionId: "session-rotated",
+      token: "session-token-rotated",
       otherSessionsRevoked: 2,
     })),
     confirmStepUp: vi.fn(async () => undefined),
@@ -145,6 +146,7 @@ describe("IdentityService", () => {
     expect(result).toEqual({
       status: "linked",
       sessionId: "session-rotated",
+      sessionToken: "session-token-rotated",
       otherSessionsRevoked: 2,
     });
   });

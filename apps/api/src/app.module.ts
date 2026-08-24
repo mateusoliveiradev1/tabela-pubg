@@ -6,6 +6,7 @@ import {
 } from "./authorization/authorization.module.js";
 import { HealthController } from "./health/health.controller.js";
 import { HealthService } from "./health/health.service.js";
+import { IdentityModule, type IdentityModuleServices } from "./identity/identity.module.js";
 import {
   OrganizationsModule,
   type OrganizationsModuleOptions,
@@ -24,6 +25,7 @@ export interface AppModuleOptions {
   authorization: AuthorizationModulePorts;
   organizations: OrganizationsModuleOptions;
   audit: AuditModuleOptions;
+  identity: IdentityModuleServices;
 }
 
 export function registerAppModule(options: AppModuleOptions): DynamicModule {
@@ -33,6 +35,7 @@ export function registerAppModule(options: AppModuleOptions): DynamicModule {
       AuthorizationModule.register({ ...options.authorization, csrf: options.csrf }),
       OrganizationsModule.register(options.organizations),
       AuditModule.register(options.audit),
+      IdentityModule.register(options.identity),
     ],
     controllers: [CsrfController],
     providers: [{ provide: CsrfService, useValue: options.csrf }],

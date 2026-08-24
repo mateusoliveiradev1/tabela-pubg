@@ -2,7 +2,14 @@ import { createHash, createHmac } from "node:crypto";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type * as databaseSchema from "../schema.js";
-import { authChallenges, type IdentityRow, identities, oauthTransactions } from "../schema.js";
+import {
+  authChallenges,
+  type IdentityRow,
+  identities,
+  oauthTransactions,
+  users,
+  verifiedEmails,
+} from "../schema.js";
 
 export type Clock = () => Date;
 
@@ -94,6 +101,174 @@ export async function consumeOAuthTransaction(
     .returning();
 
   return consumed ?? null;
+}
+
+export async function findDiscordIdentity(
+  executor: RepositoryExecutor,
+  subject: string,
+): Promise<{ userId: string; emailVerified: boolean } | null> {
+  const [identity] = await executor
+    .select({ userId: identities.userId, verifiedEmailId: verifiedEmails.id })
+    .from(identities)
+    .leftJoin(
+      verifiedEmails,
+      and(eq(verifiedEmails.userId, identities.userId), isNull(verifiedEmails.revokedAt)),
+    )
+    .where(
+      and(
+        eq(identities.provider, "discord"),
+        eq(identities.providerSubject, subject),
+        eq(identities.status, "verified"),
+        isNull(identities.revokedAt),
+      ),
+    )
+    .limit(1);
+  return identity
+    ? { userId: identity.userId, emailVerified: identity.verifiedEmailId !== null }
+    : null;
+}
+
+const discordIdentityConflict = Symbol("discord-identity-conflict");
+
+export async function createDiscordAccount(
+  database: PostgresJsDatabase<typeof databaseSchema>,
+  input: {
+    identityId: string;
+    userId: string;
+    subject: string;
+    displayName: string;
+    verifiedEmail?: string;
+    now: Date;
+    verifiedEmailId?: string;
+  },
+): Promise<{ status: "created"; userId: string } | { status: "conflict" }> {
+  try {
+    await database.transaction(async (transaction) => {
+      await transaction.insert(users).values({
+        id: input.userId,
+        displayName: input.displayName,
+        createdAt: input.now,
+        updatedAt: input.now,
+      });
+      const [identity] = await transaction
+        .insert(identities)
+        .values({
+          id: input.identityId,
+          userId: input.userId,
+          provider: "discord",
+          providerSubject: input.subject,
+          displayName: input.displayName,
+          status: "verified",
+          linkedAt: input.now,
+          verifiedAt: input.now,
+        })
+        .onConflictDoNothing({ target: [identities.provider, identities.providerSubject] })
+        .returning({ id: identities.id });
+      if (!identity) throw discordIdentityConflict;
+      if (input.verifiedEmail !== undefined && input.verifiedEmailId !== undefined) {
+        await transaction.insert(verifiedEmails).values({
+          id: input.verifiedEmailId,
+          userId: input.userId,
+          identityId: input.identityId,
+          normalizedEmail: normalizeEmail(input.verifiedEmail),
+          verifiedAt: input.now,
+          createdAt: input.now,
+        });
+      }
+    });
+    return { status: "created", userId: input.userId };
+  } catch (error) {
+    if (error === discordIdentityConflict) return { status: "conflict" };
+    throw error;
+  }
+}
+
+export async function replaceAuthChallengeDigest(
+  executor: RepositoryExecutor,
+  input: {
+    id: string;
+    emailDigest: string;
+    purpose: AuthChallengePurpose;
+    codeDigest: string;
+    attemptsRemaining: number;
+    expiresAt: Date;
+    now: Date;
+  },
+): Promise<void> {
+  await executor
+    .update(authChallenges)
+    .set({ supersededAt: input.now })
+    .where(
+      and(
+        eq(authChallenges.emailDigest, input.emailDigest),
+        eq(authChallenges.purpose, input.purpose),
+        isNull(authChallenges.supersededAt),
+        isNull(authChallenges.consumedAt),
+      ),
+    );
+  await executor.insert(authChallenges).values(input);
+}
+
+export async function findActiveAuthChallenge(
+  executor: RepositoryExecutor,
+  challengeId: string,
+  purpose: AuthChallengePurpose,
+) {
+  const [challenge] = await executor
+    .select()
+    .from(authChallenges)
+    .where(
+      and(
+        eq(authChallenges.id, challengeId),
+        eq(authChallenges.purpose, purpose),
+        isNull(authChallenges.supersededAt),
+        isNull(authChallenges.consumedAt),
+      ),
+    )
+    .limit(1);
+  return challenge ?? null;
+}
+
+export async function recordAuthChallengeFailure(
+  executor: RepositoryExecutor,
+  challengeId: string,
+  now: Date,
+): Promise<number> {
+  const [challenge] = await executor
+    .update(authChallenges)
+    .set({ attemptsRemaining: sql`${authChallenges.attemptsRemaining} - 1` })
+    .where(
+      and(
+        eq(authChallenges.id, challengeId),
+        isNull(authChallenges.supersededAt),
+        isNull(authChallenges.consumedAt),
+        gt(authChallenges.attemptsRemaining, 0),
+        gt(authChallenges.expiresAt, now),
+      ),
+    )
+    .returning({ attemptsRemaining: authChallenges.attemptsRemaining });
+  return challenge?.attemptsRemaining ?? 0;
+}
+
+export async function consumeAuthChallengeByDigest(
+  executor: RepositoryExecutor,
+  input: { challengeId: string; codeDigest: string; now: Date },
+): Promise<boolean> {
+  const [challenge] = await executor
+    .update(authChallenges)
+    .set({ consumedAt: input.now })
+    .where(
+      and(
+        eq(authChallenges.id, input.challengeId),
+        eq(authChallenges.codeDigest, input.codeDigest),
+        isNull(authChallenges.supersededAt),
+        isNull(authChallenges.consumedAt),
+        gt(authChallenges.attemptsRemaining, 0),
+        gt(authChallenges.expiresAt, input.now),
+      ),
+    )
+    .returning({ id: authChallenges.id });
+  return Boolean(challenge);
 }
 
 export interface ReplaceAuthChallengeInput {

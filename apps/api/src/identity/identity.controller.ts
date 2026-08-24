@@ -72,13 +72,16 @@ export class IdentityController {
     @Body() rawBody: unknown,
     @Headers("x-auth-browser-binding") browserBinding: string | undefined,
     @Res({ passthrough: true }) reply?: Pick<FastifyReply, "header" | "status">,
+    @Req() request?: FastifyRequest,
   ): Promise<OAuthStartResponse> {
     const body = OAuthStartRequestSchema.parse(rawBody);
-    if (!browserBinding) throw stableCancelled();
+    const resolvedBrowserBinding =
+      browserBinding ?? (request ? this.csrf?.browserBindingFor(request) : undefined);
+    if (!resolvedBrowserBinding) throw stableCancelled();
     try {
       const started = await this.oauth.start({
         purpose: body.purpose,
-        browserBinding,
+        browserBinding: resolvedBrowserBinding,
         ...(body.returnPath === undefined ? {} : { returnPath: body.returnPath }),
       });
       reply?.header("location", started.authorizationUrl).status(302);
@@ -95,14 +98,16 @@ export class IdentityController {
     @Req() request?: FastifyRequest,
     @Res({ passthrough: true }) reply?: FastifyReply,
   ): Promise<OAuthCallbackResponse> {
-    if (!browserBinding) throw stableCancelled();
+    const resolvedBrowserBinding =
+      browserBinding ?? (request ? this.csrf?.browserBindingFor(request) : undefined);
+    if (!resolvedBrowserBinding) throw stableCancelled();
     try {
       const query = OAuthCallbackQuerySchema.parse(rawQuery);
       const result = await this.oauth.callback({
         code: query.code,
         state: query.state,
         purpose: query.purpose,
-        browserBinding,
+        browserBinding: resolvedBrowserBinding,
       });
       if (result.status === "step-up-confirmed") {
         if (request && reply) this.csrf?.rotateCurrent(request, reply);
@@ -111,7 +116,9 @@ export class IdentityController {
           nextPath: result.nextPath,
         });
       }
-      if (request && reply) this.csrf?.rotateToSession(request, reply, result.sessionId);
+      if (request && reply) {
+        this.csrf?.rotateToSession(request, reply, result.sessionId, result.sessionToken);
+      }
       return OAuthCallbackResponseSchema.parse({
         status: result.status === "linked" ? "link-confirmation-required" : "authenticated",
         nextPath: result.nextPath,

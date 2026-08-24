@@ -28,13 +28,13 @@ export interface IdentitySessionPort {
     userId: string;
     trust: SessionTrust;
     expiresAt?: Date;
-  }): Promise<{ sessionId: string }>;
+  }): Promise<{ sessionId: string; token: string }>;
   hasFreshStepUp(userId: string, sessionId: string, now: Date): Promise<boolean>;
   rotateCurrentAndRevokeOthers(input: {
     userId: string;
     sessionId: string;
     reason: "identity-link" | "email-change";
-  }): Promise<{ sessionId: string; otherSessionsRevoked: number }>;
+  }): Promise<{ sessionId: string; token: string; otherSessionsRevoked: number }>;
   confirmStepUp(input: {
     userId: string;
     sessionId: string;
@@ -51,6 +51,7 @@ export interface DiscordSignInResult {
   status: "authenticated";
   userId: string;
   sessionId: string;
+  sessionToken: string;
   trust: SessionTrust;
 }
 
@@ -119,7 +120,13 @@ export class IdentityService {
         : {}),
     });
 
-    return { status: "authenticated", userId, sessionId: issued.sessionId, trust };
+    return {
+      status: "authenticated",
+      userId,
+      sessionId: issued.sessionId,
+      sessionToken: issued.token,
+      trust,
+    };
   }
 
   async linkIdentity(input: {
@@ -130,7 +137,12 @@ export class IdentityService {
     displayName?: string;
     currentMethodConfirmed: boolean;
     candidateMethodConfirmed: boolean;
-  }): Promise<{ status: "linked"; sessionId: string; otherSessionsRevoked: number }> {
+  }): Promise<{
+    status: "linked";
+    sessionId: string;
+    sessionToken: string;
+    otherSessionsRevoked: number;
+  }> {
     if (!input.currentMethodConfirmed || !input.candidateMethodConfirmed) {
       throw new Error("identity confirmation required");
     }
@@ -160,6 +172,7 @@ export class IdentityService {
     return {
       status: "linked",
       sessionId: secured.sessionId,
+      sessionToken: secured.token,
       otherSessionsRevoked: secured.otherSessionsRevoked,
     };
   }
