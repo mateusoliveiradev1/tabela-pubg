@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T00:46:50.882Z"
+last_updated: "2026-08-24T04:51:56.302Z"
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 1
   total_plans: 27
   completed_plans: 26
@@ -95,3 +95,9 @@ progress:
 - Última ação: matriz Nyquist promovida e revalidada após preflight Neon/Redis e smoke Chromium 2/2 no plano 02-20.
 - Próxima ação: executar os três checkpoints humanos do plano 02-15.
 - Arquivo de retomada: nenhum; plano 02-20 completo.
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 2.1 inserted after Phase 2: Direção visual e sistema de experiência Impeccable para web, e-mail, Discord e broadcast (URGENT)

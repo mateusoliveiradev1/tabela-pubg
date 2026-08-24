@@ -55,6 +55,29 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Requisitos:** AUTH-001–006, ORG-001–005, AUD-001, NFR-005.
 
+## Fase 2.1 — Direção visual e sistema de experiência Impeccable (INSERIDA)
+
+**Meta:** estabelecer uma identidade visual profissional e uma experiência operacional coerente antes de expandir o domínio, tornando o acabamento uma parte obrigatória da definição de pronto.
+
+### Entregas
+
+- `DESIGN.md`, tokens, componentes e contratos de superfície governados pelo Impeccable.
+- Redesign completo de autenticação, onboarding, conta, organizações e shell do organizador.
+- Sistema responsivo para estados vazio, carregando, erro, confirmação, ação sensível e recuperação.
+- Linguagem visual original de campeonato competitivo, sem copiar a identidade oficial do PUBG, Twire ou Wasdefy.
+- E-mails transacionais, cards do Discord, página pública e overlays do OBS alinhados pela mesma direção, com adaptações próprias de cada meio.
+- Contratos antecipados para classificação, estatísticas, MVP, transmissão e comunicação do bot, evitando retrabalho nas Fases 6–8.
+- Finish review Impeccable obrigatório para toda superfície visual e decisão de UI/UX.
+
+### Verificação
+
+- Fluxos atuais aprovados visualmente em 320, 768 e 1440 px, com conteúdo mínimo, típico e extremo.
+- Teclado, NVDA, zoom 200%, contraste AA e reduced motion permanecem aprovados após o redesign.
+- E-mails mantêm compatibilidade estrutural com Gmail/Outlook; cards do Discord e overlays possuem protótipos legíveis no contexto real.
+- Nenhuma superfície é considerada concluída apenas por funcionar: contrato visual, inspeção e finish review precisam estar fechados.
+
+**Governança transversal:** prepara e vincula as entregas visuais das Fases 6–8 sem antecipar seus dados ou integrações funcionais.
+
 ## Fase 3 — Domínio do campeonato e motor de pontuação
 
 **Meta:** modelar qualquer campeonato solo, duo ou squad previsto para a v1.
