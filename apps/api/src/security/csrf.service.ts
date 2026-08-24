@@ -14,10 +14,9 @@ export interface CsrfServiceOptions {
   csrfSecretCookieName?: string;
 }
 
-interface CookieAwareRequest extends FastifyRequest {
+type CookieAwareRequest = FastifyRequest & {
   cookies: Record<string, string | undefined>;
-  auth?: { actorId: string; sessionId: string };
-}
+};
 
 interface SecureCookieOptions {
   path: string;
