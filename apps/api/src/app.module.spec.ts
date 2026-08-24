@@ -1,5 +1,6 @@
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import { PlatformRouteInventory } from "@pubg-camp/contracts";
 import { describe, expect, it } from "vitest";
 import { registerAppModule } from "./app.module.js";
 import { IdentityController } from "./identity/identity.controller.js";
@@ -22,7 +23,7 @@ describe("registerAppModule identity composition", () => {
     );
   });
 
-  it("exposes Discord OAuth start and callback in the composed Fastify router", async () => {
+  it("registers every canonical BFF upstream route in the composed Fastify router", async () => {
     const module = createModule();
     const app = await NestFactory.create<NestFastifyApplication>(module, new FastifyAdapter(), {
       abortOnError: false,
@@ -31,51 +32,11 @@ describe("registerAppModule identity composition", () => {
     try {
       await app.init();
       const fastify = app.getHttpAdapter().getInstance();
-      for (const purpose of ["sign-in", "link-identity", "step-up"]) {
+      for (const route of PlatformRouteInventory) {
         expect(
-          fastify.hasRoute({
-            method: "POST",
-            url: `/identity/oauth/discord/${purpose}/start`,
-          }),
+          fastify.hasRoute({ method: route.method, url: route.upstreamPath }),
+          `${route.method} ${route.upstreamPath} (sample ${route.upstreamSamplePath})`,
         ).toBe(true);
-        expect(
-          fastify.hasRoute({
-            method: "POST",
-            url: `/identity/oauth/discord/${purpose}/callback`,
-          }),
-        ).toBe(true);
-      }
-      expect(fastify.hasRoute({ method: "POST", url: "/identity/email/otp/sign-in/request" })).toBe(
-        true,
-      );
-      expect(fastify.hasRoute({ method: "POST", url: "/identity/email/otp/sign-in/verify" })).toBe(
-        true,
-      );
-      expect(fastify.hasRoute({ method: "POST", url: "/identity/email/otp/step-up/verify" })).toBe(
-        true,
-      );
-      expect(
-        fastify.hasRoute({
-          method: "POST",
-          url: "/identity/email/otp/verify-provisional-email/verify",
-        }),
-      ).toBe(true);
-      for (const route of [
-        { method: "GET" as const, url: "/identity/sessions" },
-        { method: "POST" as const, url: "/identity/sessions/logout" },
-        { method: "POST" as const, url: "/identity/sessions/revoke-others" },
-        {
-          method: "POST" as const,
-          url: "/identity/sessions/:sessionId/revoke",
-        },
-        { method: "GET" as const, url: "/identity/identities" },
-        { method: "POST" as const, url: "/identity/identities/link/confirm" },
-        {
-          method: "POST" as const,
-          url: "/identity/identities/:identityId/remove",
-        },
-      ]) {
-        expect(fastify.hasRoute(route)).toBe(true);
       }
     } finally {
       await app.close();

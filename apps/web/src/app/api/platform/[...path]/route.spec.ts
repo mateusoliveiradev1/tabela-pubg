@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PlatformRouteInventory } from "@pubg-camp/contracts";
 import { GET, PATCH, POST, PUT } from "./route.js";
 
 const WEB_ORIGIN = "https://camp.test";
@@ -68,6 +69,17 @@ describe("same-origin platform BFF", () => {
     expect(absolute.status).toBe(404);
     expect(traversal.status).toBe(404);
     expect(wrongMethod.status).toBe(405);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects the removed synthetic logo handler and keeps production routes manifest-backed", async () => {
+    const synthetic = await GET(
+      request("__e2e/logos/run-000000000000000/logo.png"),
+      context("__e2e", "logos", "run-000000000000000", "logo.png"),
+    );
+
+    expect(synthetic.status).toBe(404);
+    expect(PlatformRouteInventory.some(({ path }) => path.includes("__e2e"))).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
