@@ -47,6 +47,18 @@ export function buildNotificationPreviewFixtures() {
       createdAt,
       appBaseUrl,
     }),
+    "long-content": renderNotificationTemplate({
+      template: "invitation",
+      payload: {
+        recipient: "capitao@preview.invalid",
+        invitationToken: "preview-only-long-invitation-token",
+        organizationName:
+          "Liga Comunitária Metropolitana de Operadores, Árbitros e Transmissão do Sul Brasileiro",
+        expiresAt: "2026-08-31T03:48:00.000Z",
+      },
+      createdAt,
+      appBaseUrl,
+    }),
   } as const;
 }
 

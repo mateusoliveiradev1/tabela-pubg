@@ -116,7 +116,7 @@ function renderInvitation(
       timestamp: expiry,
       tone: "operation",
       content: `<p style="Margin:0 0 10px;color:#5c646d;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;line-height:18px;text-transform:uppercase;">Organização</p>
-        <p style="Margin:0 0 28px;color:#0b0d0f;font-family:'Arial Narrow','Aptos Narrow',Arial,sans-serif;font-size:32px;font-weight:800;line-height:36px;text-transform:uppercase;">${escapeHtml(payload.organizationName)}</p>
+        <p style="Margin:0 0 28px;color:#0b0d0f;font-family:'Arial Narrow','Aptos Narrow',Arial,sans-serif;font-size:32px;font-weight:800;line-height:36px;text-transform:uppercase;overflow-wrap:anywhere;word-break:break-word;">${escapeHtml(payload.organizationName)}</p>
         ${dataRow("DESTINATÁRIO", maskedRecipient)}
         ${dataRow("VALIDADE", expiry)}
         ${cta("Revisar convite", invitationUrl, "operation")}
@@ -192,7 +192,7 @@ function dataRow(label: string, value: string): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;border-top:1px solid #a9b0b7;">
     <tr>
       <td class="data-label" width="34%" valign="top" style="width:34%;padding:13px 12px 13px 0;color:#5c646d;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;line-height:16px;letter-spacing:1.2px;text-transform:uppercase;">${escapeHtml(label)}</td>
-      <td class="data-value" valign="top" style="padding:13px 0;color:#0b0d0f;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;line-height:21px;">${escapeHtml(value)}</td>
+      <td class="data-value" valign="top" style="padding:13px 0;color:#0b0d0f;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;line-height:21px;overflow-wrap:anywhere;word-break:break-word;">${escapeHtml(value)}</td>
     </tr>
   </table>`;
 }
@@ -211,7 +211,7 @@ function cta(label: string, href: string, tone: "operation" | "security"): strin
       <!--[if mso]><v:rect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${safeHref}" style="height:52px;v-text-anchor:middle;width:310px;" fillcolor="${background}" strokecolor="${background}"><w:anchorlock/><center style="color:${foreground};font-family:Arial,sans-serif;font-size:15px;font-weight:bold;">${safeLabel}</center></v:rect><![endif]-->
       <!--[if !mso]><!--><a class="manifest-cta" href="${safeHref}" style="display:inline-block;min-width:246px;padding:16px 24px;background:${background};border:1px solid ${background};color:${foreground};font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:800;line-height:18px;text-align:center;text-decoration:none;text-transform:uppercase;">${safeLabel}</a><!--<![endif]-->
     </td></tr>
-    <tr><td style="padding:18px 0 0;color:#5c646d;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;word-break:break-all;"><strong style="color:#0b0d0f;">Ver endereço completo:</strong><br><a href="${safeHref}" style="color:#35404a;text-decoration:underline;text-underline-offset:3px;">${safeHref}</a></td></tr>
+    <tr><td style="padding:18px 0 0;color:#5c646d;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;overflow-wrap:anywhere;word-break:break-word;"><strong style="color:#0b0d0f;">Ver endereço completo:</strong><br><a href="${safeHref}" style="color:#35404a;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere;word-break:break-word;">${safeHref}</a></td></tr>
   </table>`;
 }
 
@@ -226,7 +226,7 @@ interface EmailHtmlInput {
 }
 
 function emailHtml(input: EmailHtmlInput): string {
-  const accent = input.tone === "security" ? "#c64242" : "#f4a21d";
+  const accent = input.tone === "security" ? "#e45a5a" : "#f4a21d";
   return `<!doctype html>
 <html lang="pt-BR" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
@@ -245,6 +245,7 @@ function emailHtml(input: EmailHtmlInput): string {
     a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
     .preheader{display:none!important;max-height:0;max-width:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all}
     @media only screen and (max-width:680px){.manifest{width:100%!important}.edge{padding-left:20px!important;padding-right:20px!important}.title{font-size:38px!important;line-height:40px!important}.data-label,.data-value{display:block!important;width:100%!important;padding-left:0!important}.data-label{padding-bottom:2px!important}.data-value{padding-top:0!important}.manifest-cta{display:block!important;min-width:0!important}.code-block{font-size:32px!important;letter-spacing:5px!important}}
+    @media only screen and (max-width:400px){.status-cell,.timestamp-cell{display:block!important;width:100%!important;text-align:left!important}.timestamp-cell{padding-top:8px!important}}
     @media (prefers-color-scheme:dark){.manifest-shell{background:#0b0d0f!important}.manifest-paper{background:#f2eee3!important;color:#0b0d0f!important}.manifest-steel{background:#181c20!important;color:#f2eee3!important}}
   </style>
 </head>
@@ -258,9 +259,10 @@ FORM: manifesto de suprimentos e credencial de operação; grounded candidate 4;
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 -->
   <div class="preheader" style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all;">${escapeHtml(input.preheader)}&#847;&zwnj;&nbsp;&#8199;&#65279;&#847;&zwnj;&nbsp;</div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0b0d0f" class="manifest-shell" style="width:100%;background:#0b0d0f;border-collapse:collapse;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0b0d0f" class="manifest-shell" style="width:100%;table-layout:fixed;background:#0b0d0f;border-collapse:collapse;">
     <tr><td align="center" style="padding:28px 12px 40px;">
-      <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" class="manifest" style="width:640px;max-width:640px;background:#f2eee3;border-collapse:collapse;">
+      <!--[if mso]><table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="manifest" style="width:100%;max-width:640px;background:#f2eee3;border-collapse:collapse;">
         <tr>
           <td class="edge" bgcolor="#0b0d0f" style="padding:18px 28px;background:#0b0d0f;border-top:6px solid ${accent};color:#f2eee3;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;">
@@ -279,8 +281,8 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
             </table>
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:14px;border-collapse:collapse;">
               <tr>
-                <td valign="top" style="color:${accent};font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:800;line-height:18px;letter-spacing:1px;text-transform:uppercase;">${escapeHtml(input.status)}</td>
-                <td align="right" valign="top" style="color:#a9b0b7;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:18px;">${escapeHtml(input.timestamp)}</td>
+                <td class="status-cell" valign="top" style="color:${accent};font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:800;line-height:18px;letter-spacing:1px;text-transform:uppercase;">${escapeHtml(input.status)}</td>
+                <td class="timestamp-cell" align="right" valign="top" style="color:#a9b0b7;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:18px;">${escapeHtml(input.timestamp)}</td>
               </tr>
             </table>
           </td>
@@ -297,6 +299,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           </td>
         </tr>
       </table>
+      <!--[if mso]></td></tr></table><![endif]-->
     </td></tr>
   </table>
 </body>
