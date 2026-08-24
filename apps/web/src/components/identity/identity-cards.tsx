@@ -7,6 +7,7 @@ import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { InlineAlert, StatusBadge } from "../ui/feedback";
 import { Input } from "../ui/input";
+import { submitDiscordNavigation } from "./discord-navigation";
 import { OtpInput } from "./otp-input";
 
 interface PendingIdentityLink {
@@ -210,23 +211,11 @@ function DiscordIdentityLink() {
     setFailed(false);
     try {
       const csrf = await acquireCsrf();
-      const response = await fetch("/api/platform/identity/oauth/discord/start", {
-        method: "POST",
-        cache: "no-store",
-        credentials: "same-origin",
-        redirect: "manual",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-          "x-csrf-token": csrf,
-        },
-        body: JSON.stringify({ purpose: "link-identity", returnPath: "/conta/identidades" }),
+      submitDiscordNavigation({
+        csrfToken: csrf,
+        purpose: "link-identity",
+        returnPath: "/conta/identidades",
       });
-      const location = response.headers.get("location");
-      if ((!response.ok && ![302, 303].includes(response.status)) || !isDiscordUrl(location)) {
-        throw new Error();
-      }
-      window.location.assign(location);
     } catch {
       setFailed(true);
       setLoading(false);
@@ -375,17 +364,4 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime())
     ? "Data indisponível"
     : new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium" }).format(date);
-}
-
-function isDiscordUrl(value: string | null): value is string {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      (url.hostname === "discord.com" || url.hostname.endsWith(".discord.com"))
-    );
-  } catch {
-    return false;
-  }
 }

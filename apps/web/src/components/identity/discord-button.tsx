@@ -4,15 +4,13 @@ import { MessageCircle } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { InlineAlert } from "../ui/feedback";
+import { submitDiscordNavigation } from "./discord-navigation";
 
 interface DiscordButtonProps {
   returnPath?: string;
-  onRedirect?: (url: string) => void;
 }
 
-const DISCORD_START_PATH = "/api/platform/identity/oauth/discord/start";
-
-export function DiscordButton({ returnPath, onRedirect }: DiscordButtonProps) {
+export function DiscordButton({ returnPath }: DiscordButtonProps) {
   const inFlight = useRef(false);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -25,26 +23,11 @@ export function DiscordButton({ returnPath, onRedirect }: DiscordButtonProps) {
 
     try {
       const csrf = await acquireCsrf();
-      const response = await fetch(DISCORD_START_PATH, {
-        method: "POST",
-        cache: "no-store",
-        credentials: "same-origin",
-        redirect: "manual",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-          "x-csrf-token": csrf,
-        },
-        body: JSON.stringify({
-          purpose: "sign-in",
-          ...(isSafeReturnPath(returnPath) ? { returnPath } : {}),
-        }),
+      submitDiscordNavigation({
+        csrfToken: csrf,
+        purpose: "sign-in",
+        ...(isSafeReturnPath(returnPath) ? { returnPath } : {}),
       });
-      const location = response.headers.get("location");
-      if (!response.ok && response.status !== 302 && response.status !== 303) throw new Error();
-      if (!location || !isDiscordAuthorizationUrl(location)) throw new Error();
-      if (onRedirect) onRedirect(location);
-      else window.location.assign(location);
     } catch {
       inFlight.current = false;
       setLoading(false);
@@ -88,16 +71,4 @@ async function acquireCsrf(): Promise<string> {
 
 function isSafeReturnPath(value: string | undefined): value is string {
   return Boolean(value?.startsWith("/") && !value.startsWith("//") && !value.includes("\\"));
-}
-
-function isDiscordAuthorizationUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      (url.hostname === "discord.com" || url.hostname.endsWith(".discord.com"))
-    );
-  } catch {
-    return false;
-  }
 }

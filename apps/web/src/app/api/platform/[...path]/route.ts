@@ -191,6 +191,8 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
 
   const body = await readBoundedBody(request, resolved.rule.bodyLimit ?? JSON_BODY_LIMIT);
   if (body instanceof Response) return body;
+  const oauthNavigation = readDiscordOAuthNavigation(request, resolved.path, body);
+  if (oauthNavigation instanceof Response) return oauthNavigation;
 
   const invitationContext =
     resolved.path === "invitations/preview" ? readInvitationContext(body) : undefined;
@@ -205,6 +207,12 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
   let upstream: Response;
   try {
     const upstreamHeaders = forwardRequestHeaders(request.headers);
+    let upstreamBody = body;
+    if (oauthNavigation) {
+      upstreamHeaders.set("content-type", "application/json");
+      upstreamHeaders.set("x-csrf-token", oauthNavigation.csrfToken);
+      upstreamBody = new TextEncoder().encode(JSON.stringify(oauthNavigation.payload)).buffer;
+    }
     if (resolved.path === "invitations/accept") {
       const storedContext = readCookie(request.headers.get("cookie"), INVITATION_CONTEXT_COOKIE);
       if (!storedContext) return unavailable(400);
@@ -219,7 +227,7 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
     upstream = await fetch(target, {
       method,
       headers: upstreamHeaders,
-      body,
+      body: upstreamBody,
       cache: "no-store",
       redirect: "manual",
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
@@ -263,6 +271,38 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
     statusText: upstream.statusText,
     headers: responseHeaders,
   });
+}
+
+function readDiscordOAuthNavigation(
+  request: Request,
+  path: string,
+  body: ArrayBuffer | null,
+): { csrfToken: string; payload: { purpose: string; returnPath?: string } } | Response | undefined {
+  if (path !== "identity/oauth/discord/start") return undefined;
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/x-www-form-urlencoded") return undefined;
+  if (!body) return unavailable(400);
+
+  const form = new URLSearchParams(new TextDecoder().decode(body));
+  const allowed = new Set(["csrfToken", "purpose", "returnPath"]);
+  if ([...form.keys()].some((key) => !allowed.has(key))) return unavailable(400);
+  const csrfToken = form.get("csrfToken");
+  const purpose = form.get("purpose");
+  const returnPath = form.get("returnPath");
+  if (!csrfToken || csrfToken.length < 16 || csrfToken.length > 2_048) return unavailable(403);
+  if (!purpose || !["sign-in", "link-identity", "step-up"].includes(purpose)) {
+    return unavailable(400);
+  }
+  if (returnPath && !isSafeReturnPath(returnPath)) return unavailable(400);
+
+  return {
+    csrfToken,
+    payload: { purpose, ...(returnPath ? { returnPath } : {}) },
+  };
+}
+
+function isSafeReturnPath(value: string): boolean {
+  return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\");
 }
 
 async function resolveRoute(

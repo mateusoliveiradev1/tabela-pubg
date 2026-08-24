@@ -20,7 +20,9 @@ describe("login Discord-first", () => {
   it("uses a native POST navigation so the browser can follow Discord without exposing its URL", async () => {
     const user = userEvent.setup();
     const submitted: Array<{ action: string; method: string; fields: Record<string, string> }> = [];
-    vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(function submit() {
+    vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(function submit(
+      this: HTMLFormElement,
+    ) {
       submitted.push({
         action: this.action,
         method: this.method,
@@ -50,38 +52,32 @@ describe("login Discord-first", () => {
 
   it("blocks duplicate Discord starts and keeps the provider URL out of the DOM", async () => {
     const user = userEvent.setup();
-    const redirect = vi.fn();
-    let finishStart: ((response: Response) => void) | undefined;
+    const submit = vi
+      .spyOn(HTMLFormElement.prototype, "submit")
+      .mockImplementation(() => undefined);
+    let finishCsrf: ((response: Response) => void) | undefined;
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(csrfResponse())
-        .mockImplementationOnce(
-          () =>
-            new Promise<Response>((resolve) => {
-              finishStart = resolve;
-            }),
-        ),
+      vi.fn().mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishCsrf = resolve;
+          }),
+      ),
     );
 
-    render(<DiscordButton onRedirect={redirect} />);
+    render(<DiscordButton />);
     const button = screen.getByRole("button", { name: "Continuar com Discord" });
     await user.dblClick(button);
 
     expect(
       (screen.getByRole("button", { name: "Abrindo Discord…" }) as HTMLButtonElement).disabled,
     ).toBe(true);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).not.toContain("state=");
 
-    finishStart?.(
-      new Response(null, {
-        status: 302,
-        headers: { location: "https://discord.com/oauth2/authorize?state=secret" },
-      }),
-    );
-    await waitFor(() => expect(redirect).toHaveBeenCalledTimes(1));
+    finishCsrf?.(csrfResponse());
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
   });
 
   it("requests email OTP through the same-origin BFF with CSRF and uniform copy", async () => {

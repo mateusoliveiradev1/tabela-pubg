@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { submitDiscordNavigation } from "../identity/discord-navigation";
 import { Button } from "../ui/button";
 import { InlineAlert } from "../ui/feedback";
 import { Input } from "../ui/input";
@@ -101,20 +102,12 @@ export function ConfirmSensitiveActionDialog({
     setError(undefined);
     try {
       const csrf = await acquireCsrf();
-      const response = await fetch("/api/platform/identity/oauth/discord/start", {
-        method: "POST",
-        cache: "no-store",
-        credentials: "same-origin",
-        redirect: "manual",
-        headers: jsonHeaders(csrf),
-        body: JSON.stringify({ purpose: "step-up", returnPath: window.location.pathname }),
-      });
-      const location = response.headers.get("location");
-      if ((!response.ok && ![302, 303].includes(response.status)) || !isDiscordUrl(location)) {
-        throw new Error();
-      }
       sessionStorage.setItem("pubg-camp:sensitive-action-reason", reason);
-      window.location.assign(location);
+      submitDiscordNavigation({
+        csrfToken: csrf,
+        purpose: "step-up",
+        returnPath: window.location.pathname,
+      });
     } catch {
       setError("Não foi possível abrir o Discord. Use o código por e-mail.");
       setBusy(false);
@@ -256,17 +249,4 @@ function jsonHeaders(csrf: string) {
     "content-type": "application/json",
     "x-csrf-token": csrf,
   };
-}
-
-function isDiscordUrl(value: string | null): value is string {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      (url.hostname === "discord.com" || url.hostname === "discordapp.com")
-    );
-  } catch {
-    return false;
-  }
 }
