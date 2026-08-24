@@ -17,6 +17,7 @@ import {
   promoteProvisionalSessionTrust,
   replaceActiveSessionToken,
   revokeOtherSessions,
+  rotateIdentitySession,
 } from "./sessions.js";
 
 export type Clock = () => Date;
@@ -1020,6 +1021,200 @@ export async function linkIdentity(
     .returning();
 
   return identity ? { status: "linked", identity } : { status: "conflict" };
+}
+
+export interface IdentityManagementProjection {
+  id: string;
+  provider: IdentityProvider;
+  status: "pending" | "verified" | "revoked";
+  displayIdentifier: string;
+  linkedAt: Date;
+}
+
+export async function listIdentitiesForUser(
+  executor: RepositoryExecutor,
+  userId: string,
+): Promise<readonly IdentityManagementProjection[]> {
+  const rows = await executor
+    .select({
+      id: identities.id,
+      provider: identities.provider,
+      status: identities.status,
+      displayName: identities.displayName,
+      normalizedEmail: verifiedEmails.normalizedEmail,
+      linkedAt: identities.linkedAt,
+    })
+    .from(identities)
+    .leftJoin(
+      verifiedEmails,
+      and(
+        eq(verifiedEmails.userId, identities.userId),
+        eq(verifiedEmails.identityId, identities.id),
+        isNull(verifiedEmails.revokedAt),
+      ),
+    )
+    .where(and(eq(identities.userId, userId), isNull(identities.revokedAt)));
+
+  return rows.map((row) => ({
+    id: row.id,
+    provider: row.provider,
+    status: row.status,
+    displayIdentifier:
+      row.provider === "email"
+        ? maskEmail(row.normalizedEmail)
+        : maskIdentifier(row.displayName ?? "Discord"),
+    linkedAt: row.linkedAt,
+  }));
+}
+
+export async function findPendingIdentityLink(
+  executor: RepositoryExecutor,
+  input: { actorId: string; sessionId: string; proofId: string; now: Date },
+): Promise<{
+  proofId: string;
+  provider: "discord";
+  providerSubject: string;
+  displayName?: string;
+} | null> {
+  const [proof] = await executor
+    .select({
+      proofId: identityLinkProofs.id,
+      provider: identityLinkProofs.provider,
+      providerSubject: identityLinkProofs.providerSubject,
+      displayName: identityLinkProofs.displayName,
+    })
+    .from(identityLinkProofs)
+    .where(
+      and(
+        eq(identityLinkProofs.id, input.proofId),
+        eq(identityLinkProofs.userId, input.actorId),
+        eq(identityLinkProofs.sessionId, input.sessionId),
+        eq(identityLinkProofs.purpose, "link-identity"),
+        eq(identityLinkProofs.provider, "discord"),
+        isNull(identityLinkProofs.consumedAt),
+        gt(identityLinkProofs.expiresAt, input.now),
+      ),
+    )
+    .limit(1);
+  return proof
+    ? {
+        proofId: proof.proofId,
+        provider: "discord",
+        providerSubject: proof.providerSubject,
+        ...(proof.displayName === null ? {} : { displayName: proof.displayName }),
+      }
+    : null;
+}
+
+export async function removeOwnedIdentity(
+  database: PostgresJsDatabase<typeof databaseSchema>,
+  input: {
+    actorId: string;
+    currentSessionId: string;
+    identityId: string;
+    replacementSessionToken: string;
+    now: Date;
+  },
+): Promise<
+  | { status: "removed"; sessionId: string; otherSessionsRevoked: number }
+  | { status: "not-found" }
+  | { status: "last-verified" }
+> {
+  return database.transaction(async (transaction) => {
+    const [actor] = await transaction
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.id, input.actorId), eq(users.status, "active")))
+      .for("update")
+      .limit(1);
+    if (!actor) return { status: "not-found" };
+
+    const currentSession = await lockActiveSessionForOtp(transaction, {
+      userId: input.actorId,
+      sessionId: input.currentSessionId,
+      now: input.now,
+    });
+    const freshAfter = new Date(input.now.getTime() - CURRENT_METHOD_PROOF_LIFETIME_MS);
+    if (
+      !currentSession?.reauthenticatedAt ||
+      currentSession.reauthenticatedAt <= freshAfter ||
+      currentSession.reauthenticatedAt > input.now
+    ) {
+      throw new Error("identity removal requires fresh authentication");
+    }
+
+    const liveIdentities = await transaction
+      .select({ id: identities.id })
+      .from(identities)
+      .where(
+        and(
+          eq(identities.userId, input.actorId),
+          eq(identities.status, "verified"),
+          isNull(identities.revokedAt),
+        ),
+      )
+      .for("update");
+    if (!liveIdentities.some((identity) => identity.id === input.identityId)) {
+      return { status: "not-found" };
+    }
+    if (liveIdentities.length <= 1) return { status: "last-verified" };
+
+    const [removed] = await transaction
+      .update(identities)
+      .set({ status: "revoked", revokedAt: input.now })
+      .where(
+        and(
+          eq(identities.id, input.identityId),
+          eq(identities.userId, input.actorId),
+          eq(identities.status, "verified"),
+          isNull(identities.revokedAt),
+        ),
+      )
+      .returning({ id: identities.id });
+    if (!removed) return { status: "not-found" };
+    await transaction
+      .update(verifiedEmails)
+      .set({ revokedAt: input.now })
+      .where(
+        and(
+          eq(verifiedEmails.userId, input.actorId),
+          eq(verifiedEmails.identityId, input.identityId),
+          isNull(verifiedEmails.revokedAt),
+        ),
+      );
+    const rotated = await rotateIdentitySession(transaction, {
+      userId: input.actorId,
+      sessionId: input.currentSessionId,
+      token: input.replacementSessionToken,
+      reauthenticatedAt: input.now,
+    });
+    if (!rotated) throw new Error("identity removal session unavailable");
+    const otherSessionsRevoked = await revokeOtherSessions(
+      transaction,
+      input.actorId,
+      input.currentSessionId,
+      "identity-remove",
+      () => input.now,
+    );
+    return {
+      status: "removed",
+      sessionId: rotated.sessionId,
+      otherSessionsRevoked,
+    };
+  });
+}
+
+function maskEmail(email: string | null): string {
+  if (!email) return "e***@hidden.invalid";
+  const separator = email.indexOf("@");
+  if (separator <= 0) return "e***@hidden.invalid";
+  return `${email[0]}***${email.slice(separator)}`;
+}
+
+function maskIdentifier(value: string): string {
+  const normalized = value.trim();
+  if (normalized.length <= 2) return `${normalized[0] ?? "D"}***`;
+  return `${normalized[0]}***${normalized.at(-1)}`;
 }
 
 export const identityDigests = {

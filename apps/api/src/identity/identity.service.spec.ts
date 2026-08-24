@@ -39,7 +39,11 @@ function setup(options?: { existingSubject?: string; linkConflict?: boolean }) {
       providerSubject: "discord-subject",
       displayName: "player",
     })),
-    removeOwned: vi.fn(async () => ({ status: "removed" as const })),
+    removeOwned: vi.fn(async () => ({
+      status: "removed" as const,
+      sessionId: "session-1",
+      otherSessionsRevoked: 2,
+    })),
   };
   const sessions: IdentitySessionPort = {
     issue: vi.fn(async () => ({ sessionId: "session-new", token: "session-token-new" })),
@@ -332,7 +336,7 @@ describe("IdentityService", () => {
     expect(securityChanges.execute).not.toHaveBeenCalled();
   });
 
-  it("removes only an owned non-last identity, then rotates current and revokes others", async () => {
+  it("delegates owner-scoped removal, token rotation and revoke-others to one transaction", async () => {
     const { service, repository, sessions } = setup();
 
     const result = await service.removeIdentity({
@@ -344,15 +348,17 @@ describe("IdentityService", () => {
 
     expect(repository.removeOwned).toHaveBeenCalledWith({
       actorId: "user-1",
+      currentSessionId: "session-1",
       identityId: "identity-1",
+      replacementSessionToken: "opaque",
       now,
     });
-    expect(sessions.rotateCurrentAndRevokeOthers).toHaveBeenCalledWith({
-      userId: "user-1",
+    expect(sessions.rotateCurrentAndRevokeOthers).not.toHaveBeenCalled();
+    expect(result).toEqual({
       sessionId: "session-1",
-      reason: "identity-remove",
+      sessionToken: "opaque",
+      otherSessionsRevoked: 2,
     });
-    expect(result.sessionToken).toBe("session-token-rotated");
   });
 
   it.each([

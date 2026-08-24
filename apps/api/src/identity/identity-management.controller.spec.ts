@@ -1,8 +1,9 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { describe, expect, it, vi } from "vitest";
+import { REQUIRED_PERMISSION_KEY } from "../authorization/decorators.js";
 import type { CsrfService } from "../security/csrf.service.js";
-import { IdentityManagementController } from "./identity-management.controller.js";
 import type { IdentityService } from "./identity.service.js";
+import { IdentityManagementController } from "./identity-management.controller.js";
 
 const actorId = "00000000-0000-4000-8000-000000000001";
 const sessionId = "00000000-0000-4000-8000-000000000002";
@@ -51,6 +52,17 @@ function setup() {
 }
 
 describe("IdentityManagementController", () => {
+  it("protects every handler with authenticated permission metadata", () => {
+    for (const handler of ["list", "confirmLink", "remove"] as const) {
+      expect(
+        Reflect.getMetadata(
+          REQUIRED_PERMISSION_KEY,
+          IdentityManagementController.prototype[handler],
+        ),
+      ).toBe("authenticated");
+    }
+  });
+
   it("lists only redacted allowlisted identity fields for request.auth.actorId", async () => {
     const { controller, identity, request } = setup();
 
@@ -98,6 +110,27 @@ describe("IdentityManagementController", () => {
     expect(JSON.stringify(result)).not.toContain("replacement-token");
   });
 
+  it("rejects actor, user, session and trust smuggling before the service", async () => {
+    const { controller, identity, request, reply } = setup();
+
+    await expect(
+      controller.confirmLink(
+        {
+          candidateIdentityId: proofId,
+          confirmation: true,
+          actorId,
+          userId: actorId,
+          sessionId,
+          trust: "trusted",
+        },
+        request,
+        reply,
+        "correlation-1",
+      ),
+    ).rejects.toThrow();
+    expect(identity.confirmIdentityLink).not.toHaveBeenCalled();
+  });
+
   it.each(["stale proof", "proof replay", "cross-session proof", "stale step-up"])(
     "does not touch response credentials when link confirmation rejects %s",
     async (message) => {
@@ -120,13 +153,7 @@ describe("IdentityManagementController", () => {
     const { controller, identity, request, reply } = setup();
 
     await expect(
-      controller.remove(
-        identityId,
-        { identityId: proofId },
-        request,
-        reply,
-        "correlation-2",
-      ),
+      controller.remove(identityId, { identityId: proofId }, request, reply, "correlation-2"),
     ).rejects.toThrow();
     expect(identity.removeIdentity).not.toHaveBeenCalled();
   });
@@ -138,13 +165,7 @@ describe("IdentityManagementController", () => {
       vi.mocked(identity.removeIdentity).mockRejectedValueOnce(new Error(message));
 
       await expect(
-        controller.remove(
-          identityId,
-          { identityId },
-          request,
-          reply,
-          "correlation-2",
-        ),
+        controller.remove(identityId, { identityId }, request, reply, "correlation-2"),
       ).rejects.toThrow(message);
       expect(identity.removeIdentity).toHaveBeenCalledWith({
         actorId,

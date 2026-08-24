@@ -21,6 +21,39 @@ export interface IdentityRepository {
     displayName?: string;
     verifiedAt: Date;
   }): Promise<{ status: "linked" } | { status: "conflict" }>;
+  listForUser(userId: string): Promise<readonly IdentityManagementSummary[]>;
+  findPendingLink(input: {
+    actorId: string;
+    sessionId: string;
+    proofId: string;
+    now: Date;
+  }): Promise<PendingIdentityLink | null>;
+  removeOwned(input: {
+    actorId: string;
+    currentSessionId: string;
+    identityId: string;
+    replacementSessionToken: string;
+    now: Date;
+  }): Promise<
+    | { status: "removed"; sessionId: string; otherSessionsRevoked: number }
+    | { status: "not-found" }
+    | { status: "last-verified" }
+  >;
+}
+
+export interface IdentityManagementSummary {
+  id: string;
+  provider: "discord" | "email";
+  status: "pending" | "verified" | "revoked";
+  displayIdentifier: string;
+  linkedAt: Date;
+}
+
+export interface PendingIdentityLink {
+  proofId: string;
+  provider: "discord";
+  providerSubject: string;
+  displayName?: string;
 }
 
 export interface IdentitySessionPort {
@@ -67,6 +100,12 @@ export interface IdentitySecurityChangeApplicationPort {
     currentSessionId: string;
     proofId: string;
     change:
+      | {
+          type: "link-identity";
+          provider: "discord";
+          providerSubject: string;
+          displayName?: string;
+        }
       | { type: "link-identity"; provider: "email"; email: string }
       | { type: "change-email"; identityId: string; email: string };
     now: Date;
@@ -151,6 +190,75 @@ export class IdentityService {
       sessionToken: issued.token,
       isNewDevice: issued.isNewDevice,
       notificationScheduled: issued.notificationScheduled,
+    };
+  }
+
+  listIdentities(userId: string): Promise<readonly IdentityManagementSummary[]> {
+    return this.repository.listForUser(userId);
+  }
+
+  async confirmIdentityLink(input: {
+    actorId: string;
+    sessionId: string;
+    proofId: string;
+    correlationId: string;
+  }): Promise<{
+    provider: "discord";
+    sessionId: string;
+    sessionToken: string;
+    otherSessionsRevoked: number;
+  }> {
+    const now = this.clock.now();
+    if (!(await this.sessions.hasFreshStepUp(input.actorId, input.sessionId, now))) {
+      throw new Error("recent authentication required");
+    }
+    const pending = await this.repository.findPendingLink({
+      actorId: input.actorId,
+      sessionId: input.sessionId,
+      proofId: input.proofId,
+      now,
+    });
+    if (pending === null) throw new Error("identity proof unavailable");
+    const committed = await this.securityChanges.execute({
+      actorId: input.actorId,
+      currentSessionId: input.sessionId,
+      proofId: pending.proofId,
+      change: {
+        type: "link-identity",
+        provider: "discord",
+        providerSubject: pending.providerSubject,
+        ...(pending.displayName === undefined ? {} : { displayName: pending.displayName }),
+      },
+      now,
+      correlationId: input.correlationId,
+    });
+    return { provider: "discord", ...committed };
+  }
+
+  async removeIdentity(input: {
+    actorId: string;
+    sessionId: string;
+    identityId: string;
+    correlationId: string;
+  }): Promise<{ sessionId: string; sessionToken: string; otherSessionsRevoked: number }> {
+    const now = this.clock.now();
+    if (!(await this.sessions.hasFreshStepUp(input.actorId, input.sessionId, now))) {
+      throw new Error("recent authentication required");
+    }
+    const sessionToken = this.tokens.opaque(32);
+    const removed = await this.repository.removeOwned({
+      actorId: input.actorId,
+      currentSessionId: input.sessionId,
+      identityId: input.identityId,
+      replacementSessionToken: sessionToken,
+      now,
+    });
+    if (removed.status === "not-found") throw new Error("identity not found");
+    if (removed.status === "last-verified") throw new Error("last verified identity");
+    return {
+      sessionId: removed.sessionId,
+      sessionToken,
+      otherSessionsRevoked: removed.otherSessionsRevoked,
     };
   }
 

@@ -10,13 +10,16 @@ import {
   executeIdentitySecurityChange,
   findActiveAuthChallenge,
   findDiscordIdentity,
+  findPendingIdentityLink,
   findSessionForStepUp,
   issueIdentitySession,
   issueSessionForDevice,
   linkIdentity,
+  listIdentitiesForUser,
   listSessionsForUser,
   markSessionStepUp,
   recordAuthChallengeFailure,
+  removeOwnedIdentity,
   replaceAuthChallengeDigest,
   resolveAlertContextByDigest,
   revokeOtherSessions,
@@ -126,16 +129,17 @@ export async function createIdentityRuntime(
     options.tokens,
     clock,
   );
+  const securityChanges = buildIdentitySecurityChangeApplication({
+    database: options.database,
+    tokens: options.tokens,
+    clock,
+  });
   const identity = new IdentityService(
     identityRepository(options.database, options.tokens, clock),
     sessions,
     options.tokens,
     clock,
-    buildIdentitySecurityChangeApplication({
-      database: options.database,
-      tokens: options.tokens,
-      clock,
-    }),
+    securityChanges,
   );
   const oauth = new OAuthService(
     new DiscordOAuthAdapter(
@@ -169,7 +173,14 @@ export async function createIdentityRuntime(
   );
 
   return {
-    services: { oauth, otp, identity, session: sessions, csrf: options.csrf },
+    services: {
+      oauth,
+      otp,
+      identity,
+      session: sessions,
+      csrf: options.csrf,
+      securityChanges,
+    },
     close: async () => {
       await redis.quit();
     },
@@ -269,6 +280,9 @@ function identityRepository(
       });
       return { status: linked.status };
     },
+    listForUser: (userId) => listIdentitiesForUser(database, userId),
+    findPendingLink: (input) => findPendingIdentityLink(database, input),
+    removeOwned: (input) => removeOwnedIdentity(database, input),
   };
 }
 

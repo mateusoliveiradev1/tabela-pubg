@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { describe, expect, it, vi } from "vitest";
+import { REQUIRED_PERMISSION_KEY } from "../authorization/decorators.js";
 import type { CsrfService } from "../security/csrf.service.js";
 import { SessionController } from "./session.controller.js";
 import type { SessionService } from "./session.service.js";
@@ -42,6 +43,14 @@ function setup() {
 }
 
 describe("SessionController", () => {
+  it("protects every handler with authenticated permission metadata", () => {
+    for (const handler of ["list", "revoke", "revokeOthers", "logout"] as const) {
+      expect(
+        Reflect.getMetadata(REQUIRED_PERMISSION_KEY, SessionController.prototype[handler]),
+      ).toBe("authenticated");
+    }
+  });
+
   it("lists redacted sessions and marks the request.auth session as current", async () => {
     const { controller, sessions, request } = setup();
 
@@ -70,12 +79,7 @@ describe("SessionController", () => {
   it("clears session and CSRF lifecycle when the current target is revoked", async () => {
     const { controller, csrf, request, reply } = setup();
 
-    await controller.revoke(
-      currentSessionId,
-      { sessionId: currentSessionId },
-      request,
-      reply,
-    );
+    await controller.revoke(currentSessionId, { sessionId: currentSessionId }, request, reply);
 
     expect(csrf.invalidate).toHaveBeenCalledOnce();
     expect(csrf.invalidate).toHaveBeenCalledWith(request, reply);
@@ -107,5 +111,14 @@ describe("SessionController", () => {
     expect(sessions.logout).toHaveBeenCalledWith(actorId, currentSessionId);
     expect(events).toEqual(["revoked", "cookies-cleared"]);
     expect(result).toEqual({ status: "revoked", revokedSessionId: currentSessionId });
+  });
+
+  it("rejects browser-supplied authority fields even on targetless commands", async () => {
+    const { controller, sessions, request, reply } = setup();
+
+    await expect(
+      controller.logout({ actorId, sessionId: otherSessionId }, request, reply),
+    ).rejects.toThrow();
+    expect(sessions.logout).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { registerAppModule } from "./app.module.js";
 import { IdentityController } from "./identity/identity.controller.js";
 import { IdentityModule } from "./identity/identity.module.js";
+import { IdentityManagementController } from "./identity/identity-management.controller.js";
+import { SessionController } from "./identity/session.controller.js";
 
 describe("registerAppModule identity composition", () => {
   it("registers the Discord OAuth controllers in the composed Nest module", () => {
@@ -11,7 +13,11 @@ describe("registerAppModule identity composition", () => {
     expect(module.imports).toContainEqual(
       expect.objectContaining({
         module: IdentityModule,
-        controllers: expect.arrayContaining([IdentityController]),
+        controllers: expect.arrayContaining([
+          IdentityController,
+          SessionController,
+          IdentityManagementController,
+        ]),
       }),
     );
   });
@@ -54,6 +60,23 @@ describe("registerAppModule identity composition", () => {
           url: "/identity/email/otp/verify-provisional-email/verify",
         }),
       ).toBe(true);
+      for (const route of [
+        { method: "GET" as const, url: "/identity/sessions" },
+        { method: "POST" as const, url: "/identity/sessions/logout" },
+        { method: "POST" as const, url: "/identity/sessions/revoke-others" },
+        {
+          method: "POST" as const,
+          url: "/identity/sessions/:sessionId/revoke",
+        },
+        { method: "GET" as const, url: "/identity/identities" },
+        { method: "POST" as const, url: "/identity/identities/link/confirm" },
+        {
+          method: "POST" as const,
+          url: "/identity/identities/:identityId/remove",
+        },
+      ]) {
+        expect(fastify.hasRoute(route)).toBe(true);
+      }
     } finally {
       await app.close();
     }
