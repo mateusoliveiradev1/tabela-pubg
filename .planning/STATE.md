@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T14:00:00.000Z"
+last_updated: "2026-08-24T14:13:00.660Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
   completed_plans: 39
-  percent: 87
+  percent: 33
 ---
 
 # Estado do projeto
@@ -158,3 +158,4 @@ progress:
 - [Phase 02]: BFF rejeita authority fields e purpose mismatch antes de encaminhar contratos de identidade.
 - [Phase 02]: Produção mantém prefixes Redis de identidade estáveis; somente mode=run aceita runScopeId canônico do caller. — Evita fallback compartilhado em testes sem alterar keys de produção.
 - [Phase 02]: TEST_REDIS_URL presente é o endpoint selecionado pelo spec e também recebe PING do preflight; REDIS_URL permanece obrigatório. — Impede evidência contra endpoint diferente e mantém o contrato de ambiente do repositório.
+- [Phase 02]: API offline coleta somente specs source não-integrados; Redis real usa config dedicada exata após preflight fail-closed. — Evita dependência de infraestrutura e duplicação src/dist no root test.
