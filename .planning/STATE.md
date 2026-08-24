@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T11:55:53.505Z"
+last_updated: "2026-08-24T12:17:52.820Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 35
-  percent: 33
+  completed_plans: 36
+  percent: 80
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: 02-35 concluido fora de ordem; proximo plano pendente 02-29 (02-30 ja concluido)
-- Status: remediacao em execucao, com trust persistido aplicado globalmente antes de RBAC e mutacoes protegidas
-- Progresso: 33/45 planos do milestone concluidos; restam 12 planos de gap closure da Fase 2
+- Plano: 02-42 concluido fora de ordem; proximo plano pendente 02-32
+- Status: remediacao em execucao, com mudancas ordinarias de identidade e sessao fechadas na fronteira atomica D-08
+- Progresso: 36/45 planos do milestone concluidos; restam 9 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -108,7 +108,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos pendentes `02-29`, `02-31`–`02-34` e `02-36`–`02-42` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar os planos pendentes `02-32`–`02-34` e `02-36`–`02-41` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -117,9 +117,9 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano 02-35 aplicou trust persistido globalmente com provisional fail-closed e logging redigido
-- Próxima ação: executar o plano 02-29 para fechar contexto tenant same-path e deny cross-tenant auditavel
-- Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-29-PLAN.md
+- Última ação: plano 02-42 implementou a transação D-08 para proof, identidade, rotação/revogação de sessões e outbox redigido
+- Próxima ação: executar o plano 02-32, primeiro plano pendente, consumindo a porta D-08 no controller protegido
+- Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-32-PLAN.md
 
 ## Accumulated Context
 
@@ -133,6 +133,7 @@ progress:
 |-------|------|----------|-------|
 | Phase 02 P29 | 9 min | 2 tasks | 7 files |
 | Phase 02 P31 | 22 min | 1 tasks | 4 files |
+| Phase 02 P42 | 16 min | 1 tasks | 9 files |
 
 ## Decisions
 
@@ -141,3 +142,7 @@ progress:
 - [Phase 02]: Negacoes tenant usam reason class limitada e payload redigido; falha ou ausencia do recorder preserva o 403.
 - [Phase 02]: Step-up OAuth exige somente sessão ativa; link-identity exige reauthenticated_at da mesma sessão estritamente mais recente que dez minutos. — Evita pré-requisito circular no step-up e reserva prova fresca ao vínculo de identidade.
 - [Phase 02]: Candidate proofs OAuth ficam server-side, actor/session-bound, expirantes e são consumidas por atualização condicional one-use. — Impede replay, troca de sessão e exposição da candidate ao navegador.
+- [Phase 02]: Proofs de mudança de identidade persistem finalidade exata e exigem purpose/actor/session/provider/candidate iguais no consume.
+- [Phase 02]: Proofs email legadas sem finalidade recuperável são encerradas fail-closed pela migration 0005.
+- [Phase 02]: Mudanças account-only registram identity.security-state-changed no outbox sem fabricar audit organizacional.
+- [Phase 02]: O token D-08 é gerado antes da transaction e só retorna após proof, identidade, sessão e outbox confirmarem o commit.
