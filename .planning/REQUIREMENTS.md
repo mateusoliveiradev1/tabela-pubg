@@ -15,12 +15,20 @@
 | Requisito | Estado | Evidência de encerramento |
 |---|---|---|
 | AUTH-001 | Concluído | Login Discord OAuth2 real com redirect exato, state/browser binding e PKCE S256 required aprovado. |
-| AUTH-002 | Concluído | OTP por e-mail real entregue pelo Resend com resposta uniforme e payload apagado. |
-| AUTH-003 | Concluído | Sessões revogáveis, cookie `__Host-session` TLS e alerta de novo dispositivo aprovados. |
+| AUTH-002 | Bloqueado | A entrega Resend foi aprovada, mas o OTP de login ainda não cria uma sessão persistida. |
+| AUTH-003 | Bloqueado | Faltam rotas reais de gestão, persistência correta do token opaco, step-up e touch da sessão. |
+| AUTH-004 | Concluído | Memberships independentes permitem várias organizações e assignments aceitam escopo explícito. |
+| AUTH-005 | Bloqueado | A matriz default-deny existe, mas o BFF não fornece o contexto tenant necessário ao caminho autorizado. |
 | AUTH-006 | Concluído | Tokens, codes, cookies e contextos permaneceram fora de DOM, JSON público, URL e logs persistidos. |
-| NFR-005 | Concluído | Menor privilégio, CSRF, CSP exata, TLS, cifra AES-GCM, secret scan e cleanup sandbox comprovados. |
+| ORG-001 | Bloqueado | Criação e persistência existem, mas a CSP de produção bloqueia a logo externa devolvida pela API. |
+| ORG-002 | Bloqueado | Convites e revogações não completam o fluxo real por falta de contexto tenant e publisher da outbox. |
+| ORG-003 | Bloqueado | Os seis papéis estão modelados, mas a gestão real via BFF falha sem contexto tenant. |
+| ORG-004 | Concluído | Matriz de menor privilégio sem wildcard e default-deny verificada por testes. |
+| ORG-005 | Concluído | Lock e testes concorrentes protegem o último proprietário e exigem transferência explícita. |
+| AUD-001 | Concluído | Auditoria transacional grava autor, data, motivo e valores anterior/novo sanitizados. |
+| NFR-005 | Bloqueado | Persistem gaps em lifecycle de sessão, OAuth autenticado, tenant no BFF, outbox e CSP. |
 
-**Fase 2:** 24/24 planos concluídos em 2026-08-24. Próxima fase oficial: 2.1 — Direção visual e sistema de experiência Impeccable.
+**Fase 2:** 24/24 planos executados; verificação final em `gaps_found` (6/13 requisitos). A remediação vem antes da Fase 2.1.
 
 ## 1. Contas, organizações e acesso
 

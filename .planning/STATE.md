@@ -17,10 +17,10 @@ progress:
 ## Posição atual
 
 - Milestone: v1 completo
-- Fase: 2.1 — Direção visual e sistema de experiência Impeccable
-- Plano: fase pronta para discussão e planejamento
-- Status: Fase 2 concluída em 24/24 planos; Discord/PKCE, acessibilidade assistiva e Resend/TLS aprovados com evidência humana
-- Progresso: 100% dos planos atualmente definidos no milestone (27 de 27)
+- Fase: 2 — Identidade, organizações e autorização
+- Plano: remediação dos gaps encontrados pela verificação final
+- Status: 24/24 planos executados; fase não encerrada (`gaps_found`, 2/6 must-haves e 6/13 requisitos verificados)
+- Progresso: 100% dos planos definidos foram executados, mas o objetivo da Fase 2 ainda não foi verificado
 
 ## Decisões acumuladas
 
@@ -89,7 +89,8 @@ progress:
 
 ## Tarefas pendentes
 
-- A direção visual integral foi promovida para a Fase 2.1 oficial; discutir e planejar o redesign Impeccable é a próxima ação.
+- Planejar e corrigir os gaps de integração real registrados em `02-VERIFICATION.md`: outbox publisher, OTP/sessão/step-up, OAuth autenticado, token opaco persistido, contexto tenant no BFF e rotas de sessão/identidade.
+- Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
 
@@ -97,9 +98,9 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano 02-15 aprovado; Discord/PKCE, acessibilidade assistiva e três e-mails DROP MANIFEST reais concluídos com cleanup sandbox.
-- Próxima ação: discutir e planejar a Fase 2.1 — Direção visual e sistema de experiência Impeccable.
-- Arquivo de retomada: nenhum; Fase 2 completa em 24/24 planos.
+- Última ação: code review e verificação final confirmaram seis gaps de integração apesar dos checkpoints externos e CI verdes.
+- Próxima ação: planejar a remediação da Fase 2 a partir de `02-VERIFICATION.md`.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-VERIFICATION.md`.
 
 ## Accumulated Context
 

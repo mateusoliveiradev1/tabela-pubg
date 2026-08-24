@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 24/24 planos concluídos — identidade, operações, branding, CI remoto, Nyquist e checkpoints reais de Discord/PKCE, acessibilidade e Resend/TLS aprovados.
+**Progresso:** 24/24 planos executados, mas a verificação final encontrou gaps de integração no runtime. A fase permanece aberta para remediação antes da Fase 2.1.
 
 ### Entregas
 
@@ -52,6 +52,8 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 - Cada função completa somente suas ações autorizadas.
 - Tentativas entre organizações são negadas e registradas.
 - Revogação encerra acesso sem afetar outros membros.
+
+**Resultado atual:** `gaps_found` — 2/6 must-haves e 6/13 requisitos verificados. Ver `02-VERIFICATION.md`.
 
 **Requisitos:** AUTH-001–006, ORG-001–005, AUD-001, NFR-005.
 
