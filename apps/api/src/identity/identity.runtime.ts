@@ -138,15 +138,26 @@ function oauthRepository(
     create: (input) => createOAuthTransaction(database, input, () => clock.now()),
     consume: async (input) => {
       const consumed = await consumeOAuthTransaction(database, input, () => input.now);
-      return consumed
-        ? {
-            purpose: consumed.purpose,
-            ...(consumed.returnPath === null ? {} : { returnPath: consumed.returnPath }),
-            ...(consumed.userId === null ? {} : { userId: consumed.userId }),
-            ...(consumed.sessionId === null ? {} : { sessionId: consumed.sessionId }),
-          }
-        : null;
+      return consumed ? projectOAuthTransaction(consumed) : null;
     },
+  };
+}
+
+export function projectOAuthTransaction(input: {
+  purpose: "sign-in" | "link-identity" | "step-up";
+  returnPath: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  currentMethodConfirmedAt: Date | null;
+}) {
+  return {
+    purpose: input.purpose,
+    ...(input.returnPath === null ? {} : { returnPath: input.returnPath }),
+    ...(input.userId === null ? {} : { actorId: input.userId, userId: input.userId }),
+    ...(input.sessionId === null ? {} : { sessionId: input.sessionId }),
+    ...(input.currentMethodConfirmedAt === null
+      ? {}
+      : { currentMethodConfirmedAt: input.currentMethodConfirmedAt }),
   };
 }
 

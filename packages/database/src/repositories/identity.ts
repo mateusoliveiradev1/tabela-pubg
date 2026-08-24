@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, exists, gt, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type * as databaseSchema from "../schema.js";
 import {
@@ -34,6 +34,8 @@ export type AuthChallengePurpose =
   | "step-up"
   | "verify-provisional-email";
 type IdentityProvider = "discord" | "email";
+
+const CURRENT_METHOD_PROOF_LIFETIME_MS = 10 * 60_000;
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -89,20 +91,81 @@ export interface CreateOAuthTransactionInput {
   returnPath?: string;
 }
 
+function assertOAuthPurposeBinding(input: CreateOAuthTransactionInput): void {
+  const hasActor = input.userId !== undefined;
+  const hasSession = input.sessionId !== undefined;
+  if (input.purpose === "sign-in" ? hasActor || hasSession : !hasActor || !hasSession) {
+    throw new Error("OAuth purpose binding is invalid");
+  }
+}
+
+async function findActiveOAuthSession(
+  executor: RepositoryExecutor,
+  actorId: string,
+  sessionId: string,
+  now: Date,
+) {
+  const [session] = await executor
+    .select({
+      id: sessionRecords.id,
+      userId: sessionRecords.userId,
+      reauthenticatedAt: sessionRecords.reauthenticatedAt,
+    })
+    .from(sessionRecords)
+    .innerJoin(users, eq(users.id, sessionRecords.userId))
+    .where(
+      and(
+        eq(sessionRecords.userId, actorId),
+        eq(sessionRecords.id, sessionId),
+        eq(users.status, "active"),
+        isNull(sessionRecords.revokedAt),
+        gt(sessionRecords.idleExpiresAt, now),
+        gt(sessionRecords.absoluteExpiresAt, now),
+      ),
+    )
+    .limit(1);
+  return session ?? null;
+}
+
 export async function createOAuthTransaction(
   executor: RepositoryExecutor,
   input: CreateOAuthTransactionInput,
   clock: Clock,
 ): Promise<void> {
+  assertOAuthPurposeBinding(input);
+  const now = clock();
+  let currentMethodConfirmedAt: Date | null = null;
+  if (input.purpose !== "sign-in") {
+    const session = await findActiveOAuthSession(
+      executor,
+      input.userId as string,
+      input.sessionId as string,
+      now,
+    );
+    if (!session) throw new Error("active session required");
+    if (input.purpose === "link-identity") {
+      const freshAfter = new Date(now.getTime() - CURRENT_METHOD_PROOF_LIFETIME_MS);
+      if (
+        session.reauthenticatedAt === null ||
+        session.reauthenticatedAt <= freshAfter ||
+        session.reauthenticatedAt > now
+      ) {
+        throw new Error("fresh current-method proof required");
+      }
+      currentMethodConfirmedAt = session.reauthenticatedAt;
+    }
+  }
+
   await executor.insert(oauthTransactions).values({
     id: input.id,
     stateDigest: sha256(input.state),
     browserBindingDigest: sha256(input.browserBinding),
     purpose: input.purpose,
     expiresAt: input.expiresAt,
-    createdAt: clock(),
+    createdAt: now,
     ...(input.userId === undefined ? {} : { userId: input.userId }),
     ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+    ...(currentMethodConfirmedAt === null ? {} : { currentMethodConfirmedAt }),
     ...(input.returnPath === undefined ? {} : { returnPath: input.returnPath }),
   });
 }
@@ -133,6 +196,87 @@ export async function consumeOAuthTransaction(
     )
     .returning();
 
+  return consumed ?? null;
+}
+
+export interface CreateIdentityLinkProofInput {
+  id: string;
+  actorId: string;
+  sessionId: string;
+  provider: IdentityProvider;
+  providerSubject: string;
+  displayName?: string;
+  expiresAt: Date;
+}
+
+export async function createIdentityLinkProof(
+  executor: RepositoryExecutor,
+  input: CreateIdentityLinkProofInput,
+  clock: Clock,
+): Promise<void> {
+  const now = clock();
+  if (!(await findActiveOAuthSession(executor, input.actorId, input.sessionId, now))) {
+    throw new Error("active session required");
+  }
+  await executor.insert(identityLinkProofs).values({
+    id: input.id,
+    userId: input.actorId,
+    sessionId: input.sessionId,
+    provider: input.provider,
+    providerSubject: input.providerSubject,
+    ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
+    expiresAt: input.expiresAt,
+    createdAt: now,
+  });
+}
+
+export interface ConsumeIdentityLinkProofInput {
+  proofId: string;
+  actorId: string;
+  sessionId: string;
+  provider: IdentityProvider;
+  providerSubject?: string;
+}
+
+export async function consumeIdentityLinkProof(
+  executor: RepositoryExecutor,
+  input: ConsumeIdentityLinkProofInput,
+  clock: Clock,
+) {
+  const now = clock();
+  const [consumed] = await executor
+    .update(identityLinkProofs)
+    .set({ consumedAt: now })
+    .where(
+      and(
+        eq(identityLinkProofs.id, input.proofId),
+        eq(identityLinkProofs.userId, input.actorId),
+        eq(identityLinkProofs.sessionId, input.sessionId),
+        eq(identityLinkProofs.provider, input.provider),
+        ...(input.providerSubject === undefined
+          ? []
+          : [eq(identityLinkProofs.providerSubject, input.providerSubject)]),
+        isNull(identityLinkProofs.consumedAt),
+        gt(identityLinkProofs.expiresAt, now),
+        exists(
+          executor
+            .select({ id: sessionRecords.id })
+            .from(sessionRecords)
+            .innerJoin(users, eq(users.id, sessionRecords.userId))
+            .where(
+              and(
+                eq(sessionRecords.userId, input.actorId),
+                eq(sessionRecords.id, input.sessionId),
+                eq(users.status, "active"),
+                isNull(sessionRecords.revokedAt),
+                gt(sessionRecords.idleExpiresAt, now),
+                gt(sessionRecords.absoluteExpiresAt, now),
+              ),
+            ),
+        ),
+      ),
+    )
+    .returning();
   return consumed ?? null;
 }
 
