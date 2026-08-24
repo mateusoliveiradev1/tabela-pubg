@@ -13,6 +13,8 @@ CREATE TABLE "identity_link_proofs" (
 	CONSTRAINT "identity_link_proofs_consumption_order_check" CHECK ("identity_link_proofs"."consumed_at" is null or "identity_link_proofs"."consumed_at" >= "identity_link_proofs"."created_at")
 );
 --> statement-breakpoint
+ALTER TABLE "outbox_events" ADD COLUMN "claim_token" text;--> statement-breakpoint
+ALTER TABLE "outbox_events" ADD COLUMN "lease_expires_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "auth_challenges" ADD COLUMN "session_id" uuid;--> statement-breakpoint
 ALTER TABLE "oauth_transactions" ADD COLUMN "current_method_confirmed_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "sessions" ADD COLUMN "trust" "session_trust";--> statement-breakpoint
@@ -34,11 +36,18 @@ WHERE "trust" = 'provisional';--> statement-breakpoint
 ALTER TABLE "sessions" ALTER COLUMN "trust" SET NOT NULL;--> statement-breakpoint
 DELETE FROM "auth_challenges" WHERE "purpose" <> 'sign-in';--> statement-breakpoint
 DELETE FROM "oauth_transactions" WHERE "purpose" <> 'sign-in';--> statement-breakpoint
+UPDATE "outbox_events"
+SET
+	"status" = 'failed',
+	"available_at" = LEAST("available_at", now()),
+	"last_error" = 'migration_recovered'
+WHERE "status" = 'publishing';--> statement-breakpoint
 ALTER TABLE "identity_link_proofs" ADD CONSTRAINT "identity_link_proofs_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "identity_link_proofs" ADD CONSTRAINT "identity_link_proofs_user_session_fk" FOREIGN KEY ("user_id","session_id") REFERENCES "public"."sessions"("user_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "identity_link_proofs_actor_session_active_idx" ON "identity_link_proofs" USING btree ("user_id","session_id","provider") WHERE "identity_link_proofs"."consumed_at" is null;--> statement-breakpoint
 CREATE INDEX "identity_link_proofs_expiry_idx" ON "identity_link_proofs" USING btree ("expires_at");--> statement-breakpoint
 ALTER TABLE "auth_challenges" ADD CONSTRAINT "auth_challenges_user_session_fk" FOREIGN KEY ("user_id","session_id") REFERENCES "public"."sessions"("user_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "outbox_pending_lease_idx" ON "outbox_events" USING btree ("status","available_at","lease_expires_at");--> statement-breakpoint
 ALTER TABLE "auth_challenges" ADD CONSTRAINT "auth_challenges_purpose_binding_check" CHECK (("auth_challenges"."purpose" = 'sign-in' and "auth_challenges"."user_id" is null and "auth_challenges"."session_id" is null) or ("auth_challenges"."purpose" <> 'sign-in' and "auth_challenges"."user_id" is not null and "auth_challenges"."session_id" is not null));--> statement-breakpoint
 ALTER TABLE "oauth_transactions" ADD CONSTRAINT "oauth_transactions_purpose_binding_check" CHECK (("oauth_transactions"."purpose" = 'sign-in' and "oauth_transactions"."user_id" is null and "oauth_transactions"."session_id" is null and "oauth_transactions"."current_method_confirmed_at" is null)
         or ("oauth_transactions"."purpose" = 'link-identity' and "oauth_transactions"."user_id" is not null and "oauth_transactions"."session_id" is not null and "oauth_transactions"."current_method_confirmed_at" is not null)

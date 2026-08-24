@@ -1,5 +1,5 @@
 {
-  "id": "7dcf691f-c05d-46f9-81fb-0b98fcd387be",
+  "id": "2823b92d-2c98-400d-94f3-f20d493304e8",
   "prevId": "a14f9326-57bd-4776-82c5-95f8c9ee0a52",
   "version": "7",
   "dialect": "postgresql",
@@ -89,6 +89,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "claim_token": {
+          "name": "claim_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "last_error": {
           "name": "last_error",
           "type": "text",
@@ -115,6 +127,33 @@
             },
             {
               "expression": "available_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outbox_pending_lease_idx": {
+          "name": "outbox_pending_lease_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "available_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lease_expires_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

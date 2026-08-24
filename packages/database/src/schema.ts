@@ -29,11 +29,18 @@ export const outboxEvents = pgTable(
     availableAt: timestamp("available_at", { withTimezone: true, mode: "date" }).notNull(),
     occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" }).notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true, mode: "date" }),
+    claimToken: text("claim_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true, mode: "date" }),
     lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
   (table) => [
     index("outbox_pending_available_idx").on(table.status, table.availableAt),
+    index("outbox_pending_lease_idx").on(
+      table.status,
+      table.availableAt,
+      table.leaseExpiresAt,
+    ),
     index("outbox_aggregate_idx").on(table.aggregateType, table.aggregateId),
   ],
 );
