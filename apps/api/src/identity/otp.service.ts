@@ -3,7 +3,12 @@ import { Injectable } from "@nestjs/common";
 import type { AuthRateLimiter } from "./ports/auth-rate-limiter.js";
 import type { TokenGenerator } from "./ports/token-generator.js";
 
-export type OtpPurpose = "sign-in" | "link-email" | "change-email" | "step-up";
+export type OtpPurpose =
+  | "sign-in"
+  | "link-email"
+  | "change-email"
+  | "step-up"
+  | "verify-provisional-email";
 
 export interface OtpChallengeRecord {
   id: string;
@@ -12,17 +17,65 @@ export interface OtpChallengeRecord {
   codeDigest: string;
   attemptsRemaining: number;
   expiresAt: Date;
+  actorId?: string;
+  sessionId?: string;
 }
+
+export interface OtpChallengeBinding {
+  actorId?: string;
+  sessionId?: string;
+}
+
+export interface CompleteOtpInput extends OtpChallengeBinding {
+  challengeId: string;
+  email: string;
+  purpose: OtpPurpose;
+  codeDigest: string;
+  now: Date;
+  ids: {
+    userId: string;
+    identityId: string;
+    verifiedEmailId: string;
+    proofId: string;
+  };
+  replacementSessionToken?: string;
+}
+
+export type OtpCompletionResult =
+  | { status: "authenticated"; userId: string }
+  | { status: "identity-link-ready"; proofId: string; actorId: string; sessionId: string }
+  | { status: "email-change-ready"; proofId: string; actorId: string; sessionId: string }
+  | {
+      status: "step-up-confirmed";
+      actorId: string;
+      sessionId: string;
+      confirmedAt: Date;
+    }
+  | {
+      status: "provisional-email-verified";
+      userId: string;
+      sessionId: string;
+      sessionToken: string;
+      trust: "trusted";
+    }
+  | { status: "rejected" };
 
 export interface OtpRepository {
   replace(challenge: OtpChallengeRecord): Promise<void>;
-  findActive(challengeId: string, purpose: OtpPurpose): Promise<OtpChallengeRecord | null>;
-  recordFailure(challengeId: string, now: Date): Promise<number>;
-  consumeIfActive(input: {
+  findActive(input: {
     challengeId: string;
-    codeDigest: string;
+    purpose: OtpPurpose;
+    actorId?: string;
+    sessionId?: string;
+  }): Promise<OtpChallengeRecord | null>;
+  recordFailure(input: {
+    challengeId: string;
+    purpose: OtpPurpose;
+    actorId?: string;
+    sessionId?: string;
     now: Date;
-  }): Promise<{ consumed: boolean }>;
+  }): Promise<number>;
+  complete(input: CompleteOtpInput): Promise<OtpCompletionResult>;
 }
 
 export interface SecureOtpDeliveryPort {
@@ -57,10 +110,14 @@ export interface OtpRequestResult {
 }
 
 export type OtpVerifyResult =
-  | { status: "authenticated" }
-  | { status: "identity-link-ready" }
-  | { status: "email-change-ready" }
-  | { status: "step-up-confirmed"; validUntil: Date }
+  | Exclude<OtpCompletionResult, { status: "step-up-confirmed" } | { status: "rejected" }>
+  | {
+      status: "step-up-confirmed";
+      actorId: string;
+      sessionId: string;
+      confirmedAt: Date;
+      validUntil: Date;
+    }
   | { status: "rejected" };
 
 const OTP_CODE_LENGTH = 8;
@@ -86,7 +143,12 @@ export class OtpService {
     purpose: OtpPurpose;
     trustedIp: string;
     correlationId: string;
+    actorId?: string;
+    sessionId?: string;
   }): Promise<OtpRequestResult> {
+    if (!hasValidPurposeBinding(input)) {
+      return { response: ACCEPTED_RESPONSE };
+    }
     const normalizedEmail = normalizeEmail(input.email);
     const emailDigest = this.tokens.digest(normalizedEmail);
     const decision = await this.consumeLimit(
@@ -112,6 +174,8 @@ export class OtpService {
       codeDigest: this.codeDigest(normalizedEmail, input.purpose, code),
       attemptsRemaining: OTP_ATTEMPTS,
       expiresAt,
+      ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
+      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
     });
     await this.delivery.enqueue({
       deliveryId: this.tokens.id(),
@@ -131,7 +195,13 @@ export class OtpService {
     code: string;
     trustedIp: string;
     correlationId: string;
+    actorId?: string;
+    sessionId?: string;
   }): Promise<OtpVerifyResult> {
+    if (!hasValidPurposeBinding(input)) {
+      this.invalid(input.correlationId);
+      return { status: "rejected" };
+    }
     const normalizedEmail = normalizeEmail(input.email);
     const emailDigest = this.tokens.digest(normalizedEmail);
     if (
@@ -140,7 +210,12 @@ export class OtpService {
       return { status: "rejected" };
     }
 
-    const challenge = await this.repository.findActive(input.challengeId, input.purpose);
+    const challenge = await this.repository.findActive({
+      challengeId: input.challengeId,
+      purpose: input.purpose,
+      ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
+      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+    });
     const now = this.clock.now();
     if (
       challenge === null ||
@@ -154,34 +229,46 @@ export class OtpService {
 
     const candidateDigest = this.codeDigest(normalizedEmail, input.purpose, input.code);
     if (!safeEqualHex(challenge.codeDigest, candidateDigest)) {
-      await this.repository.recordFailure(challenge.id, now);
+      await this.repository.recordFailure({
+        challengeId: challenge.id,
+        purpose: input.purpose,
+        ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
+        ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+        now,
+      });
       this.invalid(input.correlationId);
       return { status: "rejected" };
     }
 
-    const consumed = await this.repository.consumeIfActive({
+    const completed = await this.repository.complete({
       challengeId: challenge.id,
+      email: normalizedEmail,
+      purpose: input.purpose,
       codeDigest: candidateDigest,
       now,
+      ids: {
+        userId: this.tokens.id(),
+        identityId: this.tokens.id(),
+        verifiedEmailId: this.tokens.id(),
+        proofId: this.tokens.id(),
+      },
+      ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
+      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+      ...(input.purpose === "verify-provisional-email"
+        ? { replacementSessionToken: this.tokens.opaque(32) }
+        : {}),
     });
-    if (!consumed.consumed) {
+    if (completed.status === "rejected") {
       this.invalid(input.correlationId);
       return { status: "rejected" };
     }
-
-    switch (input.purpose) {
-      case "sign-in":
-        return { status: "authenticated" };
-      case "link-email":
-        return { status: "identity-link-ready" };
-      case "change-email":
-        return { status: "email-change-ready" };
-      case "step-up":
-        return {
-          status: "step-up-confirmed",
-          validUntil: new Date(now.getTime() + STEP_UP_LIFETIME_MS),
-        };
+    if (completed.status === "step-up-confirmed") {
+      return {
+        ...completed,
+        validUntil: new Date(completed.confirmedAt.getTime() + STEP_UP_LIFETIME_MS),
+      };
     }
+    return completed;
   }
 
   private async consumeLimit(
@@ -243,4 +330,10 @@ function safeEqualHex(expected: string, candidate: string): boolean {
     expectedBytes.byteLength === candidateBytes.byteLength &&
     timingSafeEqual(expectedBytes, candidateBytes)
   );
+}
+
+function hasValidPurposeBinding(input: OtpChallengeBinding & { purpose: OtpPurpose }): boolean {
+  return input.purpose === "sign-in"
+    ? input.actorId === undefined && input.sessionId === undefined
+    : Boolean(input.actorId && input.sessionId);
 }

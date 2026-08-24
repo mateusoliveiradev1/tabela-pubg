@@ -1,5 +1,5 @@
 import {
-  consumeAuthChallengeByDigest,
+  completeOtpChallenge,
   consumeOAuthTransaction,
   createDiscordAccount,
   createEncryptedNotificationDelivery,
@@ -104,7 +104,7 @@ export async function createIdentityRuntime(
     clock,
   );
   const otp = new OtpService(
-    otpRepository(options.database),
+    otpRepository(options.database, clock),
     new RedisAuthRateLimiter(redis),
     {
       enqueue: async (input) => {
@@ -177,11 +177,12 @@ function identityRepository(
   };
 }
 
-function otpRepository(database: DatabaseConnection["db"]): OtpRepository {
+function otpRepository(database: DatabaseConnection["db"], clock: { now(): Date }): OtpRepository {
   return {
-    replace: (challenge) => replaceAuthChallengeDigest(database, { ...challenge, now: new Date() }),
-    findActive: async (challengeId, purpose) => {
-      const challenge = await findActiveAuthChallenge(database, challengeId, purpose);
+    replace: (challenge) =>
+      replaceAuthChallengeDigest(database, { ...challenge, now: clock.now() }),
+    findActive: async (input) => {
+      const challenge = await findActiveAuthChallenge(database, input);
       return challenge
         ? {
             id: challenge.id,
@@ -190,13 +191,13 @@ function otpRepository(database: DatabaseConnection["db"]): OtpRepository {
             codeDigest: challenge.codeDigest,
             attemptsRemaining: challenge.attemptsRemaining,
             expiresAt: challenge.expiresAt,
+            ...(challenge.userId === null ? {} : { actorId: challenge.userId }),
+            ...(challenge.sessionId === null ? {} : { sessionId: challenge.sessionId }),
           }
         : null;
     },
-    recordFailure: (challengeId, now) => recordAuthChallengeFailure(database, challengeId, now),
-    consumeIfActive: async (input) => ({
-      consumed: await consumeAuthChallengeByDigest(database, input),
-    }),
+    recordFailure: (input) => recordAuthChallengeFailure(database, input),
+    complete: (input) => completeOtpChallenge(database, input),
   };
 }
 

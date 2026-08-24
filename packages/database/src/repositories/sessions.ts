@@ -278,6 +278,77 @@ export async function rotateIdentitySession(
   return session ? { sessionId: session.id } : null;
 }
 
+export async function lockActiveSessionForOtp(
+  executor: RepositoryExecutor,
+  input: { userId: string; sessionId: string; now: Date },
+): Promise<SessionRow | null> {
+  const [session] = await executor
+    .select()
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.userId, input.userId),
+        eq(sessions.id, input.sessionId),
+        isNull(sessions.revokedAt),
+        gt(sessions.idleExpiresAt, input.now),
+        gt(sessions.absoluteExpiresAt, input.now),
+      ),
+    )
+    .for("update")
+    .limit(1);
+  return session ?? null;
+}
+
+export async function promoteProvisionalSessionTrust(
+  executor: RepositoryExecutor,
+  input: { userId: string; sessionId: string; now: Date },
+): Promise<boolean> {
+  const idleExpiresAt = new Date(input.now.getTime() + IDLE_TTL_MS);
+  const [promoted] = await executor
+    .update(sessions)
+    .set({
+      trust: "trusted",
+      lastSeenAt: input.now,
+      idleExpiresAt,
+      absoluteExpiresAt: sql`${sessions.issuedAt} + interval '90 days'`,
+      reauthenticatedAt: input.now,
+      updatedAt: input.now,
+    })
+    .where(
+      and(
+        eq(sessions.userId, input.userId),
+        eq(sessions.id, input.sessionId),
+        eq(sessions.trust, "provisional"),
+        isNull(sessions.revokedAt),
+        gt(sessions.idleExpiresAt, input.now),
+        gt(sessions.absoluteExpiresAt, input.now),
+      ),
+    )
+    .returning({ id: sessions.id });
+  return Boolean(promoted);
+}
+
+export async function replaceActiveSessionToken(
+  executor: RepositoryExecutor,
+  input: { userId: string; sessionId: string; token: string; now: Date },
+): Promise<boolean> {
+  const [replaced] = await executor
+    .update(sessions)
+    .set({ tokenDigest: digest(input.token), updatedAt: input.now })
+    .where(
+      and(
+        eq(sessions.userId, input.userId),
+        eq(sessions.id, input.sessionId),
+        eq(sessions.trust, "trusted"),
+        isNull(sessions.revokedAt),
+        gt(sessions.idleExpiresAt, input.now),
+        gt(sessions.absoluteExpiresAt, input.now),
+      ),
+    )
+    .returning({ id: sessions.id });
+  return Boolean(replaced);
+}
+
 export async function findSessionForStepUp(
   executor: RepositoryExecutor,
   userId: string,

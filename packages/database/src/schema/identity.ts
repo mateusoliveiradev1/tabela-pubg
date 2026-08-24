@@ -23,6 +23,7 @@ export const authChallengePurpose = pgEnum("auth_challenge_purpose", [
   "link-email",
   "change-email",
   "step-up",
+  "verify-provisional-email",
 ]);
 export const oauthPurpose = pgEnum("oauth_purpose", ["sign-in", "link-identity", "step-up"]);
 export const sessionTrust = pgEnum("session_trust", ["provisional", "trusted"]);
@@ -180,9 +181,16 @@ export const authChallenges = pgTable(
       columns: [table.userId, table.sessionId],
       foreignColumns: [sessions.userId, sessions.id],
     }).onDelete("cascade"),
-    uniqueIndex("auth_challenges_active_subject_purpose_unique")
+    uniqueIndex("auth_challenges_active_sign_in_unique")
       .on(table.emailDigest, table.purpose)
-      .where(sql`${table.supersededAt} is null and ${table.consumedAt} is null`),
+      .where(
+        sql`${table.purpose} = 'sign-in' and ${table.supersededAt} is null and ${table.consumedAt} is null`,
+      ),
+    uniqueIndex("auth_challenges_active_bound_subject_purpose_unique")
+      .on(table.emailDigest, table.purpose, table.userId, table.sessionId)
+      .where(
+        sql`${table.purpose} <> 'sign-in' and ${table.supersededAt} is null and ${table.consumedAt} is null`,
+      ),
     index("auth_challenges_digest_expiry_idx").on(table.emailDigest, table.expiresAt),
     index("auth_challenges_expiry_idx").on(table.expiresAt),
     check(

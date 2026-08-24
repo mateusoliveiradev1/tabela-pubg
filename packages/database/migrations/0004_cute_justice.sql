@@ -1,0 +1,4 @@
+ALTER TYPE "public"."auth_challenge_purpose" ADD VALUE 'verify-provisional-email';--> statement-breakpoint
+DROP INDEX "auth_challenges_active_subject_purpose_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "auth_challenges_active_sign_in_unique" ON "auth_challenges" USING btree ("email_digest","purpose") WHERE "auth_challenges"."purpose" = 'sign-in' and "auth_challenges"."superseded_at" is null and "auth_challenges"."consumed_at" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX "auth_challenges_active_bound_subject_purpose_unique" ON "auth_challenges" USING btree ("email_digest","purpose","user_id","session_id") WHERE "auth_challenges"."purpose" <> 'sign-in' and "auth_challenges"."superseded_at" is null and "auth_challenges"."consumed_at" is null;

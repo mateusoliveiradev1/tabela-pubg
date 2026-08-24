@@ -103,6 +103,8 @@ function setup(options?: { limiterBlocked?: boolean; limiterUnavailable?: boolea
             sessionToken: input.replacementSessionToken,
             trust: "trusted",
           } as const;
+        default:
+          return { status: "rejected" } as const;
       }
     }),
   };

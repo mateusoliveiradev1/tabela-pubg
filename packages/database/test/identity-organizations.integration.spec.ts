@@ -593,6 +593,39 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     `;
   }
 
+  async function seedAdditionalSession(input: {
+    userId: string;
+    sessionId: string;
+    token: string;
+    trust: "provisional" | "trusted";
+    now: Date;
+  }): Promise<void> {
+    const deviceId = randomUUID();
+    await client`
+      insert into devices
+        (id, user_id, device_digest, label, browser, operating_system, first_seen_at, last_seen_at)
+      values
+        (${deviceId}, ${input.userId}, ${identityDigests.opaque(`device:${deviceId}`)},
+         'Additional OTP device', 'Browser', 'OS', ${input.now.toISOString()}, ${input.now.toISOString()})
+    `;
+    const absoluteExpiresAt = new Date(
+      input.now.getTime() + (input.trust === "trusted" ? 90 * 24 * 60 * 60_000 : 15 * 60_000),
+    );
+    const idleExpiresAt = new Date(
+      input.now.getTime() + (input.trust === "trusted" ? 30 * 24 * 60 * 60_000 : 15 * 60_000),
+    );
+    await client`
+      insert into sessions
+        (id, user_id, device_id, token_digest, trust, issued_at, last_seen_at,
+         idle_expires_at, absolute_expires_at, created_at, updated_at)
+      values
+        (${input.sessionId}, ${input.userId}, ${deviceId}, ${identityDigests.opaque(input.token)},
+         ${input.trust}, ${input.now.toISOString()}, ${input.now.toISOString()},
+         ${idleExpiresAt.toISOString()}, ${absoluteExpiresAt.toISOString()},
+         ${input.now.toISOString()}, ${input.now.toISOString()})
+    `;
+  }
+
   it("binds protected OTP consume to actor, session and purpose without mismatch mutation", async () => {
     const issuedAt = new Date("2026-08-21T10:00:00.000Z");
     const now = new Date(issuedAt.getTime() + 60_000);
@@ -653,6 +686,25 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
       select consumed_at, attempts_remaining from auth_challenges where id = ${challengeId}
     `;
     expect(unchanged).toMatchObject({ consumed_at: null, attempts_remaining: 5 });
+
+    await expect(
+      completeOtpChallenge(db, {
+        challengeId,
+        email: "bound@example.test",
+        purpose: "link-email",
+        code: "12345678",
+        hmacKey,
+        actorId,
+        sessionId,
+        now,
+        ids: {
+          userId: randomUUID(),
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          proofId: randomUUID(),
+        },
+      }),
+    ).resolves.toEqual({ status: "rejected" });
 
     await expect(
       completeOtpChallenge(db, {
@@ -725,8 +777,8 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
       expect(
         new Set(
           results.map((result) => (result.status === "conflict" ? "conflict" : result.userId)),
-        ),
-      ).toHaveSize(1);
+        ).size,
+      ).toBe(1);
       const [counts] = await client`
         select
           count(*) filter (where provider = 'email' and provider_subject = ${identityDigests.email(email)})::int as identities,
@@ -764,6 +816,98 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     expect(discordCount?.count).toBe(1);
   }, 20_000);
 
+  it("completes sign-in into an email account and protected link into a durable bound proof", async () => {
+    const issuedAt = new Date("2026-08-21T11:30:00.000Z");
+    const now = new Date(issuedAt.getTime() + 60_000);
+    const hmacKey = Buffer.alloc(32, 37);
+    const email = `complete-${randomUUID()}@example.test`;
+    const signInChallengeId = randomUUID();
+    const signInUserId = randomUUID();
+    await replaceAuthChallenge(
+      db,
+      {
+        id: signInChallengeId,
+        email,
+        purpose: "sign-in",
+        code: "13572468",
+        expiresAt: new Date(now.getTime() + 600_000),
+      },
+      hmacKey,
+      () => issuedAt,
+    );
+    await expect(
+      completeOtpChallenge(db, {
+        challengeId: signInChallengeId,
+        email,
+        purpose: "sign-in",
+        code: "13572468",
+        hmacKey,
+        now,
+        ids: {
+          userId: signInUserId,
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          proofId: randomUUID(),
+        },
+      }),
+    ).resolves.toEqual({ status: "authenticated", userId: signInUserId });
+
+    const actorId = randomUUID();
+    const sessionId = randomUUID();
+    const proofId = randomUUID();
+    const linkChallengeId = randomUUID();
+    await seedSession({
+      userId: actorId,
+      sessionId,
+      token: `link-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await replaceAuthChallenge(
+      db,
+      {
+        id: linkChallengeId,
+        email,
+        purpose: "link-email",
+        code: "24681357",
+        expiresAt: new Date(now.getTime() + 600_000),
+        actorId,
+        sessionId,
+      },
+      hmacKey,
+      () => issuedAt,
+    );
+    await expect(
+      completeOtpChallenge(db, {
+        challengeId: linkChallengeId,
+        email,
+        purpose: "link-email",
+        code: "24681357",
+        hmacKey,
+        actorId,
+        sessionId,
+        now,
+        ids: {
+          userId: randomUUID(),
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          proofId,
+        },
+      }),
+    ).resolves.toEqual({ status: "identity-link-ready", proofId, actorId, sessionId });
+    const [proof] = await client`
+      select user_id, session_id, provider, provider_subject, consumed_at
+      from identity_link_proofs where id = ${proofId}
+    `;
+    expect(proof).toEqual({
+      user_id: actorId,
+      session_id: sessionId,
+      provider: "email",
+      provider_subject: identityDigests.email(email),
+      consumed_at: null,
+    });
+  }, 15_000);
+
   it("atomically promotes a bound provisional Discord session and revokes every other session", async () => {
     const issuedAt = new Date("2026-08-21T12:00:00.000Z");
     const now = new Date(issuedAt.getTime() + 60_000);
@@ -783,17 +927,13 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
       trust: "provisional",
       now: issuedAt,
     });
-    const otherDeviceId = randomUUID();
-    await client`
-      insert into devices
-        (id, user_id, device_digest, label, browser, operating_system, first_seen_at, last_seen_at)
-      values (${otherDeviceId}, ${actorId}, ${identityDigests.opaque(`device:${otherDeviceId}`)}, 'Other', 'Browser', 'OS', ${issuedAt.toISOString()}, ${issuedAt.toISOString()})
-    `;
-    await client`
-      insert into sessions
-        (id, user_id, device_id, token_digest, trust, issued_at, last_seen_at, idle_expires_at, absolute_expires_at)
-      values (${otherSessionId}, ${actorId}, ${otherDeviceId}, ${identityDigests.opaque(otherToken)}, 'trusted', ${issuedAt.toISOString()}, ${issuedAt.toISOString()}, ${new Date(issuedAt.getTime() + 30 * 86_400_000).toISOString()}, ${new Date(issuedAt.getTime() + 90 * 86_400_000).toISOString()})
-    `;
+    await seedAdditionalSession({
+      userId: actorId,
+      sessionId: otherSessionId,
+      token: otherToken,
+      trust: "trusted",
+      now: issuedAt,
+    });
     await replaceAuthChallenge(
       db,
       {
@@ -863,7 +1003,9 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
       const now = new Date(issuedAt.getTime() + 60_000);
       const actorId = randomUUID();
       const sessionId = randomUUID();
+      const otherSessionId = randomUUID();
       const oldToken = `rollback-old-${randomUUID()}`;
+      const otherToken = `rollback-other-${randomUUID()}`;
       const replacementToken = `rollback-new-${randomUUID()}`;
       const email = `rollback-${randomUUID()}@example.test`;
       const challengeId = randomUUID();
@@ -873,6 +1015,13 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
         sessionId,
         token: oldToken,
         trust: "provisional",
+        now: issuedAt,
+      });
+      await seedAdditionalSession({
+        userId: actorId,
+        sessionId: otherSessionId,
+        token: otherToken,
+        trust: "trusted",
         now: issuedAt,
       });
       await replaceAuthChallenge(
@@ -929,8 +1078,100 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
         email_identities: 0,
       });
       await expect(resolveSession(db, oldToken, () => now)).resolves.not.toBeNull();
+      await expect(resolveSession(db, otherToken, () => now)).resolves.not.toBeNull();
       await expect(resolveSession(db, replacementToken, () => now)).resolves.toBeNull();
     },
     15_000,
   );
+
+  it("rejects already-trusted, email-conflict and token-collision promotion without consuming proof", async () => {
+    const issuedAt = new Date("2026-08-21T14:00:00.000Z");
+    const now = new Date(issuedAt.getTime() + 60_000);
+    const hmacKey = Buffer.alloc(32, 61);
+
+    for (const failure of ["already-trusted", "email-conflict", "token-collision"] as const) {
+      const actorId = randomUUID();
+      const sessionId = randomUUID();
+      const oldToken = `${failure}-old-${randomUUID()}`;
+      const replacementToken = `${failure}-new-${randomUUID()}`;
+      const email = `${failure}-${randomUUID()}@example.test`;
+      const challengeId = randomUUID();
+      await seedSession({
+        userId: actorId,
+        sessionId,
+        token: oldToken,
+        trust: failure === "already-trusted" ? "trusted" : "provisional",
+        now: issuedAt,
+      });
+
+      if (failure === "email-conflict") {
+        await resolveOrCreateEmailAccount(db, {
+          email,
+          userId: randomUUID(),
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          now: issuedAt,
+        });
+      }
+      if (failure === "token-collision") {
+        await seedSession({
+          userId: randomUUID(),
+          sessionId: randomUUID(),
+          token: replacementToken,
+          trust: "trusted",
+          now: issuedAt,
+        });
+      }
+      await replaceAuthChallenge(
+        db,
+        {
+          id: challengeId,
+          email,
+          purpose: "verify-provisional-email",
+          code: "44332211",
+          expiresAt: new Date(now.getTime() + 600_000),
+          actorId,
+          sessionId,
+        },
+        hmacKey,
+        () => issuedAt,
+      );
+
+      await expect(
+        completeOtpChallenge(db, {
+          challengeId,
+          email,
+          purpose: "verify-provisional-email",
+          code: "44332211",
+          hmacKey,
+          actorId,
+          sessionId,
+          now,
+          ids: {
+            userId: randomUUID(),
+            identityId: randomUUID(),
+            verifiedEmailId: randomUUID(),
+            proofId: randomUUID(),
+          },
+          replacementSessionToken: replacementToken,
+        }),
+      ).resolves.toEqual({ status: "rejected" });
+
+      const [state] = await client`
+        select c.consumed_at, s.token_digest, s.trust, s.reauthenticated_at
+        from auth_challenges c join sessions s on s.id = ${sessionId}
+        where c.id = ${challengeId}
+      `;
+      expect(state).toMatchObject({
+        consumed_at: null,
+        token_digest: identityDigests.opaque(oldToken),
+        trust: failure === "already-trusted" ? "trusted" : "provisional",
+        reauthenticated_at: null,
+      });
+      await expect(resolveSession(db, oldToken, () => now)).resolves.not.toBeNull();
+      if (failure !== "token-collision") {
+        await expect(resolveSession(db, replacementToken, () => now)).resolves.toBeNull();
+      }
+    }
+  }, 20_000);
 });
