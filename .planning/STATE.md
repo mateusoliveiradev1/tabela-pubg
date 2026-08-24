@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T11:01:39.129Z"
+last_updated: "2026-08-24T11:11:31.564Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 32
+  completed_plans: 33
   percent: 33
 ---
 
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: 02-30 concluido fora de ordem; proximo plano pendente 02-29 (02-28 ja concluido)
-- Status: remediacao em execucao, com OTP bound, identidade email sem merge e promocao provisional atomica aprovados
-- Progresso: 32/45 planos do milestone concluidos; restam 13 planos de gap closure da Fase 2
+- Plano: 02-35 concluido fora de ordem; proximo plano pendente 02-29 (02-30 ja concluido)
+- Status: remediacao em execucao, com trust persistido aplicado globalmente antes de RBAC e mutacoes protegidas
+- Progresso: 33/45 planos do milestone concluidos; restam 12 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -89,9 +89,13 @@ progress:
 - O repository é o único gerador do token em `issueForDevice` e devolve exatamente o token cujo digest persistiu.
 - Trusted usa idle deslizante de 30 dias e teto absoluto de 90 dias; provisional permanece limitada a 15 minutos no repository.
 - Autenticação de produção usa `resolveAndTouchSession` e propaga somente trust lido da sessão ativa persistida.
+- Trust ausente ou fora do vocabulario nunca recebe compatibilidade trusted e e negado antes do RBAC.
+- AllowProvisional vale somente no handler, exige permission authenticated e nao libera permissoes RBAC.
+- Negacao provisional registra apenas categoria, correlationId, actorId e sessionId; falha do sink preserva 403.
 
 ## Métricas de execução
 
+- Plano 02-35: 7 min, 1 tarefa TDD, 8 arquivos.
 - Plano 02-27: 25 min, 1 tarefa TDD, 6 arquivos.
 - Plano 02-26: 9 min, 2 tarefas, 5 arquivos.
 - Plano 02-28: 38 min, 2 tarefas, 8 arquivos.
@@ -104,7 +108,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos `02-29`–`02-42` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar os planos pendentes `02-29`, `02-31`–`02-34` e `02-36`–`02-42` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -113,7 +117,7 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano 02-30 persistiu OTP bound, proof email e promocao provisional atomica
+- Última ação: plano 02-35 aplicou trust persistido globalmente com provisional fail-closed e logging redigido
 - Próxima ação: executar o plano 02-29 para fechar contexto tenant same-path e deny cross-tenant auditavel
 - Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-29-PLAN.md
 

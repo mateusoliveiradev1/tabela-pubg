@@ -16,9 +16,9 @@
 |---|---|---|
 | AUTH-001 | Concluído | Login Discord OAuth2 real com redirect exato, state/browser binding e PKCE S256 required aprovado. |
 | AUTH-002 | Bloqueado | A entrega Resend foi aprovada, mas o OTP de login ainda não cria uma sessão persistida. |
-| AUTH-003 | Bloqueado | Token opaco, trust e touch foram fechados no 02-27; ainda faltam rotas reais de gestão e step-up. |
+| AUTH-003 | Bloqueado | Token opaco, trust/touch e enforcement global foram fechados nos planos 02-27/02-35; ainda faltam rotas reais de gestão e step-up. |
 | AUTH-004 | Concluído | Memberships independentes permitem várias organizações e assignments aceitam escopo explícito. |
-| AUTH-005 | Bloqueado | A matriz default-deny existe, mas o BFF não fornece o contexto tenant necessário ao caminho autorizado. |
+| AUTH-005 | Bloqueado | A matriz default-deny e o gate trust-first existem, mas o BFF ainda não fornece o contexto tenant necessário ao caminho autorizado. |
 | AUTH-006 | Concluído | Tokens, codes, cookies e contextos permaneceram fora de DOM, JSON público, URL e logs persistidos. |
 | ORG-001 | Concluído | Criação/persistência e membros existem; CSP e convite compartilham allowlist exata para a logo externa assinada. |
 | ORG-002 | Bloqueado | Convites e revogações ainda não completam o fluxo real por falta de contexto tenant, embora o publisher da outbox esteja fechado. |
@@ -26,9 +26,9 @@
 | ORG-004 | Concluído | Matriz de menor privilégio sem wildcard e default-deny verificada por testes. |
 | ORG-005 | Concluído | Lock e testes concorrentes protegem o último proprietário e exigem transferência explícita. |
 | AUD-001 | Concluído | Auditoria transacional grava autor, data, motivo e valores anterior/novo sanitizados. |
-| NFR-005 | Bloqueado | CSP, compensação pós-commit, outbox e lifecycle base de sessão foram fechados; persistem gaps em OAuth autenticado, tenant no BFF e revalidação final. |
+| NFR-005 | Bloqueado | CSP, compensação pós-commit, outbox, lifecycle e trust-first authorization foram fechados; persistem gaps em OAuth autenticado, tenant no BFF e revalidação final. |
 
-**Fase 2:** 28/42 planos executados; verificação em `gaps_found` (7/13 requisitos). O plano 02-27 fechou token opaco, trust e sliding expiry; NFR-005 permanece bloqueado pelos demais fluxos runtime e pela revalidação final.
+**Fase 2:** 30/42 planos executados; verificação em `gaps_found` (7/13 requisitos). O plano 02-35 fechou o enforcement global de trust; NFR-005 permanece bloqueado pelos demais fluxos runtime e pela revalidação final.
 
 ## 1. Contas, organizações e acesso
 

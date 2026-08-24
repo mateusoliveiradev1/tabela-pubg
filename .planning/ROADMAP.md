@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 28 planos executados; `02-27` fechou token opaco single-owner, trust e sliding expiry, enquanto `02-28` aprovou CSP/compensação de logos; restam 14 planos de remediação (`02-29`–`02-42`) antes da Fase 2.1.
+**Progresso:** 30 planos executados; `02-30` fechou promoção provisional atômica e `02-35` aplicou trust persistido fail-closed antes de RBAC; restam 12 planos de remediação antes da Fase 2.1.
 
 ### Entregas
 
