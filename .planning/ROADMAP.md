@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 34 planos executados; `02-36` publicou sign-in OTP com sessão trusted, step-up bound e promoção provisional atômica sobre a transação D-08; restam 8 planos de remediação antes da Fase 2.1.
+**Progresso:** 35 planos executados; `02-37` publicou OAuth purpose-specific revoke-before-commit e uma allowlist BFF exata para OTP/OAuth; restam 7 planos de remediação antes da Fase 2.1.
 
 ### Entregas
 
