@@ -1,9 +1,136 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const runtimeSpies = vi.hoisted(() => ({
+  authConstructor: vi.fn(),
+  createRedisConnection: vi.fn(),
+  pingRedis: vi.fn(),
+  pkceConstructor: vi.fn(),
+  quit: vi.fn(),
+}));
+
+vi.mock("@pubg-camp/queue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@pubg-camp/queue")>()),
+  createRedisConnection: runtimeSpies.createRedisConnection,
+  pingRedis: runtimeSpies.pingRedis,
+}));
+
+vi.mock("./adapters/redis-auth-rate-limiter.js", () => ({
+  RedisAuthRateLimiter: class {
+    constructor(client: unknown, options: unknown) {
+      runtimeSpies.authConstructor(client, options);
+    }
+
+    async consume() {
+      return { allowed: true as const };
+    }
+  },
+  RedisDiscordOAuthVerifierStore: class {
+    constructor(client: unknown, keyPrefix: unknown) {
+      runtimeSpies.pkceConstructor(client, keyPrefix);
+    }
+
+    async save() {}
+
+    async consume() {
+      return null;
+    }
+  },
+}));
+
 import {
   buildIdentitySecurityChangeApplication,
   buildOtpNotificationDelivery,
+  createIdentityRuntime,
   projectOAuthTransaction,
+  resolveIdentityRedisPrefixes,
 } from "./identity.runtime.js";
+
+const validRunScopeId = "run-0123456789abcdef01234567";
+
+function runtimeOptions() {
+  return {
+    database: {} as never,
+    redisUrl: "redis://127.0.0.1:6379",
+    discord: {} as never,
+    csrf: {} as never,
+    tokens: {
+      id: vi.fn(() => "generated-id"),
+      opaque: vi.fn(() => Buffer.alloc(32, 7).toString("base64url")),
+      numericCode: vi.fn(() => "12345678"),
+      digest: vi.fn((value: string) => `digest:${value}`),
+    },
+    otpPepper: new Uint8Array(32),
+    encryptionKey: {} as never,
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  const redis = { quit: runtimeSpies.quit };
+  runtimeSpies.createRedisConnection.mockReturnValue(redis);
+  runtimeSpies.pingRedis.mockResolvedValue(undefined);
+  runtimeSpies.quit.mockResolvedValue(undefined);
+});
+
+describe("identity runtime Redis scope contract", () => {
+  it("keeps production prefixes byte-for-byte stable and injects both explicitly", async () => {
+    expect(resolveIdentityRedisPrefixes({ mode: "production" })).toEqual({
+      authKeyPrefix: "pubg-camp:auth",
+      oauthPkceKeyPrefix: "pubg-camp:oauth:pkce",
+    });
+
+    const runtime = await createIdentityRuntime(runtimeOptions());
+    const redis = runtimeSpies.createRedisConnection.mock.results[0]?.value;
+
+    expect(runtimeSpies.authConstructor).toHaveBeenCalledWith(redis, {
+      keyPrefix: "pubg-camp:auth",
+    });
+    expect(runtimeSpies.pkceConstructor).toHaveBeenCalledWith(redis, "pubg-camp:oauth:pkce");
+    await runtime.close();
+  });
+
+  it("derives both adapter prefixes from the same validated run scope exactly once", async () => {
+    expect(resolveIdentityRedisPrefixes({ mode: "run", runScopeId: validRunScopeId })).toEqual({
+      authKeyPrefix: `pubg-camp:${validRunScopeId}:auth`,
+      oauthPkceKeyPrefix: `pubg-camp:${validRunScopeId}:oauth:pkce`,
+    });
+
+    const runtime = await createIdentityRuntime({
+      ...runtimeOptions(),
+      redisScope: { mode: "run", runScopeId: validRunScopeId },
+    });
+    const redis = runtimeSpies.createRedisConnection.mock.results[0]?.value;
+
+    expect(runtimeSpies.authConstructor).toHaveBeenCalledWith(redis, {
+      keyPrefix: `pubg-camp:${validRunScopeId}:auth`,
+    });
+    expect(runtimeSpies.pkceConstructor).toHaveBeenCalledWith(
+      redis,
+      `pubg-camp:${validRunScopeId}:oauth:pkce`,
+    );
+    await runtime.close();
+  });
+
+  it.each([
+    ["absent", { mode: "run" }],
+    ["empty", { mode: "run", runScopeId: "" }],
+    ["broad", { mode: "run", runScopeId: "run-shared-012345678901" }],
+    ["whitespace", { mode: "run", runScopeId: ` ${validRunScopeId}` }],
+    ["path-bearing", { mode: "run", runScopeId: "run-0123456789/abcdef012345" }],
+    ["under-length", { mode: "run", runScopeId: "run-01234567890123" }],
+    ["over-length", { mode: "run", runScopeId: `run-${"a".repeat(64)}` }],
+  ])("rejects %s run scope before opening Redis", async (_case, redisScope) => {
+    expect(() => resolveIdentityRedisPrefixes(redisScope as never)).toThrow(
+      "identity Redis run scope is invalid",
+    );
+    await expect(
+      createIdentityRuntime({ ...runtimeOptions(), redisScope: redisScope as never }),
+    ).rejects.toThrow("identity Redis run scope is invalid");
+    expect(runtimeSpies.createRedisConnection).not.toHaveBeenCalled();
+    expect(runtimeSpies.authConstructor).not.toHaveBeenCalled();
+    expect(runtimeSpies.pkceConstructor).not.toHaveBeenCalled();
+  });
+});
 
 describe("identity runtime OTP delivery contract", () => {
   it("uses the worker-supported template and expiry payload without persisting the challenge id", () => {
