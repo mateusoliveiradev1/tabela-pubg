@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-21T10:50:14.584Z"
+last_updated: "2026-08-24T00:29:54.855Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 24
-  percent: 89
+  completed_plans: 25
+  percent: 93
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 21 de 24 concluídos
-- Status: execução em andamento; harness Chromium E2E e gate CI concluídos
-- Progresso: 89% do milestone (24 de 27 planos)
+- Plano: 22 de 24 concluídos
+- Status: execução em andamento; gate CI remoto final aprovado para o HEAD autorizado
+- Progresso: 93% do milestone (25 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -68,11 +68,15 @@ progress:
 - Logo de convite usa origem allowlisted, no-referrer e fallback local após remoção do token.
 - Harness E2E aborta antes de seed/start sem preflight PostgreSQL/Redis e escopo fake/test/run-id válido.
 - CI preserva main e pull_request e executa Chromium smoke antes da suíte browser completa.
+- O gate final aceita somente um run event=push com branch e HEAD SHA exatos; workflow_dispatch permanece proibido.
+- CI em fresh checkout constrói storage na matriz e usa Turbo dependencies-only antes do browser.
+- Skips só são aceitos nos passos mutuamente exclusivos da matriz e em evidência condicionada a falha; suites obrigatórias devem executar.
 
 ## Métricas de execução
 
 - Plano 02-23: 8 min, 2 tarefas, 10 arquivos.
 - Plano 02-18: 34 min, 3 tarefas, 19 arquivos.
+- Plano 02-24: 2d 14h, 1 tarefa, 3 arquivos.
 
 ## Bloqueadores
 
@@ -80,6 +84,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: harness Chromium E2E e gate CI concluídos no plano 02-18.
-- Próxima ação: continuar a wave 13 conforme o orquestrador da Fase 2.
-- Arquivo de retomada: nenhum; plano 02-18 completo.
+- Última ação: run GitHub Actions `32676449341` do HEAD autorizado concluiu todos os jobs obrigatórios em success no plano 02-24.
+- Próxima ação: executar a consolidação Nyquist do plano 02-20.
+- Arquivo de retomada: nenhum; plano 02-24 completo.
