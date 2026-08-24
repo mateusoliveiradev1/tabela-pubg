@@ -28,6 +28,27 @@ export type NotificationProcessorResult =
   | { status: "expired" }
   | { status: "ignored" };
 
+async function persistTerminalOutcome(
+  store: NotificationDeliveryStore,
+  deliveryId: string,
+  outcome:
+    | { status: "delivered"; at: Date; providerMessageId: string }
+    | { status: "expired"; at: Date },
+): Promise<"persisted" | "concurrent"> {
+  if (await store.clear(deliveryId, outcome)) return "persisted";
+
+  const current = await store.findById(deliveryId);
+  if (
+    current?.status === outcome.status &&
+    current.payloadClearedAt !== null &&
+    ((outcome.status === "delivered" && current.deliveredAt !== null) ||
+      (outcome.status === "expired" && current.failedAt !== null))
+  ) {
+    return "concurrent";
+  }
+  throw new Error("notification terminal outcome was not persisted");
+}
+
 export function createNotificationProcessor(dependencies: NotificationProcessorDependencies) {
   return async (job: unknown): Promise<NotificationProcessorResult> => {
     const parsedJob = DeliveryJobSchema.safeParse(job);
@@ -48,8 +69,11 @@ export function createNotificationProcessor(dependencies: NotificationProcessorD
 
     const now = dependencies.clock.now();
     if (delivery.payloadExpiresAt.getTime() <= now.getTime()) {
-      await dependencies.store.clear(deliveryId, { status: "expired", at: now });
-      return { status: "expired" };
+      const outcome = await persistTerminalOutcome(dependencies.store, deliveryId, {
+        status: "expired",
+        at: now,
+      });
+      return outcome === "persisted" ? { status: "expired" } : { status: "ignored" };
     }
     if (delivery.availableAt.getTime() > now.getTime()) {
       return { status: "ignored" };
@@ -69,11 +93,11 @@ export function createNotificationProcessor(dependencies: NotificationProcessorD
       message,
       idempotencyKey: delivery.idempotencyKey,
     });
-    await dependencies.store.clear(deliveryId, {
+    const outcome = await persistTerminalOutcome(dependencies.store, deliveryId, {
       status: "delivered",
       at: now,
       providerMessageId: result.providerMessageId,
     });
-    return { status: "delivered" };
+    return outcome === "persisted" ? { status: "delivered" } : { status: "ignored" };
   };
 }
