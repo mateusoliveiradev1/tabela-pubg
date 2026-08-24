@@ -82,6 +82,10 @@ progress:
 - Plano 02-24: 2d 14h, 1 tarefa, 3 arquivos.
 - Plano 02-20: 14 min, 1 tarefa, 3 arquivos.
 
+## Tarefas pendentes
+
+- 1 tarefa de UI: redesenhar a experiência visual completa do produto após concluir os checkpoints externos da Fase 2.
+
 ## Bloqueadores
 
 - Docker não está instalado nesta máquina. Código, Compose e CI passaram nos gates disponíveis, mas o smoke test dos contêineres requer um host com Docker.
