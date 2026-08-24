@@ -1,9 +1,6 @@
 import { ForbiddenException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
-import {
-  type AuthorizationDenialRecorder,
-  PermissionGuard,
-} from "./permission.guard.js";
+import { type AuthorizationDenialRecorder, PermissionGuard } from "./permission.guard.js";
 
 const ACTOR_ID = "018f0ce7-98e3-7b27-bf2d-6eeac51d2301";
 const SESSION_ID = "018f0ce7-98e3-7b27-bf2d-6eeac51d2304";
@@ -46,11 +43,7 @@ function harness(options: {
     getClass: () => "controller",
     switchToHttp: () => ({ getRequest: () => request }),
   };
-  const guard = new PermissionGuard(
-    reflector as never,
-    authorization as never,
-    recorder as never,
-  );
+  const guard = new PermissionGuard(reflector as never, authorization as never, recorder as never);
   return { authorization, context, guard, recorder };
 }
 

@@ -14,11 +14,7 @@ import {
   AuthorizationModule,
   type AuthorizationModulePorts,
 } from "../src/authorization/authorization.module.js";
-import {
-  AllowProvisional,
-  Public,
-  RequirePermission,
-} from "../src/authorization/decorators.js";
+import { AllowProvisional, Public, RequirePermission } from "../src/authorization/decorators.js";
 import {
   CsrfService,
   type CsrfServiceOptions,
@@ -316,10 +312,7 @@ async function createAuthorizationApp(ports: AuthorizationModulePorts) {
   return { app, server: adapter.getInstance() };
 }
 
-async function createPermissionMatrixApp(
-  permission: Permission,
-  ports: AuthorizationModulePorts,
-) {
+async function createPermissionMatrixApp(permission: Permission, ports: AuthorizationModulePorts) {
   class PermissionMatrixController {
     route() {
       return { status: "allowed" };
@@ -408,10 +401,11 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
   });
 
   it("ignores request roles and denies the right role in the wrong organization or scope", async () => {
-    const harness = await createAuthorizationApp(ports());
+    const livePorts = ports();
+    const harness = await createAuthorizationApp(livePorts);
     apps.push(harness.app);
 
-    const response = await harness.server.inject({
+    const wrongOrganization = await harness.server.inject({
       method: "GET",
       url: broadcastUrl(OTHER_ORGANIZATION_ID),
       headers: {
@@ -421,9 +415,30 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
         "x-authorization-scope-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2303",
       },
     });
+    const wrongScope = await harness.server.inject({
+      method: "GET",
+      url: broadcastUrl(ORGANIZATION_ID, "018f0ce7-98e3-7b27-bf2d-6eeac51d2398"),
+      headers: {
+        cookie: "__Host-session=session-a",
+        "x-role": "owner",
+        "x-organization-id": ORGANIZATION_ID,
+        "x-authorization-scope-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2398",
+      },
+    });
 
-    expect(response.statusCode).toBe(403);
-    expect(response.body).not.toContain("owner");
+    expect(wrongOrganization.statusCode).toBe(403);
+    expect(wrongScope.statusCode).toBe(403);
+    expect(wrongOrganization.body).not.toContain("owner");
+    expect(wrongScope.body).not.toContain("owner");
+    expect(protectedHandlerSpy).not.toHaveBeenCalled();
+    expect(livePorts.loadSnapshot).toHaveBeenCalledTimes(2);
+    expect(livePorts.denialRecorder.record).toHaveBeenCalledTimes(2);
+    expect(livePorts.denialRecorder.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "authorization-denied",
+        reason: "permission-denied",
+      }),
+    );
   });
 
   it("loads a live snapshot on every request so revocation takes effect immediately", async () => {
@@ -446,6 +461,16 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
     current = snapshot({ membershipStatus: "revoked", assignments: [] });
     expect((await harness.server.inject(request)).statusCode).toBe(403);
     expect(livePorts.loadSnapshot).toHaveBeenCalledTimes(2);
+    expect(protectedHandlerSpy).toHaveBeenCalledOnce();
+    expect(livePorts.denialRecorder.record).toHaveBeenCalledOnce();
+    expect(livePorts.denialRecorder.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "authorization-denied",
+        reason: "permission-denied",
+        routeOrganizationId: ORGANIZATION_ID,
+        routeAuthorizationScopeId: AUTHORIZATION_SCOPE_ID,
+      }),
+    );
   });
 
   it("keeps trusted session behavior for authenticated and RBAC-protected handlers", async () => {
@@ -531,7 +556,10 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
   });
 
   it("denies provisional sessions before every product permission reaches RBAC", async () => {
-    const provisionalPorts = ports(snapshot({ organizationRole: "owner", assignments: [] }), "provisional");
+    const provisionalPorts = ports(
+      snapshot({ organizationRole: "owner", assignments: [] }),
+      "provisional",
+    );
 
     for (const permission of ALL_PERMISSIONS) {
       const harness = await createPermissionMatrixApp(permission, provisionalPorts);

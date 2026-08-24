@@ -16,6 +16,34 @@ import {
   REQUIRED_PERMISSION_KEY,
 } from "./decorators.js";
 
+export type AuthorizationDenialReason =
+  | "missing-route-context"
+  | "invalid-route-context"
+  | "missing-internal-context"
+  | "invalid-internal-context"
+  | "organization-context-mismatch"
+  | "scope-context-mismatch"
+  | "permission-denied";
+
+export interface AuthorizationDenialRecord {
+  category: "authorization-denied";
+  reason: AuthorizationDenialReason;
+  correlationId: string;
+  actorId: string;
+  sessionId: string;
+  routeOrganizationId?: string;
+  routeAuthorizationScopeId?: string;
+  permission: ApiPermission;
+}
+
+export interface AuthorizationDenialRecorder {
+  record(event: AuthorizationDenialRecord): void;
+}
+
+export const AUTHORIZATION_DENIAL_RECORDER = Symbol("AUTHORIZATION_DENIAL_RECORDER");
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class PermissionGuard implements CanActivate {
   constructor(
@@ -23,6 +51,8 @@ export class PermissionGuard implements CanActivate {
     private readonly reflector: Reflector,
     @Inject(AuthorizationService)
     private readonly authorization: AuthorizationService,
+    @Inject(AUTHORIZATION_DENIAL_RECORDER)
+    private readonly denialRecorder: AuthorizationDenialRecorder,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -58,15 +88,99 @@ export class PermissionGuard implements CanActivate {
       }
     }
 
-    if (permission === "identity:session-alerts:resolve" || permission === "authenticated") {
-      return true;
+    const rawRouteOrganizationId = routeParam(request, "organizationId");
+    const rawRouteAuthorizationScopeId = routeParam(request, "authorizationScopeId");
+    const organizationId = canonicalUuid(rawRouteOrganizationId);
+    const authorizationScopeId = canonicalUuid(rawRouteAuthorizationScopeId);
+
+    if (!rawRouteOrganizationId) {
+      if (permission === "identity:session-alerts:resolve" || permission === "authenticated") {
+        return true;
+      }
+      return this.deny(
+        request,
+        permission,
+        "missing-route-context",
+        organizationId,
+        authorizationScopeId,
+      );
+    }
+    if (!organizationId || (rawRouteAuthorizationScopeId && !authorizationScopeId)) {
+      return this.deny(
+        request,
+        permission,
+        "invalid-route-context",
+        organizationId,
+        authorizationScopeId,
+      );
     }
 
-    const organizationId = firstHeader(request.headers["x-organization-id"]);
-    const authorizationScopeId = firstHeader(request.headers["x-authorization-scope-id"]);
-    if (!organizationId) throw new ForbiddenException();
-    if (permission.startsWith("tournament:") && !authorizationScopeId) {
-      throw new ForbiddenException();
+    const rawInternalOrganizationId = firstHeader(request.headers["x-organization-id"]);
+    const internalOrganizationId = canonicalUuid(rawInternalOrganizationId);
+    if (!rawInternalOrganizationId) {
+      return this.deny(
+        request,
+        permission,
+        "missing-internal-context",
+        organizationId,
+        authorizationScopeId,
+      );
+    }
+    if (!internalOrganizationId) {
+      return this.deny(
+        request,
+        permission,
+        "invalid-internal-context",
+        organizationId,
+        authorizationScopeId,
+      );
+    }
+    if (internalOrganizationId !== organizationId) {
+      return this.deny(
+        request,
+        permission,
+        "organization-context-mismatch",
+        organizationId,
+        authorizationScopeId,
+      );
+    }
+
+    const requiresScope = permission.startsWith("tournament:");
+    if (requiresScope && !rawRouteAuthorizationScopeId) {
+      return this.deny(
+        request,
+        permission,
+        "missing-route-context",
+        organizationId,
+        authorizationScopeId,
+      );
+    }
+    if (rawRouteAuthorizationScopeId || requiresScope) {
+      const internalScopeId = canonicalUuid(
+        firstHeader(request.headers["x-authorization-scope-id"]),
+      );
+      if (!internalScopeId) {
+        return this.deny(
+          request,
+          permission,
+          "missing-internal-context",
+          organizationId,
+          authorizationScopeId,
+        );
+      }
+      if (internalScopeId !== authorizationScopeId) {
+        return this.deny(
+          request,
+          permission,
+          "scope-context-mismatch",
+          organizationId,
+          authorizationScopeId,
+        );
+      }
+    }
+
+    if (permission === "identity:session-alerts:resolve" || permission === "authenticated") {
+      return true;
     }
 
     const allowed = await this.authorization.can({
@@ -75,8 +189,40 @@ export class PermissionGuard implements CanActivate {
       ...(authorizationScopeId === undefined ? {} : { authorizationScopeId }),
       permission: permission as Permission,
     });
-    if (!allowed) throw new ForbiddenException();
+    if (!allowed) {
+      return this.deny(
+        request,
+        permission,
+        "permission-denied",
+        organizationId,
+        authorizationScopeId,
+      );
+    }
     return true;
+  }
+
+  private deny(
+    request: FastifyRequest,
+    permission: ApiPermission,
+    reason: AuthorizationDenialReason,
+    routeOrganizationId?: string,
+    routeAuthorizationScopeId?: string,
+  ): never {
+    try {
+      this.denialRecorder.record({
+        category: "authorization-denied",
+        reason,
+        correlationId: correlationId(request.headers["x-correlation-id"]),
+        actorId: request.auth?.actorId ?? "unavailable",
+        sessionId: request.auth?.sessionId ?? "unavailable",
+        ...(routeOrganizationId ? { routeOrganizationId } : {}),
+        ...(routeAuthorizationScopeId ? { routeAuthorizationScopeId } : {}),
+        permission,
+      });
+    } catch {
+      // Security telemetry is best-effort; authorization remains fail-closed.
+    }
+    throw new ForbiddenException();
   }
 
   private denyUntrusted(request: FastifyRequest): void {
@@ -97,11 +243,17 @@ function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function routeParam(request: FastifyRequest, name: string): string | undefined {
+  if (!request.params || typeof request.params !== "object") return undefined;
+  const value = (request.params as Record<string, unknown>)[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+function canonicalUuid(value: string | undefined): string | undefined {
+  return value && UUID_PATTERN.test(value) ? value.toLowerCase() : undefined;
+}
+
 function correlationId(value: string | string[] | undefined): string {
   const candidate = firstHeader(value);
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    candidate ?? "",
-  )
-    ? (candidate as string)
-    : "unavailable";
+  return UUID_PATTERN.test(candidate ?? "") ? (candidate as string) : "unavailable";
 }

@@ -11,13 +11,18 @@ import {
   SESSION_AUTHENTICATOR,
   type SessionAuthenticator,
 } from "./authorization.service.js";
-import { PermissionGuard } from "./permission.guard.js";
+import {
+  AUTHORIZATION_DENIAL_RECORDER,
+  type AuthorizationDenialRecorder,
+  PermissionGuard,
+} from "./permission.guard.js";
 import { SESSION_COOKIE_NAME, SessionGuard } from "./session.guard.js";
 
 export interface AuthorizationModulePorts {
   authenticate: SessionAuthenticator;
   loadSnapshot: AuthorizationSnapshotLoader;
   securityLog: AuthorizationSecurityLog;
+  denialRecorder?: AuthorizationDenialRecorder;
   csrf?: CsrfService;
   sessionCookieName?: string;
 }
@@ -32,6 +37,10 @@ export class AuthorizationModule {
         { provide: SESSION_AUTHENTICATOR, useValue: ports.authenticate },
         { provide: AUTHORIZATION_SNAPSHOT_LOADER, useValue: ports.loadSnapshot },
         { provide: AUTHORIZATION_SECURITY_LOG, useValue: ports.securityLog },
+        {
+          provide: AUTHORIZATION_DENIAL_RECORDER,
+          useValue: ports.denialRecorder ?? { record: () => undefined },
+        },
         { provide: SESSION_COOKIE_NAME, useValue: ports.sessionCookieName ?? "__Host-session" },
         AuthorizationService,
         { provide: APP_GUARD, useClass: SessionGuard },
