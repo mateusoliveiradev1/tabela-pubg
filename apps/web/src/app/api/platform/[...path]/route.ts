@@ -1,3 +1,11 @@
+import {
+  compilePlatformRouteMatcher,
+  materializePlatformRoutePath,
+  PlatformRouteInventory,
+  type PlatformRouteInventoryEntry,
+  type PlatformRouteMethod,
+} from "@pubg-camp/contracts";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -5,187 +13,18 @@ type PlatformRouteContext = {
   params: Promise<{ path: string[] }>;
 };
 
-type SupportedMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-
-type RouteRule = {
+type RouteRule = PlatformRouteInventoryEntry & {
   pattern: RegExp;
-  methods: readonly SupportedMethod[];
-  upstream: "root" | "platform";
-  context?: {
-    organizationGroup: string;
-    scopeGroup?: string;
-  };
-  bodyLimit?: number;
-  csrfRotation?: "reacquire" | "clear";
-  noReferrer?: boolean;
-  identityPurpose?:
-    | "sign-in"
-    | "link-identity"
-    | "step-up"
-    | "link-email"
-    | "change-email"
-    | "verify-provisional-email";
 };
 
-const JSON_BODY_LIMIT = 64 * 1024;
-const MULTIPART_BODY_LIMIT = 2 * 1024 * 1024 + 64 * 1024;
 const HEADER_LIMIT = 32 * 1024;
 const HEADER_COUNT_LIMIT = 64;
 const UPSTREAM_TIMEOUT_MS = 10_000;
 const INVITATION_CONTEXT_COOKIE = "__Host-invitation-context";
-const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
-const CANONICAL_UUID = new RegExp(`^${UUID}$`, "i");
-const ORGANIZATION_CAPTURE = `(?<organizationId>${UUID})`;
-const ORGANIZATION_CONTEXT = { organizationGroup: "organizationId" } as const;
-
-const ROUTES: readonly RouteRule[] = [
-  { pattern: /^security\/csrf$/, methods: ["GET"], upstream: "root" },
-  {
-    pattern: /^__e2e\/logos\/run-[a-z0-9][a-z0-9-]{14,62}\/[A-Za-z0-9._-]{1,160}$/,
-    methods: ["GET"],
-    upstream: "root",
-    noReferrer: true,
-  },
-  ...(["sign-in", "link-identity", "step-up"] as const).flatMap((purpose) => [
-    {
-      pattern: new RegExp(`^identity/oauth/discord/${purpose}/start$`),
-      methods: ["POST"] as const,
-      upstream: "root" as const,
-      noReferrer: true,
-      identityPurpose: purpose,
-    },
-    {
-      pattern: new RegExp(`^identity/oauth/discord/${purpose}/callback$`),
-      methods: ["POST"] as const,
-      upstream: "root" as const,
-      csrfRotation: "reacquire" as const,
-      noReferrer: true,
-      identityPurpose: purpose,
-    },
-  ]),
-  ...(
-    ["sign-in", "link-email", "change-email", "step-up", "verify-provisional-email"] as const
-  ).flatMap((purpose) => [
-    {
-      pattern: new RegExp(`^identity/email/otp/${purpose}/request$`),
-      methods: ["POST"] as const,
-      upstream: "root" as const,
-      noReferrer: true,
-      identityPurpose: purpose,
-    },
-    {
-      pattern: new RegExp(`^identity/email/otp/${purpose}/verify$`),
-      methods: ["POST"] as const,
-      upstream: "root" as const,
-      csrfRotation: "reacquire" as const,
-      noReferrer: true,
-      identityPurpose: purpose,
-    },
-  ]),
-  {
-    pattern: /^identity\/session-alerts\/resolve$/,
-    methods: ["GET"],
-    upstream: "root",
-    noReferrer: true,
-  },
-  { pattern: /^identity\/sessions$/, methods: ["GET"], upstream: "root" },
-  {
-    pattern: /^identity\/sessions\/logout$/,
-    methods: ["POST"],
-    upstream: "root",
-    csrfRotation: "clear",
-  },
-  {
-    pattern: /^identity\/sessions\/revoke-others$/,
-    methods: ["POST"],
-    upstream: "root",
-  },
-  {
-    pattern: new RegExp(`^identity/sessions/${UUID}/revoke$`, "i"),
-    methods: ["POST"],
-    upstream: "root",
-  },
-  { pattern: /^identity\/identities$/, methods: ["GET"], upstream: "root" },
-  {
-    pattern: /^identity\/identities\/link\/confirm$/,
-    methods: ["POST"],
-    upstream: "root",
-    csrfRotation: "reacquire",
-  },
-  {
-    pattern: new RegExp(`^identity/identities/${UUID}/remove$`, "i"),
-    methods: ["POST"],
-    upstream: "root",
-    csrfRotation: "reacquire",
-  },
-  {
-    pattern: /^organizations$/,
-    methods: ["GET", "POST"],
-    upstream: "platform",
-    bodyLimit: MULTIPART_BODY_LIMIT,
-  },
-  {
-    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/members$`, "i"),
-    methods: ["GET"],
-    upstream: "platform",
-    context: ORGANIZATION_CONTEXT,
-  },
-  {
-    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/members/${UUID}$`, "i"),
-    methods: ["PATCH"],
-    upstream: "platform",
-    context: ORGANIZATION_CONTEXT,
-  },
-  {
-    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/members/${UUID}/revoke$`, "i"),
-    methods: ["POST"],
-    upstream: "platform",
-    context: ORGANIZATION_CONTEXT,
-  },
-  {
-    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/ownership/transfer$`, "i"),
-    methods: ["POST"],
-    upstream: "platform",
-    context: ORGANIZATION_CONTEXT,
-    csrfRotation: "reacquire",
-  },
-  {
-    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/invitations$`, "i"),
-    methods: ["GET", "POST"],
-    upstream: "platform",
-    context: ORGANIZATION_CONTEXT,
-    noReferrer: true,
-  },
-  {
-    pattern: new RegExp(
-      `^organizations/${ORGANIZATION_CAPTURE}/invitations/${UUID}/(?:revoke|resend)$`,
-      "i",
-    ),
-    methods: ["POST"],
-    upstream: "platform",
-    context: ORGANIZATION_CONTEXT,
-    noReferrer: true,
-  },
-  {
-    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/audit$`, "i"),
-    methods: ["GET"],
-    upstream: "platform",
-    context: ORGANIZATION_CONTEXT,
-  },
-  {
-    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/logo$`, "i"),
-    methods: ["PUT"],
-    upstream: "platform",
-    context: ORGANIZATION_CONTEXT,
-    bodyLimit: MULTIPART_BODY_LIMIT,
-  },
-  {
-    pattern: /^invitations\/(?:preview|accept)$/,
-    methods: ["POST"],
-    upstream: "platform",
-    noReferrer: true,
-  },
-];
+const ROUTES: readonly RouteRule[] = PlatformRouteInventory.map((route) => ({
+  ...route,
+  pattern: compilePlatformRouteMatcher(route.path),
+}));
 
 const REQUEST_HEADER_ALLOWLIST = new Set([
   "accept",
@@ -211,7 +50,7 @@ const RESPONSE_HEADER_ALLOWLIST = new Set([
 ]);
 
 async function proxy(request: Request, context: PlatformRouteContext): Promise<Response> {
-  const method = request.method.toUpperCase() as SupportedMethod;
+  const method = request.method.toUpperCase() as PlatformRouteMethod;
   const resolved = await resolveRoute(context, method);
   if (resolved instanceof Response) return resolved;
 
@@ -224,7 +63,7 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
   const apiOrigin = resolveApiOrigin();
   if (!apiOrigin) return unavailable(503);
 
-  let body = await readBoundedBody(request, resolved.rule.bodyLimit ?? JSON_BODY_LIMIT);
+  let body = await readBoundedBody(request, resolved.rule.bodyLimit);
   if (body instanceof Response) return body;
   body = validateIdentityJsonPayload(request, resolved.path, resolved.rule, body);
   if (body instanceof Response) return body;
@@ -236,7 +75,7 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
   if (resolved.path === "invitations/preview" && !invitationContext) return unavailable(400);
 
   const target = new URL(
-    resolved.rule.upstream === "platform" ? `/platform/${resolved.path}` : `/${resolved.path}`,
+    materializePlatformRoutePath(resolved.rule.upstreamPath, resolved.params),
     apiOrigin,
   );
   target.search = requestUrl.search;
@@ -400,11 +239,12 @@ function isSafeReturnPath(value: string): boolean {
 
 async function resolveRoute(
   context: PlatformRouteContext,
-  method: SupportedMethod,
+  method: PlatformRouteMethod,
 ): Promise<
   | {
       path: string;
       rule: RouteRule;
+      params: Readonly<Record<string, string | undefined>>;
       organizationId?: string;
       authorizationScopeId?: string;
     }
@@ -437,23 +277,31 @@ async function resolveRoute(
     return routeContext ? [{ rule, ...routeContext }] : [];
   });
   if (pathRules.length === 0) return unavailable(404);
-  const matched = pathRules.find(({ rule }) => rule.methods.includes(method));
+  const matched = pathRules.find(({ rule }) => rule.method === method);
   return matched ? { path, ...matched } : unavailable(405);
 }
 
 function extractRouteContext(
   rule: RouteRule,
   match: RegExpExecArray,
-): { organizationId?: string; authorizationScopeId?: string } | undefined {
-  if (!rule.context) return {};
+):
+  | {
+      params: Readonly<Record<string, string | undefined>>;
+      organizationId?: string;
+      authorizationScopeId?: string;
+    }
+  | undefined {
+  const params = match.groups ?? {};
+  if (!rule.tenant) return { params };
 
-  const organizationId = match.groups?.[rule.context.organizationGroup];
-  if (!organizationId || !CANONICAL_UUID.test(organizationId)) return undefined;
+  const organizationId = params[rule.tenant.organizationParam];
+  if (!organizationId) return undefined;
 
-  const scopeId = rule.context.scopeGroup ? match.groups?.[rule.context.scopeGroup] : undefined;
-  if (rule.context.scopeGroup && (!scopeId || !CANONICAL_UUID.test(scopeId))) return undefined;
+  const scopeId = rule.tenant.scopeParam ? params[rule.tenant.scopeParam] : undefined;
+  if (rule.tenant.scopeParam && !scopeId) return undefined;
 
   return {
+    params,
     organizationId: organizationId.toLowerCase(),
     ...(scopeId ? { authorizationScopeId: scopeId.toLowerCase() } : {}),
   };
@@ -462,7 +310,7 @@ function extractRouteContext(
 function isAuthorizedSameOriginRequest(
   request: Request,
   requestUrl: URL,
-  method: SupportedMethod,
+  method: PlatformRouteMethod,
   path: string,
 ): boolean {
   const requiresProof = method !== "GET" || path === "security/csrf";
@@ -535,7 +383,7 @@ function forwardResponseHeaders(source: Headers, rule: RouteRule): Headers {
   headers.set("cache-control", "no-store");
   headers.set("pragma", "no-cache");
   headers.set("x-content-type-options", "nosniff");
-  if (rule.noReferrer) headers.set("referrer-policy", "no-referrer");
+  if (rule.referrerPolicy === "no-referrer") headers.set("referrer-policy", "no-referrer");
   return headers;
 }
 

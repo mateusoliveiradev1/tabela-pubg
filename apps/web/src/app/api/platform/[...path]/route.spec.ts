@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlatformRouteInventory } from "@pubg-camp/contracts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, PATCH, POST, PUT } from "./route.js";
 
 const WEB_ORIGIN = "https://camp.test";

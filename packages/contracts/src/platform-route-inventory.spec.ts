@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  PlatformRouteInventory,
   compilePlatformRouteMatcher,
   materializePlatformRoutePath,
+  PlatformRouteInventory,
 } from "./platform-route-inventory.js";
 
 const EXPECTED_METHOD_PATHS = [
