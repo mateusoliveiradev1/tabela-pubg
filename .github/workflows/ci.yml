@@ -159,7 +159,7 @@ jobs:
       - name: Build browser workspace dependencies
         run: pnpm turbo run build --filter=@pubg-camp/web^...
       - name: Build authorization dependency for API security contracts
-        run: pnpm --filter @pubg-camp/authorization build
+        run: pnpm turbo run build --filter=@pubg-camp/authorization...
       - name: Validate final phase 2 workflow structure
         run: pnpm verify:phase2-ci
       - name: Run mandatory PostgreSQL and Redis preflight

@@ -131,7 +131,7 @@ function validate(input) {
     [/pnpm install --frozen-lockfile/, "frozen browser dependency install"],
     [/pnpm turbo run build --filter=@pubg-camp\/web\^\.\.\./, "fresh-checkout browser build"],
     [
-      /pnpm --filter @pubg-camp\/authorization build/,
+      /pnpm turbo run build --filter=@pubg-camp\/authorization\.\.\./,
       "fresh-checkout authorization dependency build",
     ],
     [/pnpm phase2:integration:preflight/, "browser Redis/PostgreSQL preflight"],
@@ -154,7 +154,7 @@ function validate(input) {
 
   const order = [
     e2e.indexOf("pnpm turbo run build --filter=@pubg-camp/web^..."),
-    e2e.indexOf("pnpm --filter @pubg-camp/authorization build"),
+    e2e.indexOf("pnpm turbo run build --filter=@pubg-camp/authorization..."),
     e2e.indexOf("pnpm phase2:integration:preflight"),
     e2e.indexOf("pnpm --filter @pubg-camp/authorization exec vitest run"),
     e2e.indexOf("playwright install --with-deps chromium"),
@@ -436,7 +436,7 @@ function runSelfTest(baseline) {
         mutate(
           value,
           "workflow",
-          "pnpm --filter @pubg-camp/authorization build",
+          "pnpm turbo run build --filter=@pubg-camp/authorization...",
           "pnpm --filter @pubg-camp/authorization exec true",
         ),
     ],
@@ -446,7 +446,7 @@ function runSelfTest(baseline) {
         swap(
           value,
           "workflow",
-          "pnpm --filter @pubg-camp/authorization build",
+          "pnpm turbo run build --filter=@pubg-camp/authorization...",
           "pnpm --filter @pubg-camp/authorization exec vitest run",
         ),
     ],
