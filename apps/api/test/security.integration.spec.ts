@@ -3,14 +3,22 @@ import csrfProtection from "@fastify/csrf-protection";
 import { Controller, Get, Module, NotFoundException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
-import type { AuthorizationSnapshot } from "@pubg-camp/authorization";
+import {
+  ALL_PERMISSIONS,
+  type AuthorizationSnapshot,
+  type Permission,
+} from "@pubg-camp/authorization";
 import fastify, { type FastifyInstance, type LightMyRequestResponse } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AuthorizationModule,
   type AuthorizationModulePorts,
 } from "../src/authorization/authorization.module.js";
-import { Public, RequirePermission } from "../src/authorization/decorators.js";
+import {
+  AllowProvisional,
+  Public,
+  RequirePermission,
+} from "../src/authorization/decorators.js";
 import {
   CsrfService,
   type CsrfServiceOptions,
@@ -198,6 +206,26 @@ class AuthorizationTestController {
     return { status: "allowed" };
   }
 
+  createOrganizationRoute() {
+    return { status: "created" };
+  }
+
+  acceptInvitationRoute() {
+    return { status: "accepted" };
+  }
+
+  resolveSessionAlertRoute() {
+    return { status: "resolved" };
+  }
+
+  verifyProvisionalEmailRoute() {
+    return { status: "verified" };
+  }
+
+  logoutRoute() {
+    return { status: "logged-out" };
+  }
+
   missingRoute(): never {
     throw new NotFoundException();
   }
@@ -208,6 +236,19 @@ for (const [method, path, decorators] of [
   ["publicRoute", "public", [Public()]],
   ["unmarkedRoute", "unmarked", []],
   ["broadcastRoute", "broadcast", [RequirePermission("tournament:broadcast:manage")]],
+  ["createOrganizationRoute", "organizations", [RequirePermission("authenticated")]],
+  ["acceptInvitationRoute", "invitations/accept", [RequirePermission("authenticated")]],
+  [
+    "resolveSessionAlertRoute",
+    "session-alerts/resolve",
+    [RequirePermission("identity:session-alerts:resolve")],
+  ],
+  [
+    "verifyProvisionalEmailRoute",
+    "onboarding/email/verify",
+    [RequirePermission("authenticated"), AllowProvisional()],
+  ],
+  ["logoutRoute", "logout", [RequirePermission("authenticated"), AllowProvisional()]],
   ["missingRoute", "missing", [Public()]],
 ] as const) {
   const descriptor = Object.getOwnPropertyDescriptor(AuthorizationTestController.prototype, method);
@@ -258,6 +299,39 @@ async function createAuthorizationApp(ports: AuthorizationModulePorts) {
   return { app, server: adapter.getInstance() };
 }
 
+async function createPermissionMatrixApp(
+  permission: Permission,
+  ports: AuthorizationModulePorts,
+) {
+  class PermissionMatrixController {
+    route() {
+      return { status: "allowed" };
+    }
+  }
+  Controller("permission-matrix")(PermissionMatrixController);
+  const descriptor = Object.getOwnPropertyDescriptor(PermissionMatrixController.prototype, "route");
+  if (!descriptor) throw new Error("missing permission matrix descriptor");
+  Get("check")(PermissionMatrixController.prototype, "route", descriptor);
+  RequirePermission(permission)(PermissionMatrixController.prototype, "route", descriptor);
+
+  class PermissionMatrixModule {}
+  Module({
+    controllers: [PermissionMatrixController],
+    imports: [AuthorizationModule.register(ports)],
+  })(PermissionMatrixModule);
+
+  const adapter = new FastifyAdapter({ bodyLimit: 1_048_576, trustProxy: false });
+  const app = await NestFactory.create<NestFastifyApplication>(PermissionMatrixModule, adapter, {
+    logger: false,
+    abortOnError: false,
+  });
+  await app.register(cookie);
+  app.useGlobalFilters(new HttpExceptionFilter());
+  await app.init();
+  await adapter.getInstance().ready();
+  return { app, server: adapter.getInstance() };
+}
+
 describe("global default-deny authorization through Nest Fastify inject", () => {
   const apps: NestFastifyApplication[] = [];
 
@@ -265,8 +339,13 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
     await Promise.all(apps.splice(0).map((app) => app.close()));
   });
 
-  function ports(currentSnapshot = snapshot()): AuthorizationModulePorts & {
+  function ports(
+    currentSnapshot = snapshot(),
+    trust: "trusted" | "provisional" | undefined = "trusted",
+    securityLog = { record: vi.fn() },
+  ): AuthorizationModulePorts & {
     loadSnapshot: ReturnType<typeof vi.fn>;
+    securityLog: { record: ReturnType<typeof vi.fn> };
   } {
     const loadSnapshot = vi.fn(async () => currentSnapshot);
     return {
@@ -275,10 +354,12 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
           ? {
               actorId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2301",
               sessionId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2304",
+              ...(trust === undefined ? {} : { trust }),
             }
           : null,
       ),
       loadSnapshot,
+      securityLog,
     };
   }
 
@@ -346,6 +427,170 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
     expect(livePorts.loadSnapshot).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps trusted session behavior for authenticated and RBAC-protected handlers", async () => {
+    const trustedPorts = ports(snapshot({ organizationRole: "owner", assignments: [] }));
+    const harness = await createAuthorizationApp(trustedPorts);
+    apps.push(harness.app);
+
+    const authenticated = await harness.server.inject({
+      method: "GET",
+      url: "/authorization-test/organizations",
+      headers: { cookie: "__Host-session=session-a" },
+    });
+    const permission = await harness.server.inject({
+      method: "GET",
+      url: "/authorization-test/broadcast",
+      headers: {
+        cookie: "__Host-session=session-a",
+        "x-organization-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2302",
+        "x-authorization-scope-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2303",
+      },
+    });
+
+    expect(authenticated.statusCode).toBe(200);
+    expect(permission.statusCode).toBe(200);
+    expect(trustedPorts.loadSnapshot).toHaveBeenCalledTimes(1);
+    expect(trustedPorts.securityLog.record).not.toHaveBeenCalled();
+  });
+
+  it("denies provisional sessions before every product permission reaches RBAC", async () => {
+    const provisionalPorts = ports(snapshot({ organizationRole: "owner", assignments: [] }), "provisional");
+
+    for (const permission of ALL_PERMISSIONS) {
+      const harness = await createPermissionMatrixApp(permission, provisionalPorts);
+      apps.push(harness.app);
+      const response = await harness.server.inject({
+        method: "GET",
+        url: "/permission-matrix/check",
+        headers: {
+          cookie: "__Host-session=session-a",
+          "x-correlation-id": "55555555-5555-4555-8555-555555555555",
+          "x-organization-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2302",
+          "x-authorization-scope-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2303",
+        },
+      });
+      expect(response.statusCode, permission).toBe(403);
+    }
+
+    expect(provisionalPorts.loadSnapshot).not.toHaveBeenCalled();
+    expect(provisionalPorts.securityLog.record).toHaveBeenCalledTimes(ALL_PERMISSIONS.length);
+  });
+
+  it("denies provisional organization mutations and session-alert resolution before handlers", async () => {
+    const provisionalPorts = ports(snapshot(), "provisional");
+    const harness = await createAuthorizationApp(provisionalPorts);
+    apps.push(harness.app);
+    const headers = {
+      cookie: "__Host-session=session-a",
+      "x-correlation-id": "55555555-5555-4555-8555-555555555555",
+    };
+
+    for (const path of ["organizations", "invitations/accept", "session-alerts/resolve"]) {
+      const response = await harness.server.inject({
+        method: "GET",
+        url: `/authorization-test/${path}`,
+        headers,
+      });
+      expect(response.statusCode, path).toBe(403);
+      expect(response.body, path).not.toContain("created");
+      expect(response.body, path).not.toContain("accepted");
+      expect(response.body, path).not.toContain("resolved");
+    }
+
+    expect(provisionalPorts.loadSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("allows provisional access only with explicit onboarding or logout metadata", async () => {
+    const provisionalPorts = ports(snapshot(), "provisional");
+    const harness = await createAuthorizationApp(provisionalPorts);
+    apps.push(harness.app);
+    const headers = { cookie: "__Host-session=session-a" };
+
+    expect(
+      (
+        await harness.server.inject({
+          method: "GET",
+          url: "/authorization-test/onboarding/email/verify",
+          headers,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await harness.server.inject({
+          method: "GET",
+          url: "/authorization-test/logout",
+          headers,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(provisionalPorts.loadSnapshot).not.toHaveBeenCalled();
+    expect(provisionalPorts.securityLog.record).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when authenticated session trust is missing", async () => {
+    const missingTrustPorts = ports(snapshot({ organizationRole: "owner" }), undefined);
+    const harness = await createAuthorizationApp(missingTrustPorts);
+    apps.push(harness.app);
+    const headers = {
+      cookie: "__Host-session=session-a",
+      "x-organization-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2302",
+      "x-authorization-scope-id": "018f0ce7-98e3-7b27-bf2d-6eeac51d2303",
+    };
+
+    for (const path of [
+      "organizations",
+      "invitations/accept",
+      "session-alerts/resolve",
+      "broadcast",
+      "onboarding/email/verify",
+      "logout",
+    ]) {
+      expect(
+        (
+          await harness.server.inject({
+            method: "GET",
+            url: `/authorization-test/${path}`,
+            headers,
+          })
+        ).statusCode,
+        path,
+      ).toBe(403);
+    }
+
+    expect(missingTrustPorts.loadSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("records one stable redacted event for each provisional denial", async () => {
+    const securityLog = { record: vi.fn() };
+    const provisionalPorts = ports(snapshot(), "provisional", securityLog);
+    const harness = await createAuthorizationApp(provisionalPorts);
+    apps.push(harness.app);
+
+    const response = await harness.server.inject({
+      method: "GET",
+      url: "/authorization-test/organizations",
+      headers: {
+        cookie: "__Host-session=session-a; private-device=fingerprint-secret",
+        authorization: "Bearer token-must-not-leak",
+        "x-correlation-id": "55555555-5555-4555-8555-555555555555",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(securityLog.record).toHaveBeenCalledOnce();
+    expect(securityLog.record).toHaveBeenCalledWith({
+      category: "authorization-provisional-denied",
+      correlationId: "55555555-5555-4555-8555-555555555555",
+      actorId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2301",
+      sessionId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2304",
+    });
+    const recorded = JSON.stringify(securityLog.record.mock.calls);
+    expect(recorded).not.toContain("fingerprint-secret");
+    expect(recorded).not.toContain("token-must-not-leak");
+    expect(recorded).not.toContain("session-a");
+  });
+
   it("returns uniform support-coded errors without infrastructure secrets or stacks", async () => {
     const secret = "database-password-must-never-leak";
     const harness = await createAuthorizationApp({
@@ -353,6 +598,7 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
         throw new Error(secret);
       }),
       loadSnapshot: vi.fn(async () => snapshot()),
+      securityLog: { record: vi.fn() },
     });
     apps.push(harness.app);
 
