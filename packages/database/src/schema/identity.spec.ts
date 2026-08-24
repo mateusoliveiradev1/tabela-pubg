@@ -4,6 +4,7 @@ import {
   authChallenges,
   devices,
   identities,
+  identityLinkProofs,
   oauthTransactions,
   sessionAlertContexts,
   sessions,
@@ -25,6 +26,10 @@ function compositeForeignKeysOf(table: PgTable): string[][] {
   return getTableConfig(table).foreignKeys.map((foreignKey) =>
     foreignKey.reference().columns.map((column) => column.name),
   );
+}
+
+function checkNamesOf(table: PgTable): string[] {
+  return getTableConfig(table).checks.map((constraint) => constraint.name);
 }
 
 describe("identity persistence schema", () => {
@@ -94,6 +99,44 @@ describe("identity persistence schema", () => {
 
   it("cannot bind an OAuth transaction to another user's session", () => {
     expect(compositeForeignKeysOf(oauthTransactions)).toContainEqual(["user_id", "session_id"]);
+  });
+
+  it("persists explicit session trust and caps provisional sessions", () => {
+    expect(columnsOf(sessions)).toContain("trust");
+    expect(checkNamesOf(sessions)).toContain("sessions_provisional_absolute_expiry_check");
+  });
+
+  it("binds non-sign-in OTP challenges to the acting session", () => {
+    expect(columnsOf(authChallenges)).toEqual(
+      expect.arrayContaining(["user_id", "session_id", "purpose"]),
+    );
+    expect(compositeForeignKeysOf(authChallenges)).toContainEqual(["user_id", "session_id"]);
+    expect(checkNamesOf(authChallenges)).toContain("auth_challenges_purpose_binding_check");
+  });
+
+  it("keeps OAuth reconfirmation and identity-link proof state durable and credential-free", () => {
+    expect(columnsOf(oauthTransactions)).toContain("current_method_confirmed_at");
+    expect(columnsOf(identityLinkProofs)).toEqual(
+      expect.arrayContaining([
+        "user_id",
+        "session_id",
+        "provider",
+        "provider_subject",
+        "expires_at",
+        "consumed_at",
+      ]),
+    );
+    expect(compositeForeignKeysOf(identityLinkProofs)).toContainEqual(["user_id", "session_id"]);
+    expect(columnsOf(identityLinkProofs)).not.toEqual(
+      expect.arrayContaining([
+        "otp",
+        "code",
+        "oauth_state",
+        "browser_binding",
+        "session_token",
+        "provider_token",
+      ]),
+    );
   });
 
   it("keeps users credential-free", () => {
