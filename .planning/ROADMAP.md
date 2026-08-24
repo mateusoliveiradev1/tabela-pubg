@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 24/24 planos executados, mas a verificação final encontrou gaps de integração no runtime. A fase permanece aberta para remediação antes da Fase 2.1.
+**Progresso:** 24 planos executados; 18 planos de remediação (`02-25`–`02-42`) planejados e verificados, prontos para execução antes da Fase 2.1.
 
 ### Entregas
 

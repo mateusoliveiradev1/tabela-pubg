@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T05:01:14.598Z"
+last_updated: "2026-08-24T08:41:34.109Z"
 progress:
   total_phases: 3
-  completed_phases: 2
-  total_plans: 27
+  completed_phases: 1
+  total_plans: 45
   completed_plans: 27
-  percent: 100
+  percent: 33
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: remediação dos gaps encontrados pela verificação final
-- Status: 24/24 planos executados; fase não encerrada (`gaps_found`, 2/6 must-haves e 6/13 requisitos verificados)
-- Progresso: 100% dos planos definidos foram executados, mas o objetivo da Fase 2 ainda não foi verificado
+- Plano: remediação planejada em `02-25`–`02-42`
+- Status: pronta para executar 18 planos de gap closure, verificados com zero bloqueios e zero avisos
+- Progresso: 27/45 planos do milestone concluídos; os próximos 18 fecham os gaps da Fase 2
 
 ## Decisões acumuladas
 
@@ -89,7 +89,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Planejar e corrigir os gaps de integração real registrados em `02-VERIFICATION.md`: outbox publisher, OTP/sessão/step-up, OAuth autenticado, token opaco persistido, contexto tenant no BFF e rotas de sessão/identidade.
+- Executar os planos `02-25`–`02-42` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -98,9 +98,9 @@ progress:
 
 ## Continuidade
 
-- Última ação: code review e verificação final confirmaram seis gaps de integração apesar dos checkpoints externos e CI verdes.
-- Próxima ação: planejar a remediação da Fase 2 a partir de `02-VERIFICATION.md`.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-VERIFICATION.md`.
+- Última ação: 18 planos de remediação (`02-25`–`02-42`) passaram pelo plan-checker com zero bloqueios e zero avisos.
+- Próxima ação: executar a Fase 2 a partir do plano `02-25`.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-25-PLAN.md`.
 
 ## Accumulated Context
 
