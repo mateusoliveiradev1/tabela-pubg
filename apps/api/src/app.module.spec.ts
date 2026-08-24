@@ -25,10 +25,20 @@ describe("registerAppModule identity composition", () => {
     try {
       await app.init();
       const fastify = app.getHttpAdapter().getInstance();
-      expect(fastify.hasRoute({ method: "POST", url: "/identity/oauth/discord/start" })).toBe(true);
-      expect(fastify.hasRoute({ method: "POST", url: "/identity/oauth/discord/callback" })).toBe(
-        true,
-      );
+      for (const purpose of ["sign-in", "link-identity", "step-up"]) {
+        expect(
+          fastify.hasRoute({
+            method: "POST",
+            url: `/identity/oauth/discord/${purpose}/start`,
+          }),
+        ).toBe(true);
+        expect(
+          fastify.hasRoute({
+            method: "POST",
+            url: `/identity/oauth/discord/${purpose}/callback`,
+          }),
+        ).toBe(true);
+      }
       expect(fastify.hasRoute({ method: "POST", url: "/identity/email/otp/sign-in/request" })).toBe(
         true,
       );

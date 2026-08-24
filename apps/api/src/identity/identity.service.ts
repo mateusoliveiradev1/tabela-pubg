@@ -284,15 +284,19 @@ export class IdentityService {
     sessionId: string;
     profile: DiscordUserProfile;
   }): Promise<void> {
-    const identity = await this.repository.findDiscordIdentity(input.profile.id);
-    if (identity?.userId !== input.userId) {
-      throw new Error("identity confirmation failed");
-    }
+    await this.assertDiscordIdentity(input.userId, input.profile);
     await this.sessions.confirmStepUp({
       userId: input.userId,
       sessionId: input.sessionId,
       method: "discord",
       confirmedAt: this.clock.now(),
     });
+  }
+
+  async assertDiscordIdentity(userId: string, profile: DiscordUserProfile): Promise<void> {
+    const identity = await this.repository.findDiscordIdentity(profile.id);
+    if (identity?.userId !== userId) {
+      throw new Error("identity confirmation failed");
+    }
   }
 }

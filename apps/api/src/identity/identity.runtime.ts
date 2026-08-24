@@ -3,6 +3,7 @@ import {
   consumeOAuthTransaction,
   createDiscordAccount,
   createEncryptedNotificationDelivery,
+  createIdentityLinkProof,
   createOAuthTransaction,
   type DatabaseConnection,
   type EncryptionKey,
@@ -107,6 +108,7 @@ export async function createIdentityRuntime(
     ),
     oauthRepository(options.database, clock),
     identity,
+    sessions,
     options.tokens,
     clock,
   );
@@ -171,11 +173,20 @@ function oauthRepository(
   clock: { now(): Date },
 ): OAuthTransactionRepository {
   return {
-    create: (input) => createOAuthTransaction(database, input, () => clock.now()),
+    create: (input) =>
+      createOAuthTransaction(
+        database,
+        {
+          ...input,
+          ...(input.actorId === undefined ? {} : { userId: input.actorId }),
+        },
+        () => clock.now(),
+      ),
     consume: async (input) => {
       const consumed = await consumeOAuthTransaction(database, input, () => input.now);
       return consumed ? projectOAuthTransaction(consumed) : null;
     },
+    createPendingLinkProof: (input) => createIdentityLinkProof(database, input, () => clock.now()),
   };
 }
 
@@ -189,7 +200,7 @@ export function projectOAuthTransaction(input: {
   return {
     purpose: input.purpose,
     ...(input.returnPath === null ? {} : { returnPath: input.returnPath }),
-    ...(input.userId === null ? {} : { actorId: input.userId, userId: input.userId }),
+    ...(input.userId === null ? {} : { actorId: input.userId }),
     ...(input.sessionId === null ? {} : { sessionId: input.sessionId }),
     ...(input.currentMethodConfirmedAt === null
       ? {}

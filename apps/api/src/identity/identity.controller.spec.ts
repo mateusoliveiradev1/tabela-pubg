@@ -164,12 +164,7 @@ describe("IdentityController", () => {
       const response = reply();
 
       if (purpose === "step-up") {
-        await controller.startDiscordStepUp(
-          body,
-          "browser-binding-secret",
-          request(),
-          response,
-        );
+        await controller.startDiscordStepUp(body, "browser-binding-secret", request(), response);
       } else {
         await controller.startDiscordIdentityLink(
           body,

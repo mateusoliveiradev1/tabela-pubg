@@ -84,67 +84,105 @@ export class IdentityController {
     private readonly csrf?: CsrfService,
   ) {}
 
-  @Post("oauth/discord/start")
+  @Post("oauth/discord/sign-in/start")
   @Public()
-  async startDiscord(
+  startDiscordSignIn(
     @Body() rawBody: unknown,
     @Headers("x-auth-browser-binding") browserBinding: string | undefined,
     @Res({ passthrough: true }) reply?: Pick<FastifyReply, "header" | "status">,
     @Req() request?: FastifyRequest,
   ): Promise<OAuthStartResponse> {
-    const body = OAuthStartRequestSchema.parse(rawBody);
-    const resolvedBrowserBinding =
-      browserBinding ?? (request ? this.csrf?.browserBindingFor(request) : undefined);
-    if (!resolvedBrowserBinding) throw stableCancelled();
-    try {
-      const started = await this.oauth.start({
-        purpose: body.purpose,
-        browserBinding: resolvedBrowserBinding,
-        ...(body.returnPath === undefined ? {} : { returnPath: body.returnPath }),
-      });
-      reply?.header("location", started.authorizationUrl).status(302);
-      return OAuthStartResponseSchema.parse({ status: "redirect-required" });
-    } catch {
-      throw stableCancelled();
-    }
+    return this.startDiscordForPurpose(
+      "sign-in",
+      rawBody,
+      browserBinding,
+      undefined,
+      reply,
+      request,
+    );
   }
 
-  @Post("oauth/discord/callback")
+  @Post("oauth/discord/link-identity/start")
+  @RequirePermission("authenticated")
+  startDiscordIdentityLink(
+    @Body() rawBody: unknown,
+    @Headers("x-auth-browser-binding") browserBinding: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply?: Pick<FastifyReply, "header" | "status">,
+  ): Promise<OAuthStartResponse> {
+    return this.startDiscordForPurpose(
+      "link-identity",
+      rawBody,
+      browserBinding,
+      request,
+      reply,
+      request,
+    );
+  }
+
+  @Post("oauth/discord/step-up/start")
+  @RequirePermission("authenticated")
+  startDiscordStepUp(
+    @Body() rawBody: unknown,
+    @Headers("x-auth-browser-binding") browserBinding: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply?: Pick<FastifyReply, "header" | "status">,
+  ): Promise<OAuthStartResponse> {
+    return this.startDiscordForPurpose("step-up", rawBody, browserBinding, request, reply, request);
+  }
+
+  @Post("oauth/discord/sign-in/callback")
   @Public()
-  async callbackDiscord(
+  callbackDiscordSignIn(
     @Body() rawQuery: unknown,
     @Headers("x-auth-browser-binding") browserBinding: string | undefined,
     @Req() request?: FastifyRequest,
     @Res({ passthrough: true }) reply?: FastifyReply,
   ): Promise<OAuthCallbackResponse> {
-    const resolvedBrowserBinding =
-      browserBinding ?? (request ? this.csrf?.browserBindingFor(request) : undefined);
-    if (!resolvedBrowserBinding) throw stableCancelled();
-    try {
-      const query = OAuthCallbackQuerySchema.parse(rawQuery);
-      const result = await this.oauth.callback({
-        code: query.code,
-        state: query.state,
-        purpose: query.purpose,
-        browserBinding: resolvedBrowserBinding,
-      });
-      if (result.status === "step-up-confirmed") {
-        if (request && reply) this.csrf?.rotateCurrent(request, reply);
-        return OAuthCallbackResponseSchema.parse({
-          status: "authenticated",
-          nextPath: result.nextPath,
-        });
-      }
-      if (request && reply) {
-        this.csrf?.rotateToSession(request, reply, result.sessionId, result.sessionToken);
-      }
-      return OAuthCallbackResponseSchema.parse({
-        status: result.status === "linked" ? "link-confirmation-required" : "authenticated",
-        nextPath: result.nextPath,
-      });
-    } catch {
-      throw stableCancelled();
-    }
+    return this.callbackDiscordForPurpose(
+      "sign-in",
+      rawQuery,
+      browserBinding,
+      undefined,
+      request,
+      reply,
+    );
+  }
+
+  @Post("oauth/discord/link-identity/callback")
+  @RequirePermission("authenticated")
+  callbackDiscordIdentityLink(
+    @Body() rawQuery: unknown,
+    @Headers("x-auth-browser-binding") browserBinding: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<OAuthCallbackResponse> {
+    return this.callbackDiscordForPurpose(
+      "link-identity",
+      rawQuery,
+      browserBinding,
+      request,
+      request,
+      reply,
+    );
+  }
+
+  @Post("oauth/discord/step-up/callback")
+  @RequirePermission("authenticated")
+  callbackDiscordStepUp(
+    @Body() rawQuery: unknown,
+    @Headers("x-auth-browser-binding") browserBinding: string | undefined,
+    @Req() request: AuthenticatedIdentityRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<OAuthCallbackResponse> {
+    return this.callbackDiscordForPurpose(
+      "step-up",
+      rawQuery,
+      browserBinding,
+      request,
+      request,
+      reply,
+    );
   }
 
   @Post("email/otp/sign-in/request")
@@ -404,6 +442,91 @@ export class IdentityController {
     });
     if (result.challengeId) reply?.header("x-otp-challenge-id", result.challengeId);
     return EmailOtpResponseSchema.parse(result.response);
+  }
+
+  private async startDiscordForPurpose(
+    purpose: "sign-in" | "link-identity" | "step-up",
+    rawBody: unknown,
+    browserBinding: string | undefined,
+    authRequest: AuthenticatedIdentityRequest | undefined,
+    reply: Pick<FastifyReply, "header" | "status"> | undefined,
+    request: FastifyRequest | undefined,
+  ): Promise<OAuthStartResponse> {
+    const resolvedBrowserBinding =
+      browserBinding ?? (request ? this.csrf?.browserBindingFor(request) : undefined);
+    if (!resolvedBrowserBinding) throw stableCancelled();
+    try {
+      const body = OAuthStartRequestSchema.parse(rawBody);
+      if (body.purpose !== purpose) throw new Error("oauth purpose mismatch");
+      const started = await this.oauth.start({
+        purpose,
+        browserBinding: resolvedBrowserBinding,
+        ...(body.returnPath === undefined ? {} : { returnPath: body.returnPath }),
+        ...(authRequest === undefined
+          ? {}
+          : {
+              actorId: authRequest.auth.actorId,
+              sessionId: authRequest.auth.sessionId,
+            }),
+      });
+      reply?.header("location", started.authorizationUrl).status(302);
+      return OAuthStartResponseSchema.parse({ status: "redirect-required" });
+    } catch {
+      throw stableCancelled();
+    }
+  }
+
+  private async callbackDiscordForPurpose(
+    purpose: "sign-in" | "link-identity" | "step-up",
+    rawBody: unknown,
+    browserBinding: string | undefined,
+    authRequest: AuthenticatedIdentityRequest | undefined,
+    request: FastifyRequest | undefined,
+    reply: FastifyReply | undefined,
+  ): Promise<OAuthCallbackResponse> {
+    const resolvedBrowserBinding =
+      browserBinding ?? (request ? this.csrf?.browserBindingFor(request) : undefined);
+    if (!resolvedBrowserBinding) throw stableCancelled();
+    try {
+      const query = OAuthCallbackQuerySchema.parse(rawBody);
+      if (query.purpose !== purpose) throw new Error("oauth purpose mismatch");
+      const result = await this.oauth.callback({
+        code: query.code,
+        state: query.state,
+        purpose,
+        browserBinding: resolvedBrowserBinding,
+        ...(authRequest === undefined
+          ? {}
+          : {
+              actorId: authRequest.auth.actorId,
+              sessionId: authRequest.auth.sessionId,
+            }),
+      });
+      if (purpose === "sign-in") {
+        if (result.status !== "authenticated") throw new Error("oauth purpose mismatch");
+        if (request && reply) {
+          this.csrf?.rotateToSession(request, reply, result.sessionId, result.sessionToken);
+        }
+        return OAuthCallbackResponseSchema.parse({
+          status: "authenticated",
+          nextPath: result.nextPath,
+        });
+      }
+      if (purpose === "step-up") {
+        if (result.status !== "step-up-confirmed") throw new Error("oauth purpose mismatch");
+        if (request && reply) this.csrf?.rotateCurrent(request, reply);
+        return OAuthCallbackResponseSchema.parse({
+          status: "authenticated",
+          nextPath: result.nextPath,
+        });
+      }
+      if (result.status !== "link-confirmation-required") {
+        throw new Error("oauth purpose mismatch");
+      }
+      return OAuthCallbackResponseSchema.parse(result);
+    } catch {
+      throw stableCancelled();
+    }
   }
 
   private async verifyEmailSecurityChange(

@@ -53,7 +53,6 @@ describe("identity runtime OAuth transaction projection", () => {
       purpose: "link-identity",
       returnPath: "/account/identities",
       actorId: "actor-1",
-      userId: "actor-1",
       sessionId: "session-1",
       currentMethodConfirmedAt,
     });

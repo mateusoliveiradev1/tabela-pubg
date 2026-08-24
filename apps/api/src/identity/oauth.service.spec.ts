@@ -67,6 +67,7 @@ function setup(transaction: OAuthTransaction | null = { purpose: "sign-in", retu
     confirmDiscordStepUp: vi.fn(async () => {
       events.push("identity-step-up");
     }),
+    assertDiscordIdentity: vi.fn(async () => undefined),
   } as unknown as IdentityService;
   const sessions = {
     confirmStepUp: vi.fn(async () => {
@@ -317,7 +318,9 @@ describe("OAuthService", () => {
       },
     ]) {
       const { service, provider, transactions, identity, sessions } = setup(transaction);
-      vi.mocked(provider.revoke).mockRejectedValueOnce(new Error("discord token revocation failed"));
+      vi.mocked(provider.revoke).mockRejectedValueOnce(
+        new Error("discord token revocation failed"),
+      );
 
       await expect(
         service.callback({

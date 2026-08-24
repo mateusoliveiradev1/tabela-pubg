@@ -2,15 +2,17 @@ import { Injectable } from "@nestjs/common";
 import type { IdentityService } from "./identity.service.js";
 import type { DiscordIdentityProvider, OAuthPurpose } from "./ports/discord-identity-provider.js";
 import type { TokenGenerator } from "./ports/token-generator.js";
+import type { SessionService } from "./session.service.js";
 
 const OAUTH_TRANSACTION_LIFETIME_MS = 10 * 60_000;
+const OAUTH_LINK_PROOF_LIFETIME_MS = 10 * 60_000;
 
 export interface OAuthTransaction {
   purpose: OAuthPurpose;
   returnPath?: string;
-  userId?: string;
+  actorId?: string;
   sessionId?: string;
-  currentMethodConfirmed?: boolean;
+  currentMethodConfirmedAt?: Date;
 }
 
 export interface OAuthTransactionRepository {
@@ -21,9 +23,8 @@ export interface OAuthTransactionRepository {
     purpose: OAuthPurpose;
     expiresAt: Date;
     returnPath?: string;
-    userId?: string;
+    actorId?: string;
     sessionId?: string;
-    currentMethodConfirmed?: boolean;
   }): Promise<void>;
   consume(input: {
     state: string;
@@ -31,6 +32,16 @@ export interface OAuthTransactionRepository {
     purpose: OAuthPurpose;
     now: Date;
   }): Promise<OAuthTransaction | null>;
+  createPendingLinkProof(input: {
+    id: string;
+    actorId: string;
+    sessionId: string;
+    purpose: "link-identity";
+    provider: "discord";
+    providerSubject: string;
+    displayName?: string;
+    expiresAt: Date;
+  }): Promise<void>;
 }
 
 export interface OAuthClock {
@@ -39,13 +50,7 @@ export interface OAuthClock {
 
 export type OAuthCallbackResult =
   | { status: "authenticated"; nextPath: string; sessionId: string; sessionToken: string }
-  | {
-      status: "linked";
-      nextPath: string;
-      sessionId: string;
-      sessionToken: string;
-      otherSessionsRevoked: number;
-    }
+  | { status: "link-confirmation-required"; nextPath: string }
   | { status: "step-up-confirmed"; nextPath: string };
 
 @Injectable()
@@ -54,6 +59,7 @@ export class OAuthService {
     private readonly provider: DiscordIdentityProvider,
     private readonly transactions: OAuthTransactionRepository,
     private readonly identity: IdentityService,
+    private readonly sessions: SessionService,
     private readonly tokens: TokenGenerator,
     private readonly clock: OAuthClock,
   ) {}
@@ -62,9 +68,8 @@ export class OAuthService {
     purpose: OAuthPurpose;
     browserBinding: string;
     returnPath?: string;
-    userId?: string;
+    actorId?: string;
     sessionId?: string;
-    currentMethodConfirmed?: boolean;
   }): Promise<{ authorizationUrl: string }> {
     if (input.browserBinding.trim().length === 0) {
       throw new Error("browser binding required");
@@ -72,10 +77,12 @@ export class OAuthService {
     if (input.returnPath !== undefined && !isSafeReturnPath(input.returnPath)) {
       throw new Error("invalid return path");
     }
-    if (
-      input.purpose !== "sign-in" &&
-      (input.userId === undefined || input.sessionId === undefined)
-    ) {
+    const hasActor = input.actorId !== undefined;
+    const hasSession = input.sessionId !== undefined;
+    if (input.purpose === "sign-in" && (hasActor || hasSession)) {
+      throw new Error("public sign-in cannot carry authenticated context");
+    }
+    if (input.purpose !== "sign-in" && (!hasActor || !hasSession)) {
       throw new Error("authenticated context required");
     }
 
@@ -87,11 +94,8 @@ export class OAuthService {
       purpose: input.purpose,
       expiresAt: new Date(this.clock.now().getTime() + OAUTH_TRANSACTION_LIFETIME_MS),
       ...(input.returnPath === undefined ? {} : { returnPath: input.returnPath }),
-      ...(input.userId === undefined ? {} : { userId: input.userId }),
+      ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
       ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
-      ...(input.currentMethodConfirmed === undefined
-        ? {}
-        : { currentMethodConfirmed: input.currentMethodConfirmed }),
     };
     await this.transactions.create(transaction);
     return this.provider.start({ state, purpose: input.purpose });
@@ -102,11 +106,21 @@ export class OAuthService {
     state: string;
     browserBinding: string;
     purpose: OAuthPurpose;
+    actorId?: string;
+    sessionId?: string;
   }): Promise<OAuthCallbackResult> {
     if (
       input.code.trim().length === 0 ||
       input.state.trim().length === 0 ||
       input.browserBinding.trim().length === 0
+    ) {
+      throw new Error("oauth transaction unavailable");
+    }
+    const hasActor = input.actorId !== undefined;
+    const hasSession = input.sessionId !== undefined;
+    if (
+      (input.purpose === "sign-in" && (hasActor || hasSession)) ||
+      (input.purpose !== "sign-in" && (!hasActor || !hasSession))
     ) {
       throw new Error("oauth transaction unavailable");
     }
@@ -117,17 +131,23 @@ export class OAuthService {
       purpose: input.purpose,
       now: this.clock.now(),
     });
-    if (transaction === null || transaction.purpose !== input.purpose) {
+    if (
+      transaction === null ||
+      transaction.purpose !== input.purpose ||
+      (transaction.purpose !== "sign-in" &&
+        (transaction.actorId !== input.actorId || transaction.sessionId !== input.sessionId))
+    ) {
       throw new Error("oauth transaction unavailable");
     }
 
     const exchanged = await this.provider.exchange({ code: input.code, state: input.state });
+    let profile: Awaited<ReturnType<DiscordIdentityProvider["fetchUser"]>>;
     try {
-      const profile = await this.provider.fetchUser(exchanged.accessToken);
-      return await this.completeCallback(transaction, profile);
+      profile = await this.provider.fetchUser(exchanged.accessToken);
     } finally {
       await this.provider.revoke(exchanged.accessToken);
     }
+    return this.completeCallback(transaction, profile);
   }
 
   private async completeCallback(
@@ -144,32 +164,35 @@ export class OAuthService {
         sessionToken: result.sessionToken,
       };
     }
-    if (transaction.userId === undefined || transaction.sessionId === undefined) {
+    if (transaction.actorId === undefined || transaction.sessionId === undefined) {
       throw new Error("authenticated context required");
     }
     if (transaction.purpose === "link-identity") {
-      const result = await this.identity.linkIdentity({
-        userId: transaction.userId,
-        currentSessionId: transaction.sessionId,
+      if (transaction.currentMethodConfirmedAt === undefined) {
+        throw new Error("fresh current-method proof required");
+      }
+      await this.transactions.createPendingLinkProof({
+        id: this.tokens.id(),
+        actorId: transaction.actorId,
+        sessionId: transaction.sessionId,
+        purpose: "link-identity",
         provider: "discord",
-        subject: profile.id,
+        providerSubject: profile.id,
         displayName: profile.username,
-        currentMethodConfirmed: transaction.currentMethodConfirmed === true,
-        candidateMethodConfirmed: true,
+        expiresAt: new Date(this.clock.now().getTime() + OAUTH_LINK_PROOF_LIFETIME_MS),
       });
       return {
-        status: "linked",
+        status: "link-confirmation-required",
         nextPath,
-        sessionId: result.sessionId,
-        sessionToken: result.sessionToken,
-        otherSessionsRevoked: result.otherSessionsRevoked,
       };
     }
 
-    await this.identity.confirmDiscordStepUp({
-      userId: transaction.userId,
+    await this.identity.assertDiscordIdentity(transaction.actorId, profile);
+    await this.sessions.confirmStepUp({
+      userId: transaction.actorId,
       sessionId: transaction.sessionId,
-      profile,
+      method: "discord",
+      confirmedAt: this.clock.now(),
     });
     return { status: "step-up-confirmed", nextPath };
   }
