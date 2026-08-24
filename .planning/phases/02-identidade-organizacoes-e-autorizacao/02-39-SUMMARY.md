@@ -81,6 +81,9 @@ completed: 2026-08-24
 2. **Task 1 GREEN: stack real e seis histórias browser** - `7953d3f` (feat)
 3. **Task 2: contrato CI fail-closed** - `55a0412` (ci)
 4. **Task 1 hardening: convite e último owner** - `9ccb82e` (fix)
+5. **Post-run RED: exigir build fresh-checkout de autorização** - `a28e1be` (test)
+6. **Post-run GREEN: adicionar build antes dos contratos** - `f51cb28` (fix)
+7. **Post-run hardening: construir o fechamento mínimo domain + authorization** - `74af3d3` (fix)
 
 ## Files Created/Modified
 
@@ -145,14 +148,23 @@ completed: 2026-08-24
 - **Verification:** comando raiz `pnpm phase2:integration:preflight && pnpm test:e2e:runtime` passou 6/6.
 - **Committed in:** `9ccb82e`
 
+**6. [Rule 1 - Bug] Produzido o entrypoint de autorização em fresh checkout**
+- **Found during:** Run CI `32788590904` do SHA `ac1594a`
+- **Issue:** O build `@pubg-camp/web^...` não inclui `@pubg-camp/authorization`; por isso `permission.guard.spec.ts` falhava antes de coletar testes. Um build direto de authorization também falhava no DTS sem `@pubg-camp/domain`.
+- **Fix:** O workflow agora executa `pnpm turbo run build --filter=@pubg-camp/authorization...` antes dos contratos, construindo somente `domain + authorization`; o validador rejeita ausência ou ordem tardia.
+- **Files modified:** `.github/workflows/ci.yml`, `scripts/validate-phase2-ci.mjs`
+- **Verification:** Worktree destacado sem `dist` reproduziu a falha antes do passo e passou 53/53 contratos depois dele, mantendo `apps/api/dist` ausente.
+- **Committed in:** `a28e1be`, `f51cb28`, `74af3d3`
+
 ---
 
-**Total deviations:** 5 auto-fixed (3 bugs/missing critical, 1 blocking, 1 evidence hardening)
+**Total deviations:** 6 auto-fixed (4 bugs/missing critical, 1 blocking, 1 evidence hardening)
 **Impact on plan:** Correções restritas à fidelidade e segurança do harness; nenhum redesign visual ou superfície de produção foi adicionado.
 
 ## Issues Encountered
 
-- `pnpm ci:verify` passou secrets, migrations, compose, contrato CI e lint, mas o typecheck global parou nos erros preexistentes TS2783 de `eventType` e `payload` em `apps/worker/src/outbox/publisher.spec.ts`. O item já consta em `deferred-items.md` desde 02-33 e permanece fora do escopo de 02-39.
+- O primeiro `pnpm ci:verify` parou nos erros preexistentes TS2783 do worker; após a correção independente `1f2dfed`, a reexecução pós-remediação passou integralmente.
+- O run CI `32788590904` falhou porque o fresh checkout não possuía `packages/authorization/dist`; a simulação local reproduziu exatamente a resolução de pacote e provou o fechamento mínimo antes do novo checkpoint humano de 02-34.
 - Um teste intermediário comparou a ordem de um enum PostgreSQL; a assertion foi corrigida para comparar a união ordenada no código e o gate real passou em seguida.
 - A primeira branch PostgreSQL efêmera foi revogada imediatamente após uma falha de quoting exibir sua credencial temporária. A execução final usou nova branch, nunca persistiu o segredo e removeu a branch ao terminar.
 
@@ -161,8 +173,9 @@ completed: 2026-08-24
 - Lifecycle self-test: 11 casos nomeados passaram.
 - Provider Vitest: 4/4 passaram pelas URLs reais do adapter Discord.
 - Runtime Playwright: 6/6 passaram contra stack real em 2,3 minutos.
-- CI validator self-test: 31/31 mutações negativas passaram; contrato normal e `verify:phase2-ci` passaram.
-- Contratos focais de autorização, permission guard/PKCE e BFF: 53 testes passaram.
+- CI validator self-test: 33/33 mutações negativas passaram; contrato normal e `verify:phase2-ci` passaram.
+- Em worktree fresh-checkout sem `dist`, o build dedicado produziu somente `domain + authorization`; authorization, permission guard/PKCE e BFF passaram 53/53.
+- `pnpm ci:verify` passou integralmente, incluindo secrets, boundaries, lint, typecheck, testes e builds.
 - API e web typecheck passaram durante as tarefas; hooks de todos os commits passaram sem bypass.
 - PostgreSQL temporário removido; Redis retornou `DBSIZE 0`, processo foi parado e diretório temporário removido.
 
@@ -182,14 +195,14 @@ None - o harness cria e remove seus próprios escopos quando PostgreSQL e Redis 
 
 ## Next Phase Readiness
 
-- 02-34 pode executar o push CI e capturar os oito pares expandidos obrigatórios sem alterar o contrato deste plano.
+- 02-34 pode solicitar um novo push explícito do HEAD pós-`74af3d3` e capturar os oito pares expandidos obrigatórios; o run `32788590904` permanece evidência falha superseded.
 - 02-40 pode consumir o gate runtime e os inventários fail-closed na verificação consolidada da fase.
 - Não há recursos temporários ou segredos de 02-39 remanescentes.
 
 ## Self-Check: PASSED
 
 - Todos os 10 arquivos criados/modificados existem.
-- Commits `d742528`, `7953d3f`, `55a0412` e `9ccb82e` existem no histórico.
+- Commits `d742528`, `7953d3f`, `55a0412`, `9ccb82e`, `a28e1be`, `f51cb28` e `74af3d3` existem no histórico.
 - Nenhuma deleção inesperada ou arquivo gerado ficou no worktree.
 
 ---

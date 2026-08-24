@@ -23,4 +23,3 @@
 ## Plano 02-33
 
 - O gate amplo `pnpm phase2:integration` passou o preflight e 38 casos, mas manteve falhas fora do escopo dos providers: `runtime-security-migration.integration.spec.ts` excedeu o `hookTimeout` de 30 segundos, `identity-security-change.integration.spec.ts` excedeu o `testTimeout` de 15 segundos e quatro casos concorrentes tentaram consultar relações depois que seus hooks/schemas falharam. Os 11 testes focais de 02-33, o seed real e o cleanup exato passaram em branch Neon isolada e Redis loopback.
-- O typecheck completo do worker continua bloqueado por erros preexistentes de propriedades duplicadas (`eventType` e `payload`) em `apps/worker/src/outbox/publisher.spec.ts`; o build de produção do worker e os arquivos alterados por 02-33 passam.
