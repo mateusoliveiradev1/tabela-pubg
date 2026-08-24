@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T15:29:25.099Z"
+last_updated: "2026-08-24T16:50:07.638Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 42
+  completed_plans: 43
   percent: 33
 ---
 
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: 02-33 concluído; próximo plano pendente 02-34
-- Status: remediação em execução, com providers e seed E2E confinados por run para API e worker reais
-- Progresso: 42/45 planos do milestone concluídos; restam 3 planos de gap closure da Fase 2
+- Plano: 02-39 concluído; próximos planos pendentes 02-34 e 02-40
+- Status: remediação em execução, com runtime real browser e contrato CI fail-closed concluídos
+- Progresso: 43/45 planos do milestone concluídos; restam 2 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -108,7 +108,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos pendentes `02-34` e `02-39`–`02-40` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar os planos pendentes `02-34` e `02-40` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -117,7 +117,7 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano 02-33 confinou providers externos e seed por run para a composição real de API e worker
+- Última ação: plano 02-39 publicou o runtime real browser e o contrato CI fail-closed com cleanup por run
 - Próxima ação: executar o plano 02-34, próximo gap de integração pendente
 - Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-34-PLAN.md
 
@@ -140,8 +140,14 @@ progress:
 | Phase 02 P32 | 13min | 1 tasks | 10 files |
 | Phase 02 P38 | 8min | 1 tasks | 6 files |
 | Phase 02 P33 | 41min | 1 tasks | 9 files |
+| Phase 02 P39 | 1h 16m | 2 tasks | 10 files |
 
 ## Decisions
+
+- [Phase 02]: Um único E2E_RUN_ID validado é propagado sem transformação por schema, Redis/BullMQ, mailbox, objetos e cleanup.
+- [Phase 02]: API, worker, Next.js e Chromium permanecem reais; somente provedores externos usam adapters falsos sob o modo E2E isolado.
+- [Phase 02]: Evidência de logo usa segunda origem loopback real para provar CSP e igualdade dos bytes no navegador.
+- [Phase 02]: O contrato CI valida os oito pares expandidos obrigatórios, não apenas os nomes dos jobs matriciais.
 
 - [Phase 02]: BFF injeta tenant somente de captures UUID canonicos da rota allowlisted; headers tenant do browser sao descartados.
 - [Phase 02]: PermissionGuard exige igualdade entre parametros Fastify e headers internos antes do snapshot RBAC ou handler.
