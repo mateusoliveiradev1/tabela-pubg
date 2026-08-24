@@ -20,15 +20,15 @@
 | AUTH-004 | Concluído | Memberships independentes permitem várias organizações e assignments aceitam escopo explícito. |
 | AUTH-005 | Bloqueado | A matriz default-deny existe, mas o BFF não fornece o contexto tenant necessário ao caminho autorizado. |
 | AUTH-006 | Concluído | Tokens, codes, cookies e contextos permaneceram fora de DOM, JSON público, URL e logs persistidos. |
-| ORG-001 | Bloqueado | Criação e persistência existem, mas a CSP de produção bloqueia a logo externa devolvida pela API. |
+| ORG-001 | Concluído | Criação/persistência e membros existem; CSP e convite compartilham allowlist exata para a logo externa assinada. |
 | ORG-002 | Bloqueado | Convites e revogações não completam o fluxo real por falta de contexto tenant e publisher da outbox. |
 | ORG-003 | Bloqueado | Os seis papéis estão modelados, mas a gestão real via BFF falha sem contexto tenant. |
 | ORG-004 | Concluído | Matriz de menor privilégio sem wildcard e default-deny verificada por testes. |
 | ORG-005 | Concluído | Lock e testes concorrentes protegem o último proprietário e exigem transferência explícita. |
 | AUD-001 | Concluído | Auditoria transacional grava autor, data, motivo e valores anterior/novo sanitizados. |
-| NFR-005 | Bloqueado | Persistem gaps em lifecycle de sessão, OAuth autenticado, tenant no BFF, outbox e CSP. |
+| NFR-005 | Bloqueado | CSP exata e compensação pós-commit foram fechadas; persistem gaps em lifecycle de sessão, OAuth autenticado, tenant no BFF e outbox. |
 
-**Fase 2:** 25/42 planos executados; verificação em `gaps_found` (6/13 requisitos). O plano 02-25 fechou os pré-requisitos persistentes de AUTH-002/AUTH-003/ORG-002/NFR-005, mas os estados permanecem bloqueados até os fluxos runtime dependentes e a revalidação final.
+**Fase 2:** 26/42 planos executados; verificação em `gaps_found` (7/13 requisitos). O plano 02-25 fechou pré-requisitos persistentes e o 02-28 concluiu ORG-001/CSP mais a compensação de logo; NFR-005 permanece bloqueado pelos demais fluxos runtime e pela revalidação final.
 
 ## 1. Contas, organizações e acesso
 

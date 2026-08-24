@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T09:07:27.180Z"
+last_updated: "2026-08-24T09:49:48.081Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 28
-  percent: 62
+  completed_plans: 29
+  percent: 64
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: `02-25` concluído; próximo plano `02-26`
-- Status: remediação em execução, com contratos persistentes de segurança e outbox aprovados em PostgreSQL real
-- Progresso: 28/45 planos do milestone concluídos; restam 17 planos de gap closure da Fase 2
+- Plano: `02-28` concluído fora da ordem; próximo plano pendente `02-26`
+- Status: remediação em execução, com CSP de logos assinadas e compensação pós-commit aprovadas em PostgreSQL/Redis reais
+- Progresso: 29/45 planos do milestone concluídos; restam 16 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -81,9 +81,12 @@ progress:
 - Trust legado é elevado somente por e-mail verificado ativo; ausência de prova resulta em sessão provisional limitada a 15 minutos.
 - Claims do outbox usam `FOR UPDATE SKIP LOCKED`, token de ownership e lease; publish/retry exigem ownership ainda válido.
 - Erros persistidos pelo publisher são códigos estáveis redigidos, nunca texto de provider, recipient ou token.
+- CSP e convite consomem o mesmo parser de origins exatas; produção aceita somente HTTPS e desenvolvimento adiciona HTTP apenas para loopback.
+- Compensação de logo termina no commit do repository; assinatura e validação de resposta pós-commit nunca removem a key ativa.
 
 ## Métricas de execução
 
+- Plano 02-28: 38 min, 2 tarefas, 8 arquivos.
 - Plano 02-25: 20 min, 3 tarefas, 10 arquivos.
 - Plano 02-23: 8 min, 2 tarefas, 10 arquivos.
 - Plano 02-18: 34 min, 3 tarefas, 19 arquivos.
@@ -93,7 +96,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos `02-26`–`02-42` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar os planos `02-26`–`02-27` e `02-29`–`02-42` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -102,7 +105,7 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano `02-25` concluiu trust/proofs/outbox persistentes e gate fresh/upgrade em PostgreSQL real.
+- Última ação: plano `02-28` concluiu CSP exata de logos assinadas e fronteira de compensação pós-commit, com gate PostgreSQL/Redis real.
 - Próxima ação: executar o plano `02-26` para publicar o outbox durável em BullMQ.
 - Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-26-PLAN.md`.
 

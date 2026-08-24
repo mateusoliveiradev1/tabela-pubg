@@ -111,9 +111,17 @@ Cada ciclo TDD foi comprometido atomicamente:
 - **Verification:** `rtk pnpm phase2:integration` passou com 4 arquivos e 21 testes; processos, data root e archive foram removidos.
 - **Committed in:** não aplicável (infraestrutura efêmera).
 
+**3. [Rule 3 - Blocking] Atualizados artifacts localizados após incompatibilidade dos handlers**
+- **Found during:** fechamento de STATE/ROADMAP/REQUIREMENTS.
+- **Issue:** handlers do SDK não reconheceram os títulos portugueses nem a tabela de status desta instalação e calcularam percent incorreto.
+- **Fix:** preservado `02-26` como próximo plano pendente e atualizados manualmente contagem 29/45, progresso 26/42 da Fase 2, decisões e evidência de ORG-001/NFR-005.
+- **Files modified:** `.planning/STATE.md`, `.planning/ROADMAP.md`, `.planning/REQUIREMENTS.md`.
+- **Verification:** 26 SUMMARYs para 42 PLANs na Fase 2, STATE com 116 linhas e `git diff --check` verde.
+- **Committed in:** commit final de metadata do plano.
+
 ---
 
-**Total deviations:** 2 auto-fixed (1 Rule 1, 1 Rule 3). **Impact on plan:** somente correções necessárias para provar os contratos de segurança e executar o gate real; nenhuma ampliação de UI, copy, estilo ou arquitetura.
+**Total deviations:** 3 auto-fixed (1 Rule 1, 2 Rule 3). **Impact on plan:** somente correções necessárias para provar os contratos de segurança, executar o gate real e manter artifacts localizados; nenhuma ampliação de UI, copy, estilo ou arquitetura.
 
 ## Issues Encountered
 
