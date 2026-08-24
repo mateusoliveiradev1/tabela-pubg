@@ -28,7 +28,7 @@
 | AUD-001 | Concluído | Auditoria transacional grava autor, data, motivo e valores anterior/novo sanitizados. |
 | NFR-005 | Bloqueado | Persistem gaps em lifecycle de sessão, OAuth autenticado, tenant no BFF, outbox e CSP. |
 
-**Fase 2:** 24/24 planos executados; verificação final em `gaps_found` (6/13 requisitos). A remediação vem antes da Fase 2.1.
+**Fase 2:** 25/42 planos executados; verificação em `gaps_found` (6/13 requisitos). O plano 02-25 fechou os pré-requisitos persistentes de AUTH-002/AUTH-003/ORG-002/NFR-005, mas os estados permanecem bloqueados até os fluxos runtime dependentes e a revalidação final.
 
 ## 1. Contas, organizações e acesso
 

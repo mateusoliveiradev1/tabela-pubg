@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 24 planos executados; 18 planos de remediação (`02-25`–`02-42`) planejados e verificados, prontos para execução antes da Fase 2.1.
+**Progresso:** 25 planos executados; `02-25` aprovou trust/proofs/outbox persistentes em PostgreSQL real e restam 17 planos de remediação (`02-26`–`02-42`) antes da Fase 2.1.
 
 ### Entregas
 
