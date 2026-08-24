@@ -51,7 +51,12 @@ function runtimeOptions() {
   return {
     database: {} as never,
     redisUrl: "redis://127.0.0.1:6379",
-    discord: {} as never,
+    discord: {
+      clientId: "123456789012345678",
+      clientSecret: "discord-client-credential-with-strong-entropy",
+      redirectUri: "https://camp.test/identity/oauth/discord/callback",
+      pkceMode: "required" as const,
+    },
     csrf: {} as never,
     tokens: {
       id: vi.fn(() => "generated-id"),

@@ -17,7 +17,7 @@ const connectionTimeoutMs = 5_000;
 function requireServiceUrl(name, protocols) {
   const value = process.env[name];
 
-  if (!value) {
+  if (!value || value.trim() !== value) {
     throw new Error(`${name} is required; phase 2 integration never skips unavailable services`);
   }
 
@@ -182,9 +182,15 @@ async function verifyRedis(redisUrl) {
 async function runPreflight() {
   const database = requireServiceUrl("DATABASE_URL", ["postgres:", "postgresql:"]);
   const redis = requireServiceUrl("REDIS_URL", ["redis:", "rediss:"]);
+  const selectedTestRedis = Object.hasOwn(process.env, "TEST_REDIS_URL")
+    ? requireServiceUrl("TEST_REDIS_URL", ["redis:", "rediss:"])
+    : redis;
 
   await verifyPostgres(database.value);
   await verifyRedis(redis.parsed);
+  if (selectedTestRedis.value !== redis.value) {
+    await verifyRedis(selectedTestRedis.parsed);
+  }
   console.log("phase 2 integration preflight passed against PostgreSQL and Redis");
 }
 

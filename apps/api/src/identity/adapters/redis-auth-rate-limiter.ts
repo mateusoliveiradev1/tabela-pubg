@@ -51,7 +51,10 @@ export class RedisAuthRateLimiter implements AuthRateLimiter {
     private readonly client: RedisStoreClient,
     options: RedisAuthRateLimiterOptions = {},
   ) {
-    this.keyPrefix = options.keyPrefix ?? "pubg-camp:auth";
+    this.keyPrefix = validateRedisKeyPrefix(
+      options.keyPrefix ?? "pubg-camp:auth",
+      /^(?:pubg-camp:auth|pubg-camp:run-[a-z0-9][a-z0-9-]{14,62}:auth)$/,
+    );
     this.policies = {
       "otp-request": { ...defaultPolicies["otp-request"], ...options.policies?.["otp-request"] },
       "otp-verify": { ...defaultPolicies["otp-verify"], ...options.policies?.["otp-verify"] },
@@ -124,10 +127,17 @@ export class RedisAuthRateLimiter implements AuthRateLimiter {
 }
 
 export class RedisDiscordOAuthVerifierStore implements DiscordOAuthVerifierStore {
+  private readonly keyPrefix: string;
+
   constructor(
     private readonly client: RedisStoreClient,
-    private readonly keyPrefix = "pubg-camp:oauth:pkce",
-  ) {}
+    keyPrefix = "pubg-camp:oauth:pkce",
+  ) {
+    this.keyPrefix = validateRedisKeyPrefix(
+      keyPrefix,
+      /^(?:pubg-camp:oauth:pkce|pubg-camp:run-[a-z0-9][a-z0-9-]{14,62}:oauth:pkce)$/,
+    );
+  }
 
   async save(state: string, record: DiscordOAuthVerifierRecord): Promise<void> {
     const ttlMs = record.expiresAt.getTime() - Date.now();
@@ -199,4 +209,16 @@ function validatePolicies(policies: Record<AuthRateLimitOperation, OperationPoli
       }
     }
   }
+}
+
+function validateRedisKeyPrefix(value: string, allowed: RegExp): string {
+  const scopedRun = /^pubg-camp:(run-[^:]+):/.exec(value)?.[1];
+  if (
+    !allowed.test(value) ||
+    (scopedRun !== undefined &&
+      /^run-(?:all|any|default|shared|global|public|phase2|e2e|test)(?:-|$)/.test(scopedRun))
+  ) {
+    throw new Error("invalid identity Redis key prefix");
+  }
+  return value;
 }

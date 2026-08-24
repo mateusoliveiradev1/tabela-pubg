@@ -30,7 +30,9 @@ describe("RedisAuthRateLimiter integration", () => {
       await cleanupExactRunScope(fixtureClient, firstRunScopeId);
       expect(await fixtureClient.get(foreignSentinelKey)).toBe("foreign-owned");
       expect(await fixtureClient.get(productionSentinelKey)).toBe("production-owned");
-      await fixtureClient.unlink(foreignSentinelKey, productionSentinelKey);
+      await cleanupExactRunScope(fixtureClient, secondRunScopeId);
+      expect(await fixtureClient.get(foreignSentinelKey)).toBeNull();
+      await fixtureClient.unlink(productionSentinelKey);
     } finally {
       await Promise.all(clients.map((client) => client.quit().catch(() => undefined)));
     }
@@ -107,6 +109,31 @@ describe("RedisAuthRateLimiter integration", () => {
     ).rejects.toThrow("auth limiter unavailable");
   });
 
+  it("rejects blank, broad and separator-escaping adapter prefixes", () => {
+    for (const keyPrefix of [
+      "",
+      "pubg-camp",
+      ["pubg-camp:", "*"].join(""),
+      "pubg-camp:run-shared-012345678901:auth",
+      `pubg-camp:${firstRunScopeId}/escaped:auth`,
+    ]) {
+      expect(() => new RedisAuthRateLimiter(fixtureClient, { keyPrefix })).toThrow(
+        "invalid identity Redis key prefix",
+      );
+    }
+    for (const keyPrefix of [
+      "",
+      "pubg-camp:oauth",
+      ["pubg-camp:oauth:", "*"].join(""),
+      "pubg-camp:run-global-012345678901:oauth:pkce",
+      `pubg-camp:${firstRunScopeId}\\escaped:oauth:pkce`,
+    ]) {
+      expect(() => new RedisDiscordOAuthVerifierStore(fixtureClient, keyPrefix)).toThrow(
+        "invalid identity Redis key prefix",
+      );
+    }
+  });
+
   it("keeps PKCE one-use inside its owning run and denies cross-run consume", async () => {
     const firstStore = new RedisDiscordOAuthVerifierStore(
       fixtureClient,
@@ -124,7 +151,7 @@ describe("RedisAuthRateLimiter integration", () => {
     };
 
     await firstStore.save(state, record);
-    const keys = await scanKeys(fixtureClient, `pubg-camp:${firstRunScopeId}:*`);
+    const keys = await scanKeys(fixtureClient, `${firstPrefixes.oauthPkceKeyPrefix}:*`);
     expect(keys).toHaveLength(1);
     expect(keys[0]).not.toContain(state);
     await expect(foreignStore.consume(state)).resolves.toBeNull();

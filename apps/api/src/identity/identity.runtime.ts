@@ -42,6 +42,7 @@ import { type SessionRepositoryPort, SessionService } from "./session.service.js
 export interface IdentityRuntimeOptions {
   database: DatabaseConnection["db"];
   redisUrl: string;
+  redisScope?: IdentityRedisScope;
   discord: DiscordOAuthConfig;
   csrf: CsrfService;
   tokens: TokenGenerator;
@@ -54,6 +55,41 @@ export interface IdentityRuntimeOptions {
 export interface IdentityRuntime {
   services: IdentityModuleServices;
   close(): Promise<void>;
+}
+
+export type IdentityRedisScope = { mode: "production" } | { mode: "run"; runScopeId: string };
+
+export interface IdentityRedisPrefixes {
+  authKeyPrefix: string;
+  oauthPkceKeyPrefix: string;
+}
+
+const identityRedisRunScopePattern = /^run-[a-z0-9][a-z0-9-]{14,62}$/;
+const broadIdentityRedisRunScopePattern =
+  /^run-(?:all|any|default|shared|global|public|phase2|e2e|test)(?:-|$)/;
+
+export function resolveIdentityRedisPrefixes(
+  scope: IdentityRedisScope = { mode: "production" },
+): IdentityRedisPrefixes {
+  if (scope.mode === "production") {
+    return {
+      authKeyPrefix: "pubg-camp:auth",
+      oauthPkceKeyPrefix: "pubg-camp:oauth:pkce",
+    };
+  }
+
+  if (
+    typeof scope.runScopeId !== "string" ||
+    !identityRedisRunScopePattern.test(scope.runScopeId) ||
+    broadIdentityRedisRunScopePattern.test(scope.runScopeId)
+  ) {
+    throw new Error("identity Redis run scope is invalid");
+  }
+
+  return {
+    authKeyPrefix: `pubg-camp:${scope.runScopeId}:auth`,
+    oauthPkceKeyPrefix: `pubg-camp:${scope.runScopeId}:oauth:pkce`,
+  };
 }
 
 export function buildOtpNotificationDelivery(
@@ -81,6 +117,7 @@ export async function createIdentityRuntime(
   options: IdentityRuntimeOptions,
 ): Promise<IdentityRuntime> {
   const clock = options.clock ?? { now: () => new Date() };
+  const redisPrefixes = resolveIdentityRedisPrefixes(options.redisScope);
   const redis = createRedisConnection(options.redisUrl);
   await pingRedis(redis);
 
@@ -103,7 +140,7 @@ export async function createIdentityRuntime(
   const oauth = new OAuthService(
     new DiscordOAuthAdapter(
       options.discord,
-      new RedisDiscordOAuthVerifierStore(redis, "pubg-camp:oauth:pkce"),
+      new RedisDiscordOAuthVerifierStore(redis, redisPrefixes.oauthPkceKeyPrefix),
       { now: () => clock.now() },
     ),
     oauthRepository(options.database, clock),
@@ -114,7 +151,7 @@ export async function createIdentityRuntime(
   );
   const otp = new OtpService(
     otpRepository(options.database, clock),
-    new RedisAuthRateLimiter(redis),
+    new RedisAuthRateLimiter(redis, { keyPrefix: redisPrefixes.authKeyPrefix }),
     {
       enqueue: async (input) => {
         const now = clock.now();
