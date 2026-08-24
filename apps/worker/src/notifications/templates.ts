@@ -64,6 +64,7 @@ export function renderNotificationTemplate(input: RenderNotificationInput): Tran
 
 function renderOtp(payload: z.infer<typeof OtpPayloadSchema>): TransactionalEmail {
   const expiry = formatTimestamp(new Date(payload.expiresAt));
+  const title = "Seu código temporário";
   const text = [
     "Use este código temporário para continuar:",
     payload.code,
@@ -72,12 +73,20 @@ function renderOtp(payload: z.infer<typeof OtpPayloadSchema>): TransactionalEmai
   ].join("\n\n");
   return {
     to: payload.recipient,
-    subject: "Seu código temporário",
+    subject: title,
     text,
-    html: emailHtml(
-      "Seu código temporário",
-      `<p>Use este código temporário para continuar:</p><p class="code">${payload.code}</p><p>Validade: ${escapeHtml(expiry)}.</p><p>Nunca compartilhe este código. Nossa equipe não pedirá o código por mensagem ou Discord.</p>`,
-    ),
+    html: emailHtml({
+      title,
+      preheader: "Código de acesso temporário solicitado. Use-o somente na tela que você abriu.",
+      transmission: "CREDENCIAL DE ACESSO",
+      status: "VALIDAÇÃO PENDENTE",
+      timestamp: expiry,
+      tone: "operation",
+      content: `<p style="Margin:0 0 24px;color:#0b0d0f;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:26px;">Use este código somente na tela de acesso que você já abriu.</p>
+        <div class="code-block" aria-label="Código temporário: ${payload.code.split("").join(" ")}" style="Margin:0 0 24px;padding:24px 16px;background:#0b0d0f;border:1px solid #79828c;color:#f4a21d;font-family:'Courier New',Courier,monospace;font-size:40px;font-weight:700;line-height:48px;letter-spacing:8px;text-align:center;user-select:all;">${payload.code}</div>
+        ${dataRow("VALIDADE", expiry)}
+        ${notice("Nunca compartilhe este código. Nossa equipe não pedirá o código por mensagem ou Discord.")}`,
+    }),
   };
 }
 
@@ -99,10 +108,20 @@ function renderInvitation(
     to: payload.recipient,
     subject: `Convite para ${payload.organizationName}`,
     text,
-    html: emailHtml(
-      "Convite para colaborar",
-      `<p>Você recebeu um convite para colaborar em <strong>${escapeHtml(payload.organizationName)}</strong>.</p><p>Este convite só pode ser usado por ${escapeHtml(maskedRecipient)}.</p><p>Validade: ${escapeHtml(expiry)}.</p>${cta("Revisar convite", invitationUrl)}<p>Se você não esperava este convite, ignore este e-mail.</p>`,
-    ),
+    html: emailHtml({
+      title: "Você foi convocado",
+      preheader: `Convite operacional para ${payload.organizationName}. Revise antes de aceitar.`,
+      transmission: "CONVITE DE ORGANIZAÇÃO",
+      status: "CREDENCIAL PENDENTE",
+      timestamp: expiry,
+      tone: "operation",
+      content: `<p style="Margin:0 0 10px;color:#5c646d;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;line-height:18px;text-transform:uppercase;">Organização</p>
+        <p style="Margin:0 0 28px;color:#0b0d0f;font-family:'Arial Narrow','Aptos Narrow',Arial,sans-serif;font-size:32px;font-weight:800;line-height:36px;text-transform:uppercase;">${escapeHtml(payload.organizationName)}</p>
+        ${dataRow("DESTINATÁRIO", maskedRecipient)}
+        ${dataRow("VALIDADE", expiry)}
+        ${cta("Revisar convite", invitationUrl, "operation")}
+        ${notice("Se você não esperava este convite, ignore esta mensagem. Nenhuma permissão será concedida sem sua confirmação.")}`,
+    }),
   };
 }
 
@@ -128,10 +147,21 @@ function renderNewDevice(
     to: payload.recipient,
     subject: "Novo acesso à sua conta",
     text,
-    html: emailHtml(
-      "Detectamos um novo acesso à sua conta",
-      `<p>Detectamos um novo acesso à sua conta.</p><div class="details"><p><strong>Dispositivo:</strong> ${escapeHtml(device)}</p><p><strong>Horário:</strong> ${escapeHtml(timestamp)}</p><p><strong>Localização aproximada:</strong> ${escapeHtml(location)}</p></div><p>Se foi você, nenhuma ação é necessária. Se não reconhece este acesso, revise a sessão e encerre-a imediatamente.</p>${cta("Revisar e encerrar sessão", reviewUrl)}<p>Este e-mail nunca pedirá seu código temporário ou credenciais do Discord.</p>`,
-    ),
+    html: emailHtml({
+      title: "Novo acesso detectado",
+      preheader: `Revise o acesso de ${device} registrado em ${timestamp}.`,
+      transmission: "ALERTA DE SEGURANÇA",
+      status: "AÇÃO RECOMENDADA",
+      timestamp,
+      tone: "security",
+      content: `<p style="Margin:0 0 24px;color:#0b0d0f;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:26px;">Um novo dispositivo iniciou uma sessão na sua conta. Confira o manifesto abaixo antes de decidir.</p>
+        ${dataRow("DISPOSITIVO", device)}
+        ${dataRow("HORÁRIO", timestamp)}
+        ${dataRow("LOCAL APROXIMADO", location)}
+        <p style="Margin:24px 0 0;color:#0b0d0f;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:25px;">Se foi você, nenhuma ação é necessária. Se não reconhece este acesso, revise a sessão e encerre-a imediatamente.</p>
+        ${cta("Revisar e encerrar sessão", reviewUrl, "security")}
+        ${notice("Este e-mail nunca pedirá seu código temporário ou credenciais do Discord.")}`,
+    }),
   };
 }
 
@@ -158,12 +188,119 @@ function maskEmail(value: string): string {
   return `${visible}${"*".repeat(Math.max(3, local.length - visible.length))}@${domain}`;
 }
 
-function cta(label: string, href: string): string {
-  return `<p><a class="cta" href="${escapeHtml(href)}">${escapeHtml(label)}</a></p>`;
+function dataRow(label: string, value: string): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;border-top:1px solid #a9b0b7;">
+    <tr>
+      <td class="data-label" width="34%" valign="top" style="width:34%;padding:13px 12px 13px 0;color:#5c646d;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;line-height:16px;letter-spacing:1.2px;text-transform:uppercase;">${escapeHtml(label)}</td>
+      <td class="data-value" valign="top" style="padding:13px 0;color:#0b0d0f;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;line-height:21px;">${escapeHtml(value)}</td>
+    </tr>
+  </table>`;
 }
 
-function emailHtml(title: string, content: string): string {
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>body{margin:0;background:#111827;color:#e5e7eb;font-family:Arial,sans-serif}.card{max-width:600px;margin:24px auto;padding:32px;background:#1f2937;border:1px solid #374151;border-radius:12px}.details{padding:12px 16px;background:#111827;border-left:3px solid #14b8a6}.code{font-size:30px;letter-spacing:6px;font-weight:700}.cta{display:inline-block;padding:12px 18px;border-radius:8px;background:#14b8a6;color:#062c2a;text-decoration:none;font-weight:700}</style></head><body><main class="card"><h1>${escapeHtml(title)}</h1>${content}</main></body></html>`;
+function notice(copy: string): string {
+  return `<p style="Margin:24px 0 0;padding-top:18px;border-top:1px solid #a9b0b7;color:#5c646d;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;">${escapeHtml(copy)}</p>`;
+}
+
+function cta(label: string, href: string, tone: "operation" | "security"): string {
+  const safeHref = escapeHtml(href);
+  const safeLabel = escapeHtml(label);
+  const background = tone === "security" ? "#0b0d0f" : "#f4a21d";
+  const foreground = tone === "security" ? "#f2eee3" : "#0b0d0f";
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;">
+    <tr><td style="padding:28px 0 0;">
+      <!--[if mso]><v:rect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${safeHref}" style="height:52px;v-text-anchor:middle;width:310px;" fillcolor="${background}" strokecolor="${background}"><w:anchorlock/><center style="color:${foreground};font-family:Arial,sans-serif;font-size:15px;font-weight:bold;">${safeLabel}</center></v:rect><![endif]-->
+      <!--[if !mso]><!--><a class="manifest-cta" href="${safeHref}" style="display:inline-block;min-width:246px;padding:16px 24px;background:${background};border:1px solid ${background};color:${foreground};font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:800;line-height:18px;text-align:center;text-decoration:none;text-transform:uppercase;">${safeLabel}</a><!--<![endif]-->
+    </td></tr>
+    <tr><td style="padding:18px 0 0;color:#5c646d;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;word-break:break-all;"><strong style="color:#0b0d0f;">Ver endereço completo:</strong><br><a href="${safeHref}" style="color:#35404a;text-decoration:underline;text-underline-offset:3px;">${safeHref}</a></td></tr>
+  </table>`;
+}
+
+interface EmailHtmlInput {
+  title: string;
+  preheader: string;
+  transmission: string;
+  status: string;
+  timestamp: string;
+  tone: "operation" | "security";
+  content: string;
+}
+
+function emailHtml(input: EmailHtmlInput): string {
+  const accent = input.tone === "security" ? "#c64242" : "#f4a21d";
+  return `<!doctype html>
+<html lang="pt-BR" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="x-apple-disable-message-reformatting">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <title>${escapeHtml(input.title)}</title>
+  <!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><![endif]-->
+  <style>
+    :root{color-scheme:light dark;supported-color-schemes:light dark}
+    body,table,td,a{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}
+    table,td{mso-table-lspace:0;mso-table-rspace:0}
+    table{border-collapse:collapse!important}
+    a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important}
+    .preheader{display:none!important;max-height:0;max-width:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all}
+    @media only screen and (max-width:680px){.manifest{width:100%!important}.edge{padding-left:20px!important;padding-right:20px!important}.title{font-size:38px!important;line-height:40px!important}.data-label,.data-value{display:block!important;width:100%!important;padding-left:0!important}.data-label{padding-bottom:2px!important}.data-value{padding-top:0!important}.manifest-cta{display:block!important;min-width:0!important}.code-block{font-size:32px!important;letter-spacing:5px!important}}
+    @media (prefers-color-scheme:dark){.manifest-shell{background:#0b0d0f!important}.manifest-paper{background:#f2eee3!important;color:#0b0d0f!important}.manifest-steel{background:#181c20!important;color:#f2eee3!important}}
+  </style>
+</head>
+<body style="Margin:0;padding:0;background:#0b0d0f;color:#f2eee3;">
+<!-- impeccable:design-contract
+THESIS: Cada e-mail é um manifesto operacional de campeonato; recusa o card SaaS genérico.
+OWN-WORLD: carbono #0b0d0f, marfim #f2eee3, laranja sinal #f4a21d, aço e vermelho apenas para segurança; linhas de medição e retângulos industriais.
+STORY: identificar a transmissão, compreender o dado principal e agir com segurança.
+FIRST VIEWPORT: faixa PUBG CAMP, título condensado, status e timestamp, dado dominante em alto contraste e ação robusta quando necessária.
+FORM: manifesto de suprimentos e credencial de operação; grounded candidate 4; seed ca30eaa3.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->
+  <div class="preheader" style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all;">${escapeHtml(input.preheader)}&#847;&zwnj;&nbsp;&#8199;&#65279;&#847;&zwnj;&nbsp;</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0b0d0f" class="manifest-shell" style="width:100%;background:#0b0d0f;border-collapse:collapse;">
+    <tr><td align="center" style="padding:28px 12px 40px;">
+      <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" class="manifest" style="width:640px;max-width:640px;background:#f2eee3;border-collapse:collapse;">
+        <tr>
+          <td class="edge" bgcolor="#0b0d0f" style="padding:18px 28px;background:#0b0d0f;border-top:6px solid ${accent};color:#f2eee3;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;">
+              <tr>
+                <td valign="middle" style="color:#f2eee3;font-family:'Arial Narrow','Aptos Narrow',Arial,sans-serif;font-size:19px;font-weight:900;line-height:22px;letter-spacing:1.4px;">PUBG CAMP</td>
+                <td align="right" valign="middle" style="color:#a9b0b7;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;line-height:15px;letter-spacing:1.1px;text-transform:uppercase;">${escapeHtml(input.transmission)}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td class="edge manifest-steel" bgcolor="#181c20" style="padding:34px 28px 30px;background:#181c20;color:#f2eee3;border-bottom:1px solid #79828c;">
+            <h1 class="title" style="Margin:0;color:#f2eee3;font-family:'Arial Narrow','Aptos Narrow','Helvetica Neue Condensed',Arial,sans-serif;font-size:50px;font-weight:900;line-height:51px;letter-spacing:-1px;text-transform:uppercase;">${escapeHtml(input.title)}</h1>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:24px;border-collapse:collapse;">
+              <tr><td width="22" style="width:22px;border-top:4px solid ${accent};font-size:0;line-height:0;">&nbsp;</td><td style="border-top:1px solid #79828c;font-size:0;line-height:0;">&nbsp;</td></tr>
+            </table>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:14px;border-collapse:collapse;">
+              <tr>
+                <td valign="top" style="color:${accent};font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:800;line-height:18px;letter-spacing:1px;text-transform:uppercase;">${escapeHtml(input.status)}</td>
+                <td align="right" valign="top" style="color:#a9b0b7;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:18px;">${escapeHtml(input.timestamp)}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td class="edge manifest-paper" bgcolor="#f2eee3" style="padding:34px 28px 38px;background:#f2eee3;color:#0b0d0f;">
+            <div role="article" aria-label="${escapeHtml(input.title)}">${input.content}</div>
+          </td>
+        </tr>
+        <tr>
+          <td class="edge" bgcolor="#0b0d0f" style="padding:18px 28px;background:#0b0d0f;color:#a9b0b7;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:17px;">
+            Mensagem operacional automática · Não responda com códigos ou credenciais.<br>
+            <span style="color:#f2eee3;">PUBG CAMP</span> · operação comunitária de campeonatos
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 }
 
 function escapeHtml(value: string): string {

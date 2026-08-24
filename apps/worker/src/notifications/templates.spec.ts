@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildNotificationPreviewFixtures } from "./generate-previews.js";
 import { renderNotificationTemplate } from "./templates.js";
 
 const createdAt = new Date("2026-08-24T03:48:00.000Z");
@@ -55,9 +56,11 @@ describe("DROP MANIFEST transactional email system", () => {
     expect(message.html).toContain('<meta name="supported-color-schemes" content="light dark">');
     expect(message.html).toContain("@media only screen and (max-width:680px)");
     expect(message.html).toContain("PUBG CAMP");
-    expect(message.html).toContain("Ver endereço completo");
-    expect(message.html).toContain("<!--[if mso]>");
-    expect(message.html).toContain("<![endif]-->");
+    if (template !== "otp") {
+      expect(message.html).toContain("Ver endereço completo");
+      expect(message.html).toContain("<!--[if mso]>");
+      expect(message.html).toContain("<![endif]-->");
+    }
     expect(message.html).not.toMatch(/linear-gradient|radial-gradient|box-shadow|text-shadow/i);
     expect(message.html).not.toMatch(/border-radius\s*:/i);
   });
@@ -130,5 +133,16 @@ describe("DROP MANIFEST transactional email system", () => {
     expect(newDevice.html).not.toContain("<unsafe>");
     expect(newDevice.html).not.toContain("internal-session-id");
     expect(newDevice.html).not.toContain("private-user-agent");
+  });
+
+  it("provides deterministic preview fixtures with invalid-domain recipients only", () => {
+    const fixtures = buildNotificationPreviewFixtures();
+
+    expect(Object.keys(fixtures)).toEqual(["otp", "invitation", "new-device"]);
+    for (const [name, message] of Object.entries(fixtures)) {
+      expect(message.to).toMatch(/@preview\.invalid$/);
+      if (name !== "otp") expect(message.html).toContain("preview.invalid");
+      expect(message.html).not.toContain("gmail.com");
+    }
   });
 });
