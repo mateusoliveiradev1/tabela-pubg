@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 35 planos executados; `02-37` publicou OAuth purpose-specific revoke-before-commit e uma allowlist BFF exata para OTP/OAuth; restam 7 planos de remediação antes da Fase 2.1.
+**Progresso:** 36 planos executados; `02-41` isolou limiter e PKCE Redis por runScopeId validado e tornou o spec real não-skippable; restam 6 planos de remediação antes da Fase 2.1.
 
 ### Entregas
 

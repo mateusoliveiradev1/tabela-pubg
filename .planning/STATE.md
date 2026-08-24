@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T13:35:14.826Z"
+last_updated: "2026-08-24T14:00:00.000Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 38
-  percent: 84
+  completed_plans: 39
+  percent: 87
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: 02-37 concluido fora de ordem; proximo plano pendente 02-32
-- Status: remediacao em execucao, com OAuth/OTP purpose-specific e pending proof Discord ligados ao BFF e as fronteiras duraveis
-- Progresso: 38/45 planos do milestone concluidos; restam 7 planos de gap closure da Fase 2
+- Plano: 02-41 concluído fora de ordem; próximo plano pendente 02-32
+- Status: remediação em execução, com estado Redis de identity isolado por runScopeId e specs reais não-skippable
+- Progresso: 39/45 planos do milestone concluídos; restam 6 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -108,7 +108,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos pendentes `02-32`–`02-34` e `02-38`–`02-41` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar os planos pendentes `02-32`–`02-34` e `02-38`–`02-40` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -117,7 +117,7 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano 02-37 publicou OAuth purpose-specific revoke-before-commit e allowlist BFF exata para OTP/OAuth
+- Última ação: plano 02-41 isolou limiter e PKCE Redis por runScopeId validado, com preflight/spec no mesmo endpoint real
 - Próxima ação: executar o plano 02-32, primeiro plano pendente, consumindo a porta D-08 no controller protegido
 - Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-32-PLAN.md
 
@@ -136,6 +136,7 @@ progress:
 | Phase 02 P42 | 16 min | 1 tasks | 9 files |
 | Phase 02 P36 | 40min | 1 tasks | 9 files |
 | Phase 02 P37 | 18min | 2 tasks | 14 files |
+| Phase 02 P41 | 16min | 1 tasks | 5 files |
 
 ## Decisions
 
@@ -155,3 +156,5 @@ progress:
 - [Phase 02]: Sign-in, link-identity e step-up usam paths OAuth distintos; somente sign-in e publico.
 - [Phase 02]: OAuth conclui revoke Discord antes de sessao, step-up ou pending proof local.
 - [Phase 02]: BFF rejeita authority fields e purpose mismatch antes de encaminhar contratos de identidade.
+- [Phase 02]: Produção mantém prefixes Redis de identidade estáveis; somente mode=run aceita runScopeId canônico do caller. — Evita fallback compartilhado em testes sem alterar keys de produção.
+- [Phase 02]: TEST_REDIS_URL presente é o endpoint selecionado pelo spec e também recebe PING do preflight; REDIS_URL permanece obrigatório. — Impede evidência contra endpoint diferente e mantém o contrato de ambiente do repositório.
