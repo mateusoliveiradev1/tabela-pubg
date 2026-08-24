@@ -186,6 +186,100 @@ describe("notification processor", () => {
     expect(delivery.payloadCiphertext).not.toBeNull();
   });
 
+  it("reloads and accepts a concurrent delivered winner when terminal clear loses", async () => {
+    const delivery = encryptedDelivery({
+      template: "otp",
+      payload: {
+        recipient: "player@example.com",
+        code: "12345678",
+        expiresAt: "2026-08-21T15:55:00.000Z",
+      },
+    });
+    const terminal = encryptedDelivery({
+      template: "otp",
+      payload: {
+        recipient: "player@example.com",
+        code: "12345678",
+        expiresAt: "2026-08-21T15:55:00.000Z",
+      },
+      status: "delivered",
+      cleared: true,
+    });
+    const { processor, store, sender } = setup(delivery);
+    vi.mocked(store.findById).mockResolvedValueOnce(delivery).mockResolvedValueOnce(terminal);
+    vi.mocked(store.clear).mockResolvedValueOnce(false);
+
+    await expect(processor({ deliveryId })).resolves.toEqual({ status: "ignored" });
+
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(sender.send).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: delivery.idempotencyKey }),
+    );
+    expect(store.findById).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws for BullMQ retry when delivered clear loses without a terminal winner", async () => {
+    const delivery = encryptedDelivery({
+      template: "otp",
+      payload: {
+        recipient: "player@example.com",
+        code: "12345678",
+        expiresAt: "2026-08-21T15:55:00.000Z",
+      },
+    });
+    const { processor, store, sender } = setup(delivery);
+    vi.mocked(store.findById).mockResolvedValue(delivery);
+    vi.mocked(store.clear).mockResolvedValueOnce(false);
+
+    await expect(processor({ deliveryId })).rejects.toThrow(
+      "notification terminal outcome was not persisted",
+    );
+
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(sender.send).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: delivery.idempotencyKey }),
+    );
+    expect(store.findById).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires persisted expiration or an already-terminal concurrent winner", async () => {
+    const expiredPayload = encryptedDelivery({
+      template: "otp",
+      payload: {
+        recipient: "player@example.com",
+        code: "12345678",
+        expiresAt: "2026-08-21T15:40:00.000Z",
+      },
+      payloadExpiresAt: new Date("2026-08-21T15:44:59.000Z"),
+    });
+    const terminal = encryptedDelivery({
+      template: "otp",
+      payload: {
+        recipient: "player@example.com",
+        code: "12345678",
+        expiresAt: "2026-08-21T15:40:00.000Z",
+      },
+      payloadExpiresAt: new Date("2026-08-21T15:44:59.000Z"),
+      status: "expired",
+      cleared: true,
+    });
+    const concurrent = setup(expiredPayload);
+    vi.mocked(concurrent.store.findById)
+      .mockResolvedValueOnce(expiredPayload)
+      .mockResolvedValueOnce(terminal);
+    vi.mocked(concurrent.store.clear).mockResolvedValueOnce(false);
+
+    await expect(concurrent.processor({ deliveryId })).resolves.toEqual({ status: "ignored" });
+    expect(concurrent.sender.send).not.toHaveBeenCalled();
+
+    const lost = setup(expiredPayload);
+    vi.mocked(lost.store.findById).mockResolvedValue(expiredPayload);
+    vi.mocked(lost.store.clear).mockResolvedValueOnce(false);
+    await expect(lost.processor({ deliveryId })).rejects.toThrow(
+      "notification terminal outcome was not persisted",
+    );
+  });
+
   it("renders the read-only new-device alert without session token or full IP", async () => {
     const { processor, sender } = setup(
       encryptedDelivery({
