@@ -155,6 +155,32 @@ test.describe
       ).toBe(7 * 86_400_000);
       const token = await waitForInvitationToken(adminEmail);
 
+      const wrongEmail = `wrong-${evidence.runScopeId}@example.test`;
+      const wrongContext = await browser.newContext({ baseURL: evidence.webOrigin });
+      const wrongPage = await wrongContext.newPage();
+      const wrongCsrf = await signInEmail(wrongPage, wrongEmail);
+      const mismatchedPreview = await browserJson(
+        wrongPage,
+        "POST",
+        "/api/platform/invitations/preview",
+        wrongCsrf,
+        { context: token },
+      );
+      expect(mismatchedPreview.body).toMatchObject({ status: "valid", emailMatches: false });
+      const mismatchedAcceptance = await browserJson(
+        wrongPage,
+        "POST",
+        "/api/platform/invitations/accept",
+        wrongCsrf,
+        { confirmation: true },
+      );
+      expect(mismatchedAcceptance.status).toBeGreaterThanOrEqual(400);
+      const [unchangedInvitation] = await state.sql`
+      select accepted_at from invitations where id = ${invitation.id}
+    `;
+      expect(unchangedInvitation.accepted_at).toBeNull();
+      await wrongContext.close();
+
       state.adminContext = await browser.newContext({ baseURL: evidence.webOrigin });
       state.adminPage = await state.adminContext.newPage();
       let adminCsrf = await signInEmail(state.adminPage, adminEmail);
@@ -174,6 +200,19 @@ test.describe
         { confirmation: true },
       );
       expect(accepted.status).toBe(201);
+      const [effectsBeforeReplay] = await state.sql`
+      select
+        (select count(*)::int from organization_memberships om
+          join verified_emails ve on ve.user_id = om.user_id and ve.revoked_at is null
+          where om.organization_id = ${state.organizationId}
+            and ve.normalized_email = ${adminEmail}) as memberships,
+        (select count(*)::int from audit_events
+          where organization_id = ${state.organizationId}
+            and action = 'invitation.accepted') as audits,
+        (select count(*)::int from outbox_events
+          where aggregate_id = ${invitation.id}
+            and event_type = 'invitation.accepted') as outbox
+    `;
       const replay = await browserJson(
         state.adminPage,
         "POST",
@@ -182,15 +221,34 @@ test.describe
         { confirmation: true },
       );
       expect(replay.status).toBeGreaterThanOrEqual(400);
+      const [effectsAfterReplay] = await state.sql`
+      select
+        (select count(*)::int from organization_memberships om
+          join verified_emails ve on ve.user_id = om.user_id and ve.revoked_at is null
+          where om.organization_id = ${state.organizationId}
+            and ve.normalized_email = ${adminEmail}) as memberships,
+        (select count(*)::int from audit_events
+          where organization_id = ${state.organizationId}
+            and action = 'invitation.accepted') as audits,
+        (select count(*)::int from outbox_events
+          where aggregate_id = ${invitation.id}
+            and event_type = 'invitation.accepted') as outbox
+    `;
+      expect(effectsAfterReplay).toEqual(effectsBeforeReplay);
+      expect(effectsAfterReplay).toMatchObject({ memberships: 1, audits: 1, outbox: 1 });
       const [adminMembership] = await state.sql`
-      select om.id, om.role, count(ra.id)::int as assignments
+      select om.id, om.role,
+        coalesce(array_agg(ra.role order by ra.role) filter (where ra.id is not null), '{}') as assignments
       from organization_memberships om
       join verified_emails ve on ve.user_id = om.user_id and ve.revoked_at is null
       left join role_assignments ra on ra.membership_id = om.id and ra.status = 'active'
       where om.organization_id = ${state.organizationId} and ve.normalized_email = ${adminEmail}
       group by om.id, om.role
     `;
-      expect(adminMembership).toMatchObject({ role: "admin", assignments: 2 });
+      expect(adminMembership).toMatchObject({
+        role: "admin",
+      });
+      expect([...adminMembership.assignments].sort()).toEqual(["broadcast", "referee"]);
       state.adminMembershipId = adminMembership.id;
 
       const expiredEmail = `expired-${evidence.runScopeId}@example.test`;
@@ -264,6 +322,19 @@ test.describe
       const revoked = await revokeMember(targetMembershipId);
       expect(revoked.status).toBe(201);
       expect(await auditCount()).toBe(auditsBeforeRevoke + 1);
+
+      const [ownerMembership] = await state.sql`
+      select id from organization_memberships
+      where organization_id = ${state.organizationId} and user_id = ${state.ownerUserId}
+    `;
+      const auditsBeforeLastOwner = await auditCount();
+      const deniedLastOwnerRevocation = await revokeMember(ownerMembership.id);
+      expect(deniedLastOwnerRevocation.status).toBeGreaterThanOrEqual(400);
+      expect(await auditCount()).toBe(auditsBeforeLastOwner);
+      const [preservedOwner] = await state.sql`
+      select role, status from organization_memberships where id = ${ownerMembership.id}
+    `;
+      expect(preservedOwner).toMatchObject({ role: "owner", status: "active" });
 
       await clearStepUp();
       const auditsBeforeTransfer = await auditCount();
