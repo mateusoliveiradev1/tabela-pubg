@@ -1,4 +1,5 @@
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 const root = process.cwd();
@@ -306,10 +307,51 @@ async function promoteCandidate(candidatePath, targetPath) {
     await validateDocument(verificationPath, true);
     await rename(verificationPath, targetPath);
     await validateDocument(targetPath, true);
+    await unlink(candidatePath);
   } catch (error) {
     await rename(verificationPath, candidatePath).catch(() => undefined);
     throw error;
   }
+}
+
+async function expectRejected(label, content, expectedFlags = true) {
+  const temporaryPath = path.join(tmpdir(), `phase2-validation-${process.pid}-${label}.md`);
+  await writeFile(temporaryPath, content, { encoding: "utf8", flag: "wx" });
+  let rejected = false;
+  try {
+    await validateDocument(temporaryPath, expectedFlags);
+  } catch {
+    rejected = true;
+  } finally {
+    await unlink(temporaryPath).catch(() => undefined);
+  }
+  if (!rejected) fail(`self-test ${label} was accepted unexpectedly`);
+}
+
+async function runSelfTest(targetPath) {
+  const baseline = await validateDocument(targetPath, true);
+  await expectRejected("missing-requirement", baseline.replace(/^\| AUTH-006 \|.*\r?\n/m, ""));
+  await expectRejected("wrong-run", baseline.replaceAll("32676449341", "32676449342"));
+  await expectRejected(
+    "mandatory-skip",
+    baseline.replace(
+      "integration + concurrent + smoke + E2E completo e nenhuma suíte obrigatória skipped",
+      "integration + concurrent + smoke + E2E completo com suíte obrigatória skipped",
+    ),
+  );
+  await expectRejected(
+    "manual-premature",
+    baseline.replace(
+      "| MANUAL-01 | 02-15 / Task 1 | Discord/PKCE sandbox | pendente |",
+      "| MANUAL-01 | 02-15 / Task 1 | Discord/PKCE sandbox | aprovado |",
+    ),
+  );
+  await expectRejected(
+    "premature-flags",
+    baseline
+      .replace(/^wave_0_complete:\s*true\s*$/m, "wave_0_complete: false")
+      .replace(/^nyquist_compliant:\s*true\s*$/m, "nyquist_compliant: false"),
+  );
 }
 
 const [mode = "--check", firstPath = validationRelativePath, secondPath] = process.argv.slice(2);
@@ -320,6 +362,8 @@ if (mode === "--check") {
 } else if (mode === "--promote") {
   if (!secondPath) fail("--promote requires candidate and target paths");
   await promoteCandidate(path.resolve(root, firstPath), path.resolve(root, secondPath));
+} else if (mode === "--self-test") {
+  await runSelfTest(path.resolve(root, firstPath));
 } else {
   fail(`unknown mode ${mode}`);
 }
