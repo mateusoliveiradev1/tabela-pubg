@@ -260,7 +260,8 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
           () => now,
         ),
       ).rejects.toThrow("active session required");
-      const [stored] = await client`select count(*)::int as count from oauth_transactions where id = ${transactionId}`;
+      const [stored] =
+        await client`select count(*)::int as count from oauth_transactions where id = ${transactionId}`;
       expect(stored?.count).toBe(0);
     }
 
@@ -355,7 +356,8 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
           () => now,
         ),
       ).rejects.toThrow(/fresh current-method proof required|active session required/);
-      const [stored] = await client`select count(*)::int as count from oauth_transactions where id = ${transactionId}`;
+      const [stored] =
+        await client`select count(*)::int as count from oauth_transactions where id = ${transactionId}`;
       expect(stored?.count).toBe(0);
     }
   });
@@ -433,11 +435,7 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
       await peerClient.end({ timeout: 5 });
     }
     await expect(
-      consumeIdentityLinkProof(
-        db,
-        { proofId, actorId, sessionId, provider: "discord" },
-        () => now,
-      ),
+      consumeIdentityLinkProof(db, { proofId, actorId, sessionId, provider: "discord" }, () => now),
     ).resolves.toBeNull();
 
     const expiredProofId = randomUUID();
