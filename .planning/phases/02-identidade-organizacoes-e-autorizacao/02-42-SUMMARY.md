@@ -31,10 +31,12 @@ tech-stack:
 key-files:
   created:
     - packages/database/src/repositories/identity-security-change.ts
+    - packages/database/src/identity-security-change-harness.test.ts
     - packages/database/test/identity-security-change.integration.spec.ts
     - packages/database/migrations/0005_open_iron_lad.sql
     - packages/database/migrations/meta/0005_snapshot.json
   modified:
+    - packages/database/package.json
     - packages/database/src/repositories/identity.ts
     - packages/database/src/repositories/index.ts
     - packages/database/src/schema/identity.ts
@@ -46,6 +48,7 @@ key-decisions:
   - "Proofs email legadas sem purpose recuperável são encerradas pela migration; não há inferência que possa autorizar link ou troca errados."
   - "Mudança account-only produz somente identity.security-state-changed no outbox; nenhuma linha de auditoria organizacional é fabricada."
   - "O token cru de reposição nasce antes da transaction, mas só é retornado depois que proof, identidade, sessão e evidência confirmam o mesmo commit."
+  - "O teste offline do pacote exclui integração real; o config phase2 preflighted continua sendo a única rota de execução do spec D-08."
 
 patterns-established:
   - "D-08 atomic boundary: nenhum caller externo pode separar consume, identity mutation, token rotation, revoke-others ou evidence append."
@@ -67,7 +70,7 @@ completed: 2026-08-24
 - **Started:** 2026-08-24T11:59:12Z
 - **Completed:** 2026-08-24T12:15:02Z
 - **Tasks:** 1 TDD
-- **Files modified:** 9
+- **Files modified:** 11
 
 ## Accomplishments
 
@@ -81,6 +84,7 @@ completed: 2026-08-24
 
 1. **TDD RED: contrato PostgreSQL completo da fronteira D-08** — `53b7e3c`
 2. **TDD GREEN: comando atômico, purpose-bound proof e migration** — `2286614`
+3. **Harness: integração real isolada da suíte offline** — `9b0f14d`
 
 ## Files Created/Modified
 
@@ -92,6 +96,8 @@ completed: 2026-08-24
 - `packages/database/src/repositories/identity.ts` — producers OTP/OAuth persistem a finalidade da proof.
 - `packages/database/src/repositories/index.ts` — export público da nova fronteira.
 - `packages/database/test/identity-organizations.integration.spec.ts` — fixtures OAuth atualizadas com purpose explícito.
+- `packages/database/package.json` — suíte offline exclui explicitamente specs `integration` e `concurrent`.
+- `packages/database/src/identity-security-change-harness.test.ts` — contrato estrutural que mantém o spec D-08 no runner real preflighted, sem escapes de skip.
 
 ## Decisions Made
 
@@ -128,9 +134,17 @@ completed: 2026-08-24
 - **Verification:** preflight real, exact selector, package suite e zero listeners após shutdown.
 - **Committed in:** n/a.
 
+**4. [Rule 1 - Bug] Integração real isolada do teste offline agregado**
+- **Found during:** gate agregado pós-wave.
+- **Issue:** o `test` padrão do pacote database descobria `identity-security-change.integration.spec.ts` sem o provisionamento real do runner dedicado e falhava apenas pela ausência de `DATABASE_URL`.
+- **Fix:** o comando offline exclui explicitamente os globs `integration`/`concurrent`; um teste estrutural garante que o config dedicado continua incluindo o spec D-08, executa preflight antes da suíte e não aceita `skip`, `todo` ou `passWithNoTests`.
+- **Files modified:** `packages/database/package.json` e `packages/database/src/identity-security-change-harness.test.ts`.
+- **Verification:** teste estrutural 2/2, pacote offline 24/24, exact selector sem `DATABASE_URL` falha fechado no `beforeAll`, root test 22/22 e root build 13/13.
+- **Committed in:** `9b0f14d`
+
 ---
 
-**Total deviations:** 3 auto-fixed (1 missing critical, 1 bug, 1 blocking issue).
+**Total deviations:** 4 auto-fixed (1 missing critical, 2 bugs, 1 blocking issue).
 **Impact on plan:** mudanças mínimas e diretamente necessárias para cumprir binding, atomicidade e evidência D-08; nenhum redesign de serviço, controller ou UI.
 
 ## Issues Encountered
@@ -147,6 +161,11 @@ None — o scan dos arquivos criados/modificados não encontrou TODO, FIXME, pla
 - `rtk pnpm --filter @pubg-camp/database exec vitest run test/identity-security-change.integration.spec.ts` — PASS, 11/11, zero skips.
 - Suites `identity-organizations` + `identity-security-change` — PASS, 34/34.
 - `rtk pnpm --filter @pubg-camp/database test` — PASS, 70 testes; 4 skips preexistentes da suite migration condicionada.
+- `rtk pnpm --filter @pubg-camp/database test` sem URLs de serviço — PASS, 24/24 offline; nenhum spec real selecionado.
+- Exact selector D-08 sem `DATABASE_URL` — FAIL esperado e não-zero no `beforeAll`, comprovando execução fail-closed sem skip.
+- Teste estrutural do harness — PASS, 2/2; integração D-08 permanece incluída no config dedicado após preflight.
+- `rtk pnpm test` — PASS, 22/22 tarefas do monorepo.
+- `rtk pnpm build` — PASS, 13/13 pacotes.
 - `rtk pnpm verify:migrations` — PASS, 6 migrations e `drizzle-kit check` verde.
 - Database typecheck e build — PASS.
 - Biome nos seis arquivos TypeScript tocados — PASS.
@@ -174,7 +193,7 @@ None — nenhuma credencial, URL de serviço ou segredo foi persistido.
 ## Self-Check: PASSED
 
 - SUMMARY e todos os arquivos-chave criados existem no working tree.
-- Commits TDD `53b7e3c` e `2286614` existem no histórico na ordem RED→GREEN.
+- Commits TDD `53b7e3c` e `2286614` existem no histórico na ordem RED→GREEN; o fix de harness `9b0f14d` também está presente.
 - Nenhuma deleção rastreada, segredo, stub, processo, listener ou diretório temporário do gate permaneceu.
 
 ---

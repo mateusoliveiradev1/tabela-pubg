@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T12:17:52.820Z"
+last_updated: "2026-08-24T12:24:36.525Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
   completed_plans: 36
-  percent: 80
+  percent: 33
 ---
 
 # Estado do projeto
@@ -146,3 +146,4 @@ progress:
 - [Phase 02]: Proofs email legadas sem finalidade recuperável são encerradas fail-closed pela migration 0005.
 - [Phase 02]: Mudanças account-only registram identity.security-state-changed no outbox sem fabricar audit organizacional.
 - [Phase 02]: O token D-08 é gerado antes da transaction e só retorna após proof, identidade, sessão e outbox confirmarem o commit.
+- [Phase 02]: O teste offline do database exclui integracao real; o runner phase2 preflighted permanece a rota fail-closed do spec D-08.
