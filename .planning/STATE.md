@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T10:04:06.221Z"
+last_updated: "2026-08-24T10:34:09.942Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 30
-  percent: 67
+  completed_plans: 31
+  percent: 69
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: `02-26` concluído; próximo plano pendente `02-27`
-- Status: remediação em execução, com publisher durável PostgreSQL→BullMQ e terminalidade de delivery aprovados
-- Progresso: 30/45 planos do milestone concluídos; restam 15 planos de gap closure da Fase 2
+- Plano: `02-27` concluído; próximo plano pendente `02-29` (`02-28` já concluído)
+- Status: remediação em execução, com token opaco single-owner, trust persistido e resolve-and-touch aprovados
+- Progresso: 31/45 planos do milestone concluídos; restam 14 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -86,9 +86,13 @@ progress:
 - Jobs BullMQ carregam somente deliveryId ou cleanupId e usam o UUID do evento de outbox como jobId.
 - Queue e Worker confirmam readiness antes do publisher iniciar e do health server anunciar disponibilidade.
 - Falha de clear só é idempotente quando o reload encontra exatamente o mesmo estado terminal persistido.
+- O repository é o único gerador do token em `issueForDevice` e devolve exatamente o token cujo digest persistiu.
+- Trusted usa idle deslizante de 30 dias e teto absoluto de 90 dias; provisional permanece limitada a 15 minutos no repository.
+- Autenticação de produção usa `resolveAndTouchSession` e propaga somente trust lido da sessão ativa persistida.
 
 ## Métricas de execução
 
+- Plano 02-27: 25 min, 1 tarefa TDD, 6 arquivos.
 - Plano 02-26: 9 min, 2 tarefas, 5 arquivos.
 - Plano 02-28: 38 min, 2 tarefas, 8 arquivos.
 - Plano 02-25: 20 min, 3 tarefas, 10 arquivos.
@@ -100,7 +104,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos `02-27` e `02-29`–`02-42` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar os planos `02-29`–`02-42` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -109,9 +113,9 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano `02-26` conectou o outbox durável às filas BullMQ opacas e endureceu a terminalidade de delivery.
-- Próxima ação: executar o plano `02-27` para promover trust de sessão no runtime.
-- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-27-PLAN.md`.
+- Última ação: plano `02-27` unificou emissão do token, persistiu trust explícito e ativou resolve-and-touch no runtime.
+- Próxima ação: executar o plano `02-29` para fechar o contexto tenant same-path e o deny cross-tenant auditável.
+- Arquivo de retomada: `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-29-PLAN.md`.
 
 ## Accumulated Context
 
