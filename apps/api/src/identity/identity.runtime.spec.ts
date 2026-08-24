@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { buildOtpNotificationDelivery, projectOAuthTransaction } from "./identity.runtime.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  buildIdentitySecurityChangeApplication,
+  buildOtpNotificationDelivery,
+  projectOAuthTransaction,
+} from "./identity.runtime.js";
 
 describe("identity runtime OTP delivery contract", () => {
   it("uses the worker-supported template and expiry payload without persisting the challenge id", () => {
@@ -65,5 +69,55 @@ describe("identity runtime OAuth transaction projection", () => {
         currentMethodConfirmedAt: null,
       }),
     ).toEqual({ purpose: "sign-in" });
+  });
+});
+
+describe("identity runtime D-08 adapter", () => {
+  it("supplies database, time and server generators to the single atomic command", async () => {
+    const database = { transaction: vi.fn() } as never;
+    const now = new Date("2026-08-24T12:00:00.000Z");
+    const execute = vi.fn(async () => ({
+      sessionId: "session-1",
+      newSessionToken: "replacement-token",
+      revokedOtherSessions: 3,
+    }));
+    const tokens = {
+      id: vi.fn(() => "generated-id"),
+      opaque: vi.fn(() => Buffer.alloc(32, 7).toString("base64url")),
+      numericCode: vi.fn(() => "12345678"),
+      digest: vi.fn((value: string) => `digest:${value}`),
+    };
+    const adapter = buildIdentitySecurityChangeApplication({
+      database,
+      tokens,
+      clock: { now: () => now },
+      execute,
+    });
+
+    const result = await adapter.execute({
+      actorId: "actor-1",
+      currentSessionId: "session-1",
+      proofId: "proof-1",
+      change: { type: "link-identity", provider: "email", email: "player@example.com" },
+      now,
+      correlationId: "corr-1",
+    });
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      database,
+      actorId: "actor-1",
+      currentSessionId: "session-1",
+      proofId: "proof-1",
+      change: { type: "link-identity", provider: "email", email: "player@example.com" },
+      now,
+      generateId: expect.any(Function),
+      generateCorrelationId: expect.any(Function),
+      generateOpaqueToken: expect.any(Function),
+    }));
+    expect(result).toEqual({
+      sessionId: "session-1",
+      sessionToken: "replacement-token",
+      otherSessionsRevoked: 3,
+    });
   });
 });

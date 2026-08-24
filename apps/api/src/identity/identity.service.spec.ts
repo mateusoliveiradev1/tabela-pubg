@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  type IdentitySecurityChangeApplicationPort,
   type IdentityRepository,
   IdentityService,
   type IdentitySessionPort,
@@ -26,6 +27,12 @@ function setup(options?: { existingSubject?: string; linkConflict?: boolean }) {
   };
   const sessions: IdentitySessionPort = {
     issue: vi.fn(async () => ({ sessionId: "session-new", token: "session-token-new" })),
+    startDeviceSession: vi.fn(async () => ({
+      sessionId: "session-email",
+      token: "session-token-email",
+      isNewDevice: true,
+      notificationScheduled: true,
+    })),
     hasFreshStepUp: vi.fn(async () => true),
     rotateCurrentAndRevokeOthers: vi.fn(async () => ({
       sessionId: "session-rotated",
@@ -34,6 +41,13 @@ function setup(options?: { existingSubject?: string; linkConflict?: boolean }) {
     })),
     confirmStepUp: vi.fn(async () => undefined),
   };
+  const securityChanges: IdentitySecurityChangeApplicationPort = {
+    execute: vi.fn(async () => ({
+      sessionId: "session-1",
+      sessionToken: "session-token-replaced",
+      otherSessionsRevoked: 2,
+    })),
+  };
   const tokens: TokenGenerator = {
     id: vi.fn().mockReturnValueOnce("identity-new").mockReturnValueOnce("user-new"),
     opaque: vi.fn(() => "opaque"),
@@ -41,9 +55,10 @@ function setup(options?: { existingSubject?: string; linkConflict?: boolean }) {
     digest: vi.fn((value) => `digest:${value}`),
   };
   return {
-    service: new IdentityService(repository, sessions, tokens, { now: () => now }),
+    service: new IdentityService(repository, sessions, tokens, { now: () => now }, securityChanges),
     repository,
     sessions,
+    securityChanges,
   };
 }
 
@@ -149,5 +164,75 @@ describe("IdentityService", () => {
       sessionToken: "session-token-rotated",
       otherSessionsRevoked: 2,
     });
+  });
+
+  it("starts a trusted device session and schedules the new-device alert for email sign-in", async () => {
+    const { service, sessions } = setup();
+
+    const result = await service.startEmailSession({
+      userId: "user-email",
+      email: " Player@Example.com ",
+      deviceFingerprint: "server-browser-binding",
+      device: {
+        label: "Email sign-in device",
+        browser: "Chrome",
+        operatingSystem: "Windows",
+        summarizedUserAgent: "Chrome on Windows",
+      },
+      correlationId: "corr-email-sign-in",
+    });
+
+    expect(sessions.startDeviceSession).toHaveBeenCalledWith({
+      userId: "user-email",
+      trust: "trusted",
+      deviceFingerprint: "server-browser-binding",
+      device: {
+        label: "Email sign-in device",
+        browser: "Chrome",
+        operatingSystem: "Windows",
+        summarizedUserAgent: "Chrome on Windows",
+      },
+      newDeviceNotification: {
+        recipient: "player@example.com",
+        correlationId: "corr-email-sign-in",
+      },
+    });
+    expect(result).toEqual({
+      sessionId: "session-email",
+      sessionToken: "session-token-email",
+      isNewDevice: true,
+      notificationScheduled: true,
+    });
+  });
+
+  it("delegates an unconsumed email proof to the single atomic security-change command", async () => {
+    const { service, securityChanges, repository, sessions } = setup();
+
+    const result = await service.applyEmailSecurityChange({
+      actorId: "user-1",
+      sessionId: "session-1",
+      proofId: "proof-1",
+      purpose: "change-email",
+      email: "New@Example.com",
+      identityId: "identity-email-1",
+      correlationId: "corr-change-email",
+    });
+
+    expect(securityChanges.execute).toHaveBeenCalledTimes(1);
+    expect(securityChanges.execute).toHaveBeenCalledWith({
+      actorId: "user-1",
+      currentSessionId: "session-1",
+      proofId: "proof-1",
+      change: {
+        type: "change-email",
+        identityId: "identity-email-1",
+        email: "new@example.com",
+      },
+      now,
+      correlationId: "corr-change-email",
+    });
+    expect(repository.link).not.toHaveBeenCalled();
+    expect(sessions.rotateCurrentAndRevokeOthers).not.toHaveBeenCalled();
+    expect(result.sessionToken).toBe("session-token-replaced");
   });
 });
