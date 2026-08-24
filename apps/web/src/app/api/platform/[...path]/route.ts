@@ -11,6 +11,10 @@ type RouteRule = {
   pattern: RegExp;
   methods: readonly SupportedMethod[];
   upstream: "root" | "platform";
+  context?: {
+    organizationGroup: string;
+    scopeGroup?: string;
+  };
   bodyLimit?: number;
   csrfRotation?: "reacquire" | "clear";
   noReferrer?: boolean;
@@ -23,6 +27,9 @@ const HEADER_COUNT_LIMIT = 64;
 const UPSTREAM_TIMEOUT_MS = 10_000;
 const INVITATION_CONTEXT_COOKIE = "__Host-invitation-context";
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+const CANONICAL_UUID = new RegExp(`^${UUID}$`, "i");
+const ORGANIZATION_CAPTURE = `(?<organizationId>${UUID})`;
+const ORGANIZATION_CONTEXT = { organizationGroup: "organizationId" } as const;
 
 const ROUTES: readonly RouteRule[] = [
   { pattern: /^security\/csrf$/, methods: ["GET"], upstream: "root" },
@@ -101,47 +108,58 @@ const ROUTES: readonly RouteRule[] = [
     bodyLimit: MULTIPART_BODY_LIMIT,
   },
   {
-    pattern: new RegExp(`^organizations/${UUID}/members$`, "i"),
+    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/members$`, "i"),
     methods: ["GET"],
     upstream: "platform",
+    context: ORGANIZATION_CONTEXT,
   },
   {
-    pattern: new RegExp(`^organizations/${UUID}/members/${UUID}$`, "i"),
+    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/members/${UUID}$`, "i"),
     methods: ["PATCH"],
     upstream: "platform",
+    context: ORGANIZATION_CONTEXT,
   },
   {
-    pattern: new RegExp(`^organizations/${UUID}/members/${UUID}/revoke$`, "i"),
+    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/members/${UUID}/revoke$`, "i"),
     methods: ["POST"],
     upstream: "platform",
+    context: ORGANIZATION_CONTEXT,
   },
   {
-    pattern: new RegExp(`^organizations/${UUID}/ownership/transfer$`, "i"),
+    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/ownership/transfer$`, "i"),
     methods: ["POST"],
     upstream: "platform",
+    context: ORGANIZATION_CONTEXT,
     csrfRotation: "reacquire",
   },
   {
-    pattern: new RegExp(`^organizations/${UUID}/invitations$`, "i"),
+    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/invitations$`, "i"),
     methods: ["GET", "POST"],
     upstream: "platform",
+    context: ORGANIZATION_CONTEXT,
     noReferrer: true,
   },
   {
-    pattern: new RegExp(`^organizations/${UUID}/invitations/${UUID}/(?:revoke|resend)$`, "i"),
+    pattern: new RegExp(
+      `^organizations/${ORGANIZATION_CAPTURE}/invitations/${UUID}/(?:revoke|resend)$`,
+      "i",
+    ),
     methods: ["POST"],
     upstream: "platform",
+    context: ORGANIZATION_CONTEXT,
     noReferrer: true,
   },
   {
-    pattern: new RegExp(`^organizations/${UUID}/audit$`, "i"),
+    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/audit$`, "i"),
     methods: ["GET"],
     upstream: "platform",
+    context: ORGANIZATION_CONTEXT,
   },
   {
-    pattern: new RegExp(`^organizations/${UUID}/logo$`, "i"),
+    pattern: new RegExp(`^organizations/${ORGANIZATION_CAPTURE}/logo$`, "i"),
     methods: ["PUT"],
     upstream: "platform",
+    context: ORGANIZATION_CONTEXT,
     bodyLimit: MULTIPART_BODY_LIMIT,
   },
   {
@@ -207,6 +225,12 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
   let upstream: Response;
   try {
     const upstreamHeaders = forwardRequestHeaders(request.headers);
+    if (resolved.organizationId) {
+      upstreamHeaders.set("x-organization-id", resolved.organizationId);
+    }
+    if (resolved.authorizationScopeId) {
+      upstreamHeaders.set("x-authorization-scope-id", resolved.authorizationScopeId);
+    }
     let upstreamBody = body;
     if (oauthNavigation) {
       upstreamHeaders.set("content-type", "application/json");
@@ -308,7 +332,15 @@ function isSafeReturnPath(value: string): boolean {
 async function resolveRoute(
   context: PlatformRouteContext,
   method: SupportedMethod,
-): Promise<{ path: string; rule: RouteRule } | Response> {
+): Promise<
+  | {
+      path: string;
+      rule: RouteRule;
+      organizationId?: string;
+      authorizationScopeId?: string;
+    }
+  | Response
+> {
   const { path: segments } = await context.params;
   if (!Array.isArray(segments) || segments.length === 0 || segments.length > 8) {
     return unavailable(404);
@@ -329,10 +361,35 @@ async function resolveRoute(
   }
 
   const path = segments.join("/");
-  const pathRules = ROUTES.filter((rule) => rule.pattern.test(path));
+  const pathRules = ROUTES.flatMap((rule) => {
+    const match = rule.pattern.exec(path);
+    if (!match) return [];
+    const routeContext = extractRouteContext(rule, match);
+    return routeContext ? [{ rule, ...routeContext }] : [];
+  });
   if (pathRules.length === 0) return unavailable(404);
-  const rule = pathRules.find((candidate) => candidate.methods.includes(method));
-  return rule ? { path, rule } : unavailable(405);
+  const matched = pathRules.find(({ rule }) => rule.methods.includes(method));
+  return matched ? { path, ...matched } : unavailable(405);
+}
+
+function extractRouteContext(
+  rule: RouteRule,
+  match: RegExpExecArray,
+): { organizationId?: string; authorizationScopeId?: string } | undefined {
+  if (!rule.context) return {};
+
+  const organizationId = match.groups?.[rule.context.organizationGroup];
+  if (!organizationId || !CANONICAL_UUID.test(organizationId)) return undefined;
+
+  const scopeId = rule.context.scopeGroup
+    ? match.groups?.[rule.context.scopeGroup]
+    : undefined;
+  if (rule.context.scopeGroup && (!scopeId || !CANONICAL_UUID.test(scopeId))) return undefined;
+
+  return {
+    organizationId: organizationId.toLowerCase(),
+    ...(scopeId ? { authorizationScopeId: scopeId.toLowerCase() } : {}),
+  };
 }
 
 function isAuthorizedSameOriginRequest(
