@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T00:29:54.855Z"
+last_updated: "2026-08-24T00:46:50.882Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 27
-  completed_plans: 25
-  percent: 93
+  completed_plans: 26
+  percent: 96
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 de 9 — Identidade, organizações e autorização
-- Plano: 22 de 24 concluídos
-- Status: execução em andamento; gate CI remoto final aprovado para o HEAD autorizado
-- Progresso: 93% do milestone (25 de 27 planos)
+- Plano: 23 de 24 concluídos
+- Status: consolidação Nyquist automatizada concluída; três checkpoints externos/assistivos do plano 02-15 permanecem pendentes
+- Progresso: 96% do milestone (26 de 27 planos)
 
 ## Decisões acumuladas
 
@@ -71,12 +71,16 @@ progress:
 - O gate final aceita somente um run event=push com branch e HEAD SHA exatos; workflow_dispatch permanece proibido.
 - CI em fresh checkout constrói storage na matriz e usa Turbo dependencies-only antes do browser.
 - Skips só são aceitos nos passos mutuamente exclusivos da matriz e em evidência condicionada a falha; suites obrigatórias devem executar.
+- As flags Nyquist só são promovidas após validação da cópia candidata com flags falsas, validação do conteúdo promovido e revalidação pós-rename.
+- O gate inicial 02-17 e o run CI final 32676449341 de 02-24 são evidências obrigatórias e distintas; plans, requirements, arquivos e comandos ausentes falham fechado.
+- Nyquist automatizado não aprova Discord/PKCE sandbox, acessibilidade assistiva ou Resend/TLS; os três checkpoints continuam pendentes no plano 02-15.
 
 ## Métricas de execução
 
 - Plano 02-23: 8 min, 2 tarefas, 10 arquivos.
 - Plano 02-18: 34 min, 3 tarefas, 19 arquivos.
 - Plano 02-24: 2d 14h, 1 tarefa, 3 arquivos.
+- Plano 02-20: 14 min, 1 tarefa, 3 arquivos.
 
 ## Bloqueadores
 
@@ -84,6 +88,6 @@ progress:
 
 ## Continuidade
 
-- Última ação: run GitHub Actions `32676449341` do HEAD autorizado concluiu todos os jobs obrigatórios em success no plano 02-24.
-- Próxima ação: executar a consolidação Nyquist do plano 02-20.
-- Arquivo de retomada: nenhum; plano 02-24 completo.
+- Última ação: matriz Nyquist promovida e revalidada após preflight Neon/Redis e smoke Chromium 2/2 no plano 02-20.
+- Próxima ação: executar os três checkpoints humanos do plano 02-15.
+- Arquivo de retomada: nenhum; plano 02-20 completo.

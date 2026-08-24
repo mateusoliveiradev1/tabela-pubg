@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 22/24 planos concluídos — identidade, operações, branding e gate CI remoto entregues; consolidação Nyquist pendente.
+**Progresso:** 23/24 planos concluídos — identidade, operações, branding, CI remoto e consolidação Nyquist entregues; checkpoints externos/assistivos do plano 02-15 pendentes.
 
 ### Entregas
 
