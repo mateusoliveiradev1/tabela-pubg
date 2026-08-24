@@ -16,6 +16,10 @@
 
 - O gate completo `pnpm phase2:integration` passou 3/4 arquivos e 19 testes contra Neon direto + Redis loopback, mas `runtime-security-migration.integration.spec.ts` excedeu o `hookTimeout` preexistente de 30 segundos durante o setup de múltiplos schemas (4 casos ficaram skipped). A suíte lifecycle do plano passou isoladamente com 7/7 casos; ajustar o orçamento do harness/migrations pertence a um plano de tooling e não ao lifecycle de sessões.
 
+## Plano 02-36
+
+- O gate focal real de 02-36 passou 25/25 casos contra branch Neon isolada e Redis loopback. A suíte ampla `phase2:integration` manteve 43 casos verdes, mas `identity-security-change.integration.spec.ts` excedeu o `testTimeout` preexistente de 15 segundos e `runtime-security-migration.integration.spec.ts` excedeu o `hookTimeout` preexistente de 30 segundos sob a latência Neon. Uma repetição com conexão direta eliminou as falhas de isolamento vistas no endpoint pooled, mas preservou esses dois timeouts; ajustar orçamentos do harness permanece fora do escopo dos endpoints OTP.
+
 ## Plano 02-42
 
 - O caso cross-actor de `runtime-security-migration.integration.spec.ts` usa timestamps absolutos de 2026-08-24 e, quando executado depois desse instante, recebe primeiro o check `23514` de expiração em vez do FK `23503` esperado. Fresh apply, upgrade e os outros três casos passaram; tornar o clock desse harness relativo pertence ao plano de tooling/migrations.

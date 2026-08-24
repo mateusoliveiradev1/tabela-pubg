@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T12:24:36.525Z"
+last_updated: "2026-08-24T13:11:35.751Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 36
-  percent: 33
+  completed_plans: 37
+  percent: 82
 ---
 
 # Estado do projeto
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: 02-42 concluido fora de ordem; proximo plano pendente 02-32
-- Status: remediacao em execucao, com mudancas ordinarias de identidade e sessao fechadas na fronteira atomica D-08
-- Progresso: 36/45 planos do milestone concluidos; restam 9 planos de gap closure da Fase 2
+- Plano: 02-36 concluido fora de ordem; proximo plano pendente 02-32
+- Status: remediacao em execucao, com endpoints OTP, step-up e promocao provisional ligados as fronteiras duraveis de sessao e D-08
+- Progresso: 37/45 planos do milestone concluidos; restam 8 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -108,7 +108,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos pendentes `02-32`–`02-34` e `02-36`–`02-41` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar os planos pendentes `02-32`–`02-34` e `02-37`–`02-41` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -117,7 +117,7 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano 02-42 implementou a transação D-08 para proof, identidade, rotação/revogação de sessões e outbox redigido
+- Última ação: plano 02-36 publicou endpoints OTP reais com sessão trusted, step-up bound e promoção provisional atômica
 - Próxima ação: executar o plano 02-32, primeiro plano pendente, consumindo a porta D-08 no controller protegido
 - Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-32-PLAN.md
 
@@ -134,6 +134,7 @@ progress:
 | Phase 02 P29 | 9 min | 2 tasks | 7 files |
 | Phase 02 P31 | 22 min | 1 tasks | 4 files |
 | Phase 02 P42 | 16 min | 1 tasks | 9 files |
+| Phase 02 P36 | 40min | 1 tasks | 9 files |
 
 ## Decisions
 
@@ -147,3 +148,6 @@ progress:
 - [Phase 02]: Mudanças account-only registram identity.security-state-changed no outbox sem fabricar audit organizacional.
 - [Phase 02]: O token D-08 é gerado antes da transaction e só retorna após proof, identidade, sessão e outbox confirmarem o commit.
 - [Phase 02]: O teste offline do database exclui integracao real; o runner phase2 preflighted permanece a rota fail-closed do spec D-08.
+- [Phase 02]: Rotas OTP purpose-specific derivam autoridade protegida exclusivamente de request.auth.
+- [Phase 02]: Sign-in persiste sessao trusted e alerta de novo dispositivo antes de publicar cookie e CSRF.
+- [Phase 02]: Link e change delegam ao comando D-08; promocao provisional publica apenas o replacement token committed.
