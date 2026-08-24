@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T14:13:00.660Z"
+last_updated: "2026-08-24T14:30:22.056Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 39
+  completed_plans: 40
   percent: 33
 ---
 
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: 02-41 concluído fora de ordem; próximo plano pendente 02-32
-- Status: remediação em execução, com estado Redis de identity isolado por runScopeId e specs reais não-skippable
-- Progresso: 39/45 planos do milestone concluídos; restam 6 planos de gap closure da Fase 2
+- Plano: 02-32 concluído; próximo plano pendente 02-33
+- Status: remediação em execução, com controllers reais de sessões/identidades protegidos e mudanças sensíveis bound/owner-scoped
+- Progresso: 40/45 planos do milestone concluídos; restam 5 planos de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -108,7 +108,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos pendentes `02-32`–`02-34` e `02-38`–`02-40` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar os planos pendentes `02-33`–`02-34` e `02-38`–`02-40` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -117,9 +117,9 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano 02-41 isolou limiter e PKCE Redis por runScopeId validado, com preflight/spec no mesmo endpoint real
-- Próxima ação: executar o plano 02-32, primeiro plano pendente, consumindo a porta D-08 no controller protegido
-- Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-32-PLAN.md
+- Última ação: plano 02-32 publicou controllers reais de sessões/identidades, proof D-08 bound e remoção owner-scoped transacional
+- Próxima ação: executar o plano 02-33, próximo gap de integração pendente
+- Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-33-PLAN.md
 
 ## Accumulated Context
 
@@ -137,6 +137,7 @@ progress:
 | Phase 02 P36 | 40min | 1 tasks | 9 files |
 | Phase 02 P37 | 18min | 2 tasks | 14 files |
 | Phase 02 P41 | 16min | 1 tasks | 5 files |
+| Phase 02 P32 | 13min | 1 tasks | 10 files |
 
 ## Decisions
 
@@ -159,3 +160,6 @@ progress:
 - [Phase 02]: Produção mantém prefixes Redis de identidade estáveis; somente mode=run aceita runScopeId canônico do caller. — Evita fallback compartilhado em testes sem alterar keys de produção.
 - [Phase 02]: TEST_REDIS_URL presente é o endpoint selecionado pelo spec e também recebe PING do preflight; REDIS_URL permanece obrigatório. — Impede evidência contra endpoint diferente e mantém o contrato de ambiente do repositório.
 - [Phase 02]: API offline coleta somente specs source não-integrados; Redis real usa config dedicada exata após preflight fail-closed. — Evita dependência de infraestrutura e duplicação src/dist no root test.
+- [Phase 02]: candidateIdentityId identifica somente a pending proof server-side; actor, sessao, trust e candidate de provider nunca vem do browser.
+- [Phase 02]: Confirmacao Discord consulta a proof bound sem consumir e delega exatamente uma vez ao comando atomico D-08.
+- [Phase 02]: Remocao de identidade serializa na conta e confirma target, token atual e revoke-others na mesma transaction.
