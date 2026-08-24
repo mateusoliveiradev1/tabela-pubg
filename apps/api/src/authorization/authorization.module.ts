@@ -3,7 +3,9 @@ import { APP_GUARD } from "@nestjs/core";
 import type { CsrfService } from "../security/csrf.service.js";
 import { CsrfGuard } from "../security/csrf.service.js";
 import {
+  AUTHORIZATION_SECURITY_LOG,
   AUTHORIZATION_SNAPSHOT_LOADER,
+  type AuthorizationSecurityLog,
   AuthorizationService,
   type AuthorizationSnapshotLoader,
   SESSION_AUTHENTICATOR,
@@ -15,6 +17,7 @@ import { SESSION_COOKIE_NAME, SessionGuard } from "./session.guard.js";
 export interface AuthorizationModulePorts {
   authenticate: SessionAuthenticator;
   loadSnapshot: AuthorizationSnapshotLoader;
+  securityLog: AuthorizationSecurityLog;
   csrf?: CsrfService;
   sessionCookieName?: string;
 }
@@ -28,6 +31,7 @@ export class AuthorizationModule {
       providers: [
         { provide: SESSION_AUTHENTICATOR, useValue: ports.authenticate },
         { provide: AUTHORIZATION_SNAPSHOT_LOADER, useValue: ports.loadSnapshot },
+        { provide: AUTHORIZATION_SECURITY_LOG, useValue: ports.securityLog },
         { provide: SESSION_COOKIE_NAME, useValue: ports.sessionCookieName ?? "__Host-session" },
         AuthorizationService,
         { provide: APP_GUARD, useClass: SessionGuard },

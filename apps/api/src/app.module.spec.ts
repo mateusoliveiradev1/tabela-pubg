@@ -47,6 +47,7 @@ function createModule() {
         organizationRole: null,
         assignments: [],
       }),
+      securityLog: { record: () => undefined },
     },
     organizations: {
       database: {} as never,

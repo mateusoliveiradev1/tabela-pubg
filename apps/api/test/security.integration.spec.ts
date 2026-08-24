@@ -341,7 +341,7 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
 
   function ports(
     currentSnapshot = snapshot(),
-    trust: "trusted" | "provisional" | undefined = "trusted",
+    trust: "trusted" | "provisional" | "missing" = "trusted",
     securityLog = { record: vi.fn() },
   ): AuthorizationModulePorts & {
     loadSnapshot: ReturnType<typeof vi.fn>;
@@ -354,7 +354,7 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
           ? {
               actorId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2301",
               sessionId: "018f0ce7-98e3-7b27-bf2d-6eeac51d2304",
-              ...(trust === undefined ? {} : { trust }),
+              ...(trust === "missing" ? {} : { trust }),
             }
           : null,
       ),
@@ -529,7 +529,7 @@ describe("global default-deny authorization through Nest Fastify inject", () => 
   });
 
   it("fails closed when authenticated session trust is missing", async () => {
-    const missingTrustPorts = ports(snapshot({ organizationRole: "owner" }), undefined);
+    const missingTrustPorts = ports(snapshot({ organizationRole: "owner" }), "missing");
     const harness = await createAuthorizationApp(missingTrustPorts);
     apps.push(harness.app);
     const headers = {

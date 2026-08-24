@@ -167,6 +167,9 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
               })) ?? [],
           };
         },
+        securityLog: {
+          record: (event) => logger.warn(event, "authorization security event"),
+        },
       },
       organizations: {
         database: database.db,

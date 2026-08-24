@@ -32,6 +32,7 @@ import {
 } from "@pubg-camp/contracts";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import type { AuthenticatedSession } from "../authorization/authorization.service.js";
 import type { CsrfService } from "../security/csrf.service.js";
 import type { OAuthService } from "./oauth.service.js";
 import type { OtpService } from "./otp.service.js";
@@ -43,7 +44,7 @@ export const IDENTITY_SESSION_SERVICE = Symbol("IDENTITY_SESSION_SERVICE");
 export const IDENTITY_CSRF_SERVICE = Symbol("IDENTITY_CSRF_SERVICE");
 
 export interface SessionAlertRequest extends FastifyRequest {
-  auth: { actorId: string; sessionId: string };
+  auth: AuthenticatedSession;
 }
 
 const OAuthCallbackQuerySchema = z
