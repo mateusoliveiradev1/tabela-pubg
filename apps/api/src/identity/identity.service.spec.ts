@@ -24,6 +24,22 @@ function setup(options?: { existingSubject?: string; linkConflict?: boolean }) {
     link: vi.fn(async () =>
       options?.linkConflict ? { status: "conflict" as const } : { status: "linked" as const },
     ),
+    listForUser: vi.fn(async () => [
+      {
+        id: "00000000-0000-4000-8000-000000000010",
+        provider: "discord" as const,
+        status: "verified" as const,
+        displayIdentifier: "p***r",
+        linkedAt: now,
+      },
+    ]),
+    findPendingLink: vi.fn(async () => ({
+      proofId: "proof-1",
+      provider: "discord" as const,
+      providerSubject: "discord-subject",
+      displayName: "player",
+    })),
+    removeOwned: vi.fn(async () => ({ status: "removed" as const })),
   };
   const sessions: IdentitySessionPort = {
     issue: vi.fn(async () => ({ sessionId: "session-new", token: "session-token-new" })),
@@ -234,5 +250,126 @@ describe("IdentityService", () => {
     expect(repository.link).not.toHaveBeenCalled();
     expect(sessions.rotateCurrentAndRevokeOthers).not.toHaveBeenCalled();
     expect(result.sessionToken).toBe("session-token-replaced");
+  });
+
+  it("lists only repository-projected redacted identities for the actor", async () => {
+    const { service, repository } = setup();
+
+    const result = await service.listIdentities("user-1");
+
+    expect(repository.listForUser).toHaveBeenCalledWith("user-1");
+    expect(result).toEqual([
+      expect.objectContaining({ provider: "discord", displayIdentifier: "p***r" }),
+    ]);
+    expect(JSON.stringify(result)).not.toMatch(/providerSubject|digest|token|email/i);
+  });
+
+  it("requires fresh step-up and delegates an explicit actor/session-bound Discord candidate once", async () => {
+    const { service, repository, sessions, securityChanges } = setup();
+
+    const result = await service.confirmIdentityLink({
+      actorId: "user-1",
+      sessionId: "session-1",
+      proofId: "proof-1",
+      correlationId: "corr-link",
+    });
+
+    expect(sessions.hasFreshStepUp).toHaveBeenCalledWith("user-1", "session-1", now);
+    expect(repository.findPendingLink).toHaveBeenCalledWith({
+      actorId: "user-1",
+      sessionId: "session-1",
+      proofId: "proof-1",
+      now,
+    });
+    expect(securityChanges.execute).toHaveBeenCalledTimes(1);
+    expect(securityChanges.execute).toHaveBeenCalledWith({
+      actorId: "user-1",
+      currentSessionId: "session-1",
+      proofId: "proof-1",
+      change: {
+        type: "link-identity",
+        provider: "discord",
+        providerSubject: "discord-subject",
+        displayName: "player",
+      },
+      now,
+      correlationId: "corr-link",
+    });
+    expect(result.provider).toBe("discord");
+  });
+
+  it.each(["stale", "replayed", "cross-session"])(
+    "rejects a %s proof before invoking the atomic command",
+    async () => {
+      const { service, repository, securityChanges } = setup();
+      vi.mocked(repository.findPendingLink).mockResolvedValueOnce(null);
+
+      await expect(
+        service.confirmIdentityLink({
+          actorId: "user-1",
+          sessionId: "session-1",
+          proofId: "proof-1",
+          correlationId: "corr-link",
+        }),
+      ).rejects.toThrow("identity proof unavailable");
+      expect(securityChanges.execute).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects stale step-up before reading or consuming a pending proof", async () => {
+    const { service, repository, sessions, securityChanges } = setup();
+    vi.mocked(sessions.hasFreshStepUp).mockResolvedValueOnce(false);
+
+    await expect(
+      service.confirmIdentityLink({
+        actorId: "user-1",
+        sessionId: "session-1",
+        proofId: "proof-1",
+        correlationId: "corr-link",
+      }),
+    ).rejects.toThrow("recent authentication required");
+    expect(repository.findPendingLink).not.toHaveBeenCalled();
+    expect(securityChanges.execute).not.toHaveBeenCalled();
+  });
+
+  it("removes only an owned non-last identity, then rotates current and revokes others", async () => {
+    const { service, repository, sessions } = setup();
+
+    const result = await service.removeIdentity({
+      actorId: "user-1",
+      sessionId: "session-1",
+      identityId: "identity-1",
+      correlationId: "corr-remove",
+    });
+
+    expect(repository.removeOwned).toHaveBeenCalledWith({
+      actorId: "user-1",
+      identityId: "identity-1",
+      now,
+    });
+    expect(sessions.rotateCurrentAndRevokeOthers).toHaveBeenCalledWith({
+      userId: "user-1",
+      sessionId: "session-1",
+      reason: "identity-remove",
+    });
+    expect(result.sessionToken).toBe("session-token-rotated");
+  });
+
+  it.each([
+    [{ status: "not-found" as const }, "identity not found"],
+    [{ status: "last-verified" as const }, "last verified identity"],
+  ])("does not rotate after repository removal rejection %#", async (removal, message) => {
+    const { service, repository, sessions } = setup();
+    vi.mocked(repository.removeOwned).mockResolvedValueOnce(removal);
+
+    await expect(
+      service.removeIdentity({
+        actorId: "user-1",
+        sessionId: "session-1",
+        identityId: "identity-1",
+        correlationId: "corr-remove",
+      }),
+    ).rejects.toThrow(message);
+    expect(sessions.rotateCurrentAndRevokeOthers).not.toHaveBeenCalled();
   });
 });
