@@ -38,7 +38,7 @@ describe("login Discord-first", () => {
     await waitFor(() => expect(submitted).toHaveLength(1));
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(submitted[0]).toEqual({
-      action: "http://localhost:3000/api/platform/identity/oauth/discord/start",
+      action: "http://localhost:3000/api/platform/identity/oauth/discord/sign-in/start",
       method: "post",
       fields: {
         csrfToken: "csrf-token-with-safe-length",
@@ -110,12 +110,15 @@ describe("login Discord-first", () => {
     ).toBeTruthy();
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      "/api/platform/identity/email/otp/request",
+      "/api/platform/identity/email/otp/sign-in/request",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ "x-csrf-token": "csrf-token-with-safe-length" }),
       }),
     );
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[1]?.[1]?.body))).toEqual({
+      email: "jogador@example.com",
+    });
     expect(document.body.textContent).not.toContain("jogador@example.com");
     expect(screen.getByRole("textbox", { name: "Código de 8 dígitos" })).toBeTruthy();
   });
@@ -172,6 +175,9 @@ describe("OTP acessível", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Código inválido. Confira os 8 dígitos e tente novamente.",
     );
+    expect(vi.mocked(fetch).mock.calls[3]?.[0]).toBe(
+      "/api/platform/identity/email/otp/sign-in/verify",
+    );
     expect(document.activeElement).toBe(otp);
     expect((otp as HTMLInputElement).value).toBe("12345678");
   });
@@ -206,7 +212,7 @@ describe("callback OAuth seguro", () => {
     expect(document.documentElement.textContent).not.toContain("opaque-state");
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      "/api/platform/identity/oauth/discord/callback",
+      "/api/platform/identity/oauth/discord/sign-in/callback",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ "x-csrf-token": "csrf-token-with-safe-length" }),

@@ -73,7 +73,7 @@ describe("same-origin platform BFF", () => {
 
   it("rejects cross-origin unsafe calls before contacting the API", async () => {
     const response = await POST(
-      request("identity/email/otp/request", {
+      request("identity/email/otp/sign-in/request", {
         method: "POST",
         headers: {
           origin: "https://evil.test",
@@ -82,7 +82,7 @@ describe("same-origin platform BFF", () => {
         },
         body: JSON.stringify({ email: "person@example.test" }),
       }),
-      context("identity", "email", "otp", "request"),
+      context("identity", "email", "otp", "sign-in", "request"),
     );
 
     expect(response.status).toBe(403);
@@ -123,7 +123,7 @@ describe("same-origin platform BFF", () => {
     );
 
     const response = await POST(
-      request("identity/email/otp/request", {
+      request("identity/email/otp/sign-in/request", {
         method: "POST",
         headers: {
           authorization: "Bearer browser-secret",
@@ -136,12 +136,12 @@ describe("same-origin platform BFF", () => {
         },
         body: JSON.stringify({ email: "person@example.test" }),
       }),
-      context("identity", "email", "otp", "request"),
+      context("identity", "email", "otp", "sign-in", "request"),
     );
 
     expect(response.status).toBe(202);
     const [target, init] = fetchMock.mock.calls[0] ?? [];
-    expect(String(target)).toBe(`${API_ORIGIN}/identity/email/otp/request`);
+    expect(String(target)).toBe(`${API_ORIGIN}/identity/email/otp/sign-in/request`);
     const headers = new Headers(init?.headers);
     expect(headers.get("cookie")).toBe("__Host-preauth=browser-context");
     expect(headers.get("x-csrf-token")).toBe("csrf-token");
@@ -269,12 +269,12 @@ describe("same-origin platform BFF", () => {
     });
 
     const response = await POST(
-      request("identity/oauth/discord/start", {
+      request("identity/oauth/discord/sign-in/start", {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body,
       }),
-      context("identity", "oauth", "discord", "start"),
+      context("identity", "oauth", "discord", "sign-in", "start"),
     );
 
     expect(response.status).toBe(302);
@@ -287,6 +287,108 @@ describe("same-origin platform BFF", () => {
       JSON.stringify({ purpose: "sign-in", returnPath: "/primeiro-acesso" }),
     );
     expect(await response.text()).toBe("");
+  });
+
+  it.each(["link-identity", "step-up"] as const)(
+    "forwards protected Discord %s starts only to the exact guarded upstream path",
+    async (purpose) => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://discord.com/oauth2/authorize?opaque=provider-state" },
+        }),
+      );
+
+      const response = await POST(
+        request(`identity/oauth/discord/${purpose}/start`, {
+          method: "POST",
+          headers: {
+            cookie: "__Host-session=opaque-session",
+            "content-type": "application/json",
+            "x-csrf-token": "authenticated-csrf-token",
+          },
+          body: JSON.stringify({ purpose, returnPath: "/account/identities" }),
+        }),
+        context("identity", "oauth", "discord", purpose, "start"),
+      );
+
+      expect(response.status).toBe(302);
+      const [target, init] = fetchMock.mock.calls[0] ?? [];
+      expect(String(target)).toBe(`${API_ORIGIN}/identity/oauth/discord/${purpose}/start`);
+      const headers = new Headers(init?.headers);
+      expect(headers.get("cookie")).toBe("__Host-session=opaque-session");
+      expect(headers.get("x-csrf-token")).toBe("authenticated-csrf-token");
+    },
+  );
+
+  it.each([
+    "link-email/request",
+    "change-email/request",
+    "step-up/request",
+    "verify-provisional-email/request",
+  ])("forwards protected OTP %s only to its purpose-specific upstream path", async (suffix) => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: "accepted" }));
+
+    const response = await POST(
+      request(`identity/email/otp/${suffix}`, {
+        method: "POST",
+        headers: {
+          cookie: "__Host-session=opaque-session",
+          "content-type": "application/json",
+          "x-csrf-token": "authenticated-csrf-token",
+        },
+        body: JSON.stringify({ email: "person@example.test" }),
+      }),
+      context("identity", "email", "otp", ...suffix.split("/")),
+    );
+
+    expect(response.status).toBe(200);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`${API_ORIGIN}/identity/email/otp/${suffix}`);
+    fetchMock.mockClear();
+  });
+
+  it("rejects OAuth purpose escalation and all browser authority fields before fetch", async () => {
+    const purposeMismatch = await POST(
+      request("identity/oauth/discord/sign-in/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ purpose: "step-up" }),
+      }),
+      context("identity", "oauth", "discord", "sign-in", "start"),
+    );
+    const authoritySmuggling = await POST(
+      request("identity/email/otp/step-up/request", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "person@example.test",
+          actorId: "attacker",
+          userId: "attacker",
+          sessionId: "other",
+          trust: "trusted",
+        }),
+      }),
+      context("identity", "email", "otp", "step-up", "request"),
+    );
+
+    expect(purposeMismatch.status).toBe(400);
+    expect(authoritySmuggling.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not keep generic identity routes that could select a weaker purpose", async () => {
+    const oauth = await POST(
+      request("identity/oauth/discord/start", { method: "POST" }),
+      context("identity", "oauth", "discord", "start"),
+    );
+    const otp = await POST(
+      request("identity/email/otp/request", { method: "POST" }),
+      context("identity", "email", "otp", "request"),
+    );
+
+    expect(oauth.status).toBe(404);
+    expect(otp.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("accepts browser-owned same-origin metadata across a trusted dev host normalization", async () => {
@@ -328,7 +430,7 @@ describe("same-origin platform BFF", () => {
       );
 
     const response = await POST(
-      request("identity/email/otp/verify", {
+      request("identity/email/otp/sign-in/verify", {
         method: "POST",
         headers: {
           cookie: "__Host-preauth=old-context; __Host-csrf=old-secret",
@@ -337,7 +439,7 @@ describe("same-origin platform BFF", () => {
         },
         body: JSON.stringify({ code: "12345678" }),
       }),
-      context("identity", "email", "otp", "verify"),
+      context("identity", "email", "otp", "sign-in", "verify"),
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -395,8 +497,10 @@ describe("same-origin platform BFF", () => {
 
   it("keeps OAuth callback GET read-only and forwards callback POST with CSRF", async () => {
     const getResponse = await GET(
-      request("identity/oauth/discord/callback?code=secret&state=opaque-state-with-safe-length"),
-      context("identity", "oauth", "discord", "callback"),
+      request(
+        "identity/oauth/discord/sign-in/callback?code=secret&state=opaque-state-with-safe-length",
+      ),
+      context("identity", "oauth", "discord", "sign-in", "callback"),
     );
     expect(getResponse.status).toBe(405);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -405,7 +509,7 @@ describe("same-origin platform BFF", () => {
       .mockResolvedValueOnce(jsonResponse({ status: "authenticated", nextPath: "/" }))
       .mockResolvedValueOnce(jsonResponse({ csrfToken: "rotated-csrf-token-with-safe-length" }));
     const postResponse = await POST(
-      request("identity/oauth/discord/callback", {
+      request("identity/oauth/discord/sign-in/callback", {
         method: "POST",
         headers: { "content-type": "application/json", "x-csrf-token": "csrf" },
         body: JSON.stringify({
@@ -414,12 +518,12 @@ describe("same-origin platform BFF", () => {
           purpose: "sign-in",
         }),
       }),
-      context("identity", "oauth", "discord", "callback"),
+      context("identity", "oauth", "discord", "sign-in", "callback"),
     );
 
     expect(postResponse.status).toBe(200);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
-      `${API_ORIGIN}/identity/oauth/discord/callback`,
+      `${API_ORIGIN}/identity/oauth/discord/sign-in/callback`,
     );
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
   });
