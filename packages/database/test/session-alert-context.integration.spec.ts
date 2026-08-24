@@ -7,13 +7,14 @@ import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  issueIdentitySession,
   issueSessionForDevice,
   resolveAlertContextReadOnly,
+  resolveAndTouchSession,
   resolveSession,
   revokeOtherSessions,
   revokeSession,
   rotateSession,
-  touchSession,
 } from "../src/repositories/sessions.js";
 import * as schema from "../src/schema.js";
 import { outboxEvents, sessionAlertContexts, sessions } from "../src/schema.js";
@@ -104,6 +105,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
         tx,
         {
           userId,
+          trust: "trusted",
           deviceFingerprint: "desktop-browser-profile-1",
           device: {
             label: "PC principal",
@@ -126,6 +128,13 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
     await expect(resolveSession(db, issued.token, () => now)).resolves.toMatchObject({
       session: { id: issued.session.id, userId },
     });
+    await expect(
+      resolveAndTouchSession(
+        db,
+        Buffer.alloc(32, 99).toString("base64url"),
+        () => new Date(now.getTime() + 6 * 60_000),
+      ),
+    ).resolves.toBeNull();
 
     const rotated = await rotateSession(
       db,
@@ -148,6 +157,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
       db,
       {
         userId,
+        trust: "trusted",
         deviceFingerprint: "desktop-browser-profile-2",
         device: { label: "Notebook", browser: "Firefox", operatingSystem: "Linux" },
         newDeviceNotification: notificationInput("new-device-notebook"),
@@ -155,29 +165,130 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
       deterministicDependencies(issuedAt),
     );
 
-    const beforeWindow = await touchSession(
+    const beforeWindow = await resolveAndTouchSession(
       db,
       issued.token,
       () => new Date(issuedAt.getTime() + 4 * 60_000),
     );
-    expect(beforeWindow?.lastSeenAt).toEqual(issuedAt);
+    expect(beforeWindow).toMatchObject({
+      session: { lastSeenAt: issuedAt },
+      trust: "trusted",
+    });
 
-    let touched = await touchSession(
+    let touched = await resolveAndTouchSession(
       db,
       issued.token,
       () => new Date(issuedAt.getTime() + 29 * 24 * 60 * 60_000),
     );
-    touched = await touchSession(
+    touched = await resolveAndTouchSession(
       db,
       issued.token,
       () => new Date(issuedAt.getTime() + 58 * 24 * 60 * 60_000),
     );
-    touched = await touchSession(
+    touched = await resolveAndTouchSession(
       db,
       issued.token,
       () => new Date(issuedAt.getTime() + 87 * 24 * 60 * 60_000),
     );
-    expect(touched?.idleExpiresAt).toEqual(issued.session.absoluteExpiresAt);
+    expect(touched?.session.idleExpiresAt).toEqual(issued.session.absoluteExpiresAt);
+    expect(touched?.session.absoluteExpiresAt).toEqual(issued.session.absoluteExpiresAt);
+  });
+
+  it("persists explicit trust for identity and device issue paths", async () => {
+    const issuedAt = new Date("2026-08-21T09:30:00.000Z");
+    const provisionalToken = Buffer.alloc(32, 71).toString("base64url");
+    const identitySessionId = randomUUID();
+    await issueIdentitySession(db, {
+      id: identitySessionId,
+      userId,
+      token: provisionalToken,
+      trust: "provisional",
+      issuedAt,
+      absoluteExpiresAt: new Date(issuedAt.getTime() + 15 * 60_000),
+      deviceId: randomUUID(),
+    });
+    const identityResolved = await resolveAndTouchSession(db, provisionalToken, () => issuedAt);
+    expect(identityResolved).toMatchObject({
+      session: { id: identitySessionId, trust: "provisional" },
+      trust: "provisional",
+    });
+
+    const deviceIssued = await issueSessionForDevice(
+      db,
+      {
+        userId,
+        trust: "provisional",
+        deviceFingerprint: "provisional-device",
+        device: { label: "Temporary", browser: "Firefox", operatingSystem: "Linux" },
+        newDeviceNotification: notificationInput("provisional-device"),
+      },
+      deterministicDependencies(issuedAt),
+    );
+    expect(deviceIssued.session.trust).toBe("provisional");
+    expect(deviceIssued.session.idleExpiresAt).toEqual(
+      new Date(issuedAt.getTime() + 15 * 60_000),
+    );
+    expect(deviceIssued.session.absoluteExpiresAt).toEqual(
+      new Date(issuedAt.getTime() + 15 * 60_000),
+    );
+    await expect(
+      resolveAndTouchSession(db, deviceIssued.token, () => issuedAt),
+    ).resolves.toMatchObject({ trust: "provisional" });
+  });
+
+  it("leaves revoked, expired and suspended sessions unresolved and untouched", async () => {
+    const requestAt = new Date("2026-08-21T10:30:00.000Z");
+    const cases = [
+      { name: "revoked", issuedAt: new Date("2026-08-21T10:00:00.000Z") },
+      { name: "idle-expired", issuedAt: new Date("2026-07-21T10:00:00.000Z") },
+      { name: "absolute-expired", issuedAt: new Date("2026-05-22T10:00:00.000Z") },
+    ] as const;
+    const issuedCases = [];
+    for (const current of cases) {
+      const issued = await issueSessionForDevice(
+        db,
+        {
+          userId,
+          trust: "trusted",
+          deviceFingerprint: `inactive-${current.name}`,
+          device: { label: current.name, browser: "Chrome", operatingSystem: "Windows" },
+          newDeviceNotification: notificationInput(`inactive-${current.name}`),
+        },
+        deterministicDependencies(current.issuedAt),
+      );
+      issuedCases.push({ ...current, issued });
+    }
+    await revokeSession(db, userId, issuedCases[0]!.issued.session.id, "test", () => requestAt);
+
+    const suspendedUserId = randomUUID();
+    await client`
+      insert into users (id, display_name, status)
+      values (${suspendedUserId}, 'Suspended organizer', 'active')
+    `;
+    const suspended = await issueSessionForDevice(
+      db,
+      {
+        userId: suspendedUserId,
+        trust: "trusted",
+        deviceFingerprint: "suspended-device",
+        device: { label: "Suspended", browser: "Chrome", operatingSystem: "Windows" },
+        newDeviceNotification: notificationInput("suspended-device"),
+      },
+      deterministicDependencies(new Date("2026-08-21T10:00:00.000Z")),
+    );
+    await client`update users set status = 'suspended' where id = ${suspendedUserId}`;
+
+    for (const candidate of [...issuedCases, { name: "suspended", issued: suspended }]) {
+      await expect(
+        resolveAndTouchSession(db, candidate.issued.token, () => requestAt),
+      ).resolves.toBeNull();
+      const [stored] = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, candidate.issued.session.id));
+      expect(stored?.lastSeenAt).toEqual(candidate.issued.session.lastSeenAt);
+      expect(stored?.idleExpiresAt).toEqual(candidate.issued.session.idleExpiresAt);
+    }
   });
 
   it("revokes one session or every other session with next-lookup effect", async () => {
@@ -186,6 +297,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
       db,
       {
         userId,
+        trust: "trusted",
         deviceFingerprint: "revocation-device-1",
         device: { label: "Desktop", browser: "Chrome", operatingSystem: "Windows" },
         newDeviceNotification: notificationInput("revoke-device-1"),
@@ -196,6 +308,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
       db,
       {
         userId,
+        trust: "trusted",
         deviceFingerprint: "revocation-device-2",
         device: { label: "Phone", browser: "Safari", operatingSystem: "iOS" },
         newDeviceNotification: notificationInput("revoke-device-2"),
@@ -232,6 +345,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
         tx,
         {
           userId,
+          trust: "trusted",
           deviceFingerprint: "alert-context-device",
           device: { label: "Unknown PC", browser: "Edge", operatingSystem: "Windows" },
           newDeviceNotification: notificationInput("alert-context-device"),
@@ -286,6 +400,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
           tx,
           {
             userId: rollbackUserId,
+            trust: "trusted",
             deviceFingerprint: "rollback-device",
             device: { label: "Rollback PC", browser: "Chrome", operatingSystem: "Windows" },
             newDeviceNotification: notificationInput("rollback-new-device"),

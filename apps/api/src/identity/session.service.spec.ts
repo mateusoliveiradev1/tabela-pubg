@@ -34,8 +34,9 @@ function setup(options?: {
     options?.alertStatus ?? { status: "active", sessionId: "session-alerted" };
   const repository: SessionRepositoryPort = {
     issue: vi.fn(async (input) => ({ sessionId: input.id })),
-    issueForDevice: vi.fn(async (input) => ({
-      sessionId: input.id,
+    issueForDevice: vi.fn(async () => ({
+      sessionId: "repository-session",
+      token: "repository-token",
       isNewDevice: true,
       notificationScheduled: true,
     })),
@@ -124,6 +125,7 @@ describe("SessionService", () => {
 
     const result = await service.startDeviceSession({
       userId: "user-1",
+      trust: "trusted",
       deviceFingerprint: "device-cookie",
       device: {
         label: "Notebook",
@@ -136,22 +138,28 @@ describe("SessionService", () => {
     });
 
     expect(result).toMatchObject({
-      sessionId: "session-new-1",
-      token: "opaque-1",
+      sessionId: "repository-session",
+      token: "repository-token",
       isNewDevice: true,
       notificationScheduled: true,
     });
     expect(repository.issueForDevice).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "user-1",
-        token: "opaque-1",
-        alertToken: "opaque-2",
+        trust: "trusted",
         deviceFingerprint: "device-cookie",
+      }),
+    );
+    expect(repository.issueForDevice).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: expect.anything(),
+        alertToken: expect.anything(),
       }),
     );
     expect(repository.issueForDevice).not.toHaveBeenCalledWith(
       expect.objectContaining({ authorizedByIp: expect.anything() }),
     );
+    expect(tokens.opaque).not.toHaveBeenCalled();
   });
 
   it("requires step-up to be strictly newer than ten minutes", async () => {
