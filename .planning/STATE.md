@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T11:55:14.336Z"
+last_updated: "2026-08-24T11:55:53.505Z"
 progress:
   total_phases: 3
   completed_phases: 1
@@ -132,9 +132,12 @@ progress:
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
 | Phase 02 P29 | 9 min | 2 tasks | 7 files |
+| Phase 02 P31 | 22 min | 1 tasks | 4 files |
 
 ## Decisions
 
 - [Phase 02]: BFF injeta tenant somente de captures UUID canonicos da rota allowlisted; headers tenant do browser sao descartados.
 - [Phase 02]: PermissionGuard exige igualdade entre parametros Fastify e headers internos antes do snapshot RBAC ou handler.
 - [Phase 02]: Negacoes tenant usam reason class limitada e payload redigido; falha ou ausencia do recorder preserva o 403.
+- [Phase 02]: Step-up OAuth exige somente sessão ativa; link-identity exige reauthenticated_at da mesma sessão estritamente mais recente que dez minutos. — Evita pré-requisito circular no step-up e reserva prova fresca ao vínculo de identidade.
+- [Phase 02]: Candidate proofs OAuth ficam server-side, actor/session-bound, expirantes e são consumidas por atualização condicional one-use. — Impede replay, troca de sessão e exposição da candidate ao navegador.
