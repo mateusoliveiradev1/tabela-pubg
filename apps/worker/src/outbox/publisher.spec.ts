@@ -15,13 +15,14 @@ const cleanupId = "33333333-3333-4333-8333-333333333333";
 function event(
   overrides: Partial<OutboxEventRow> & Pick<OutboxEventRow, "eventType" | "payload">,
 ): OutboxEventRow {
+  const { eventType, payload, ...optionalOverrides } = overrides;
   return {
     id: eventId,
-    eventType: overrides.eventType,
+    eventType,
     eventVersion: 1,
     aggregateType: "notification-delivery",
     aggregateId: deliveryId,
-    payload: overrides.payload,
+    payload,
     correlationId: null,
     causationId: null,
     status: "publishing",
@@ -33,7 +34,7 @@ function event(
     leaseExpiresAt: new Date(now.getTime() + 60_000),
     lastError: null,
     createdAt: now,
-    ...overrides,
+    ...optionalOverrides,
   };
 }
 
