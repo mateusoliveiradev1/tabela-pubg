@@ -103,8 +103,59 @@ describe("DROP MANIFEST transactional email system", () => {
 
     expect(invitation.html).toContain("#f4a21d");
     expect(invitation.html).not.toContain("#c64242");
-    expect(newDevice.html).toContain("#c64242");
+    expect(newDevice.html).toContain("#e45a5a");
+    expect(newDevice.html).not.toContain("#c64242");
     expect(newDevice.html).toContain("ALERTA DE SEGURANÇA");
+  });
+
+  it("keeps long operational data readable in a 320px viewport", () => {
+    const longOrganization =
+      "Liga Comunitária Metropolitana de Operadores e Árbitros do Sul Brasileiro";
+    const longLocation =
+      "Região metropolitana de São Paulo — localização aproximada fornecida pelo provedor";
+    const invitation = render("invitation", {
+      recipient: "captain@example.com",
+      invitationToken: "invite-token-preview",
+      organizationName: longOrganization,
+      expiresAt: "2026-08-31T03:48:00.000Z",
+    });
+    const newDevice = render("new-device", {
+      recipient: "player@example.com",
+      alertToken: "alert-token-preview",
+      sessionId: "internal-session-id",
+      device: {
+        label: "Estação de operação e transmissão principal",
+        browser: "Firefox Developer Edition com identificação operacional estendida",
+        operatingSystem: "Windows 11 Professional para estações de transmissão",
+        approximateLocation: longLocation,
+        summarizedUserAgent: null,
+      },
+    });
+
+    expect(invitation.html).toContain(longOrganization);
+    expect(invitation.html).toContain("overflow-wrap:anywhere");
+    expect(newDevice.html).toContain(longLocation);
+    expect(newDevice.html).toContain("word-break:break-word");
+    expect(newDevice.html).toContain("@media only screen and (max-width:400px)");
+    expect(newDevice.html).toContain(".status-cell,.timestamp-cell{display:block!important");
+    expect(newDevice.html).toContain('class="status-cell"');
+    expect(newDevice.html).toContain('class="timestamp-cell"');
+  });
+
+  it("uses a hybrid fluid shell with an Outlook-only fixed 640px wrapper", () => {
+    const message = render("otp", {
+      recipient: "player@example.com",
+      code: "12345678",
+      expiresAt: "2026-08-24T04:00:00.000Z",
+    });
+
+    expect(message.html).toContain(
+      '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="manifest" style="width:100%;max-width:640px;',
+    );
+    expect(message.html).toContain(
+      '<!--[if mso]><table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->',
+    );
+    expect(message.html).toContain("<!--[if mso]></td></tr></table><![endif]-->");
   });
 
   it("escapes untrusted organization and device copy while keeping secrets out of the visible hierarchy", () => {
@@ -138,7 +189,7 @@ describe("DROP MANIFEST transactional email system", () => {
   it("provides deterministic preview fixtures with invalid-domain recipients only", () => {
     const fixtures = buildNotificationPreviewFixtures();
 
-    expect(Object.keys(fixtures)).toEqual(["otp", "invitation", "new-device"]);
+    expect(Object.keys(fixtures)).toEqual(["otp", "invitation", "new-device", "long-content"]);
     for (const [name, message] of Object.entries(fixtures)) {
       expect(message.to).toMatch(/@preview\.invalid$/);
       if (name !== "otp") expect(message.html).toContain("preview.invalid");
