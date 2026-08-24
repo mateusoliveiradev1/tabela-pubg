@@ -79,15 +79,18 @@ describe("real API provider composition", () => {
 
   it("provides a deterministic test-only Discord transport only after the complete conjunction", async () => {
     const fakeFetch = createFakeDiscordFetch(runId);
-    const tokenResponse = await fakeFetch("https://discord.com/api/v10/oauth2/token", {
+    const tokenResponse = await fakeFetch("https://discord.com/api/oauth2/token", {
       method: "POST",
     });
-    const profileResponse = await fakeFetch("https://discord.com/api/v10/users/@me", {
+    const profileResponse = await fakeFetch("https://discord.com/api/users/@me", {
       headers: { authorization: "Bearer opaque-test-token" },
     });
 
     await expect(tokenResponse.json()).resolves.toMatchObject({ token_type: "Bearer" });
-    await expect(profileResponse.json()).resolves.toMatchObject({ verified: true });
+    await expect(profileResponse.json()).resolves.toEqual(
+      expect.objectContaining({ verified: false }),
+    );
+    await expect(profileResponse.clone().json()).resolves.not.toHaveProperty("email");
     await expect(fakeFetch("https://example.com/not-discord")).rejects.toThrow(/Discord/i);
   });
 });
