@@ -271,40 +271,43 @@ export class OrganizationsService {
     const logoBytes = validateLogoPair(body.logo, input.logoBytes);
     const organizationId = this.tokens.id();
     const occurredAt = this.clock.now();
-    let stored: StoredOrganizationLogo | undefined;
-    if (body.logo && logoBytes) {
-      stored = await this.logoStorage.store({
-        organizationId,
-        declaredMime: body.logo.declaredMime,
-        bytes: logoBytes,
-      });
-    }
+    const committed = await (async () => {
+      let stored: StoredOrganizationLogo | undefined;
+      try {
+        if (body.logo && logoBytes) {
+          stored = await this.logoStorage.store({
+            organizationId,
+            declaredMime: body.logo.declaredMime,
+            bytes: logoBytes,
+          });
+        }
+        const organization = await this.repository.create({
+          id: organizationId,
+          ownerMembershipId: this.tokens.id(),
+          actorId: input.actorId,
+          slug: organizationSlug(body.name, organizationId),
+          name: body.name,
+          ...(stored ? { logo: { id: this.tokens.id(), ...stored, createdAt: occurredAt } } : {}),
+          auditEventId: this.tokens.id(),
+          outboxEventId: this.tokens.id(),
+          correlationId: input.correlationId,
+          occurredAt,
+        });
+        return { organization, stored };
+      } catch (error) {
+        if (stored) await this.compensateStoredObject(stored.objectKey, occurredAt);
+        throw error;
+      }
+    })();
 
-    try {
-      const created = await this.repository.create({
-        id: organizationId,
-        ownerMembershipId: this.tokens.id(),
-        actorId: input.actorId,
-        slug: organizationSlug(body.name, organizationId),
-        name: body.name,
-        ...(stored ? { logo: { id: this.tokens.id(), ...stored, createdAt: occurredAt } } : {}),
-        auditEventId: this.tokens.id(),
-        outboxEventId: this.tokens.id(),
-        correlationId: input.correlationId,
-        occurredAt,
-      });
-      return CreateOrganizationResponseSchema.parse({
-        organization: {
-          ...created,
-          logoUrl: stored
-            ? await this.signedUrlOrFallback(stored.objectKey)
-            : this.logoOptions.fallbackUrl,
-        },
-      });
-    } catch (error) {
-      if (stored) await this.compensateStoredObject(stored.objectKey, occurredAt);
-      throw error;
-    }
+    return CreateOrganizationResponseSchema.parse({
+      organization: {
+        ...committed.organization,
+        logoUrl: committed.stored
+          ? await this.signedUrlOrFallback(committed.stored.objectKey)
+          : this.logoOptions.fallbackUrl,
+      },
+    });
   }
 
   async updateLogo(input: {
