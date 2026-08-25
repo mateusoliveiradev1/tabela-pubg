@@ -14,6 +14,7 @@ const organizationId = "organization-1" as OrganizationId;
 const tournamentId = "tournament-1" as AuthorizationScopeId;
 
 const organizationPermissions = [
+  "organization:read",
   "organization:settings:manage",
   "organization:members:manage",
   "organization:roles:manage",
@@ -112,24 +113,28 @@ describe("organization roles", () => {
 describe("operational roles", () => {
   const matrix: Readonly<Record<OperationalRole, readonly Permission[]>> = {
     referee: [
+      "organization:read",
       "organization:audit:self:read",
       "tournament:competition:read",
       "tournament:competition:manage",
       "tournament:statistics:read",
     ],
     registrations: [
+      "organization:read",
       "organization:audit:self:read",
       "tournament:registrations:read",
       "tournament:registrations:manage",
       "tournament:statistics:read",
     ],
     broadcast: [
+      "organization:read",
       "organization:audit:self:read",
       "tournament:broadcast:read",
       "tournament:broadcast:manage",
       "tournament:statistics:read",
     ],
     analyst: [
+      "organization:read",
       "organization:audit:self:read",
       "tournament:competition:read",
       "tournament:registrations:read",
@@ -318,6 +323,23 @@ describe("default deny boundaries", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("active organization membership", () => {
+  it("grants only the explicit baseline read permissions without requiring a role assignment", () => {
+    const activeMember = snapshot();
+
+    expect(decision("organization:read", activeMember)).toBe(true);
+    expect(decision("organization:audit:self:read", activeMember)).toBe(true);
+    expect(decision("organization:settings:manage", activeMember)).toBe(false);
+  });
+
+  it("revokes baseline read permissions with the membership", () => {
+    const revokedMember = snapshot({ membershipStatus: "revoked" });
+
+    expect(decision("organization:read", revokedMember)).toBe(false);
+    expect(decision("organization:audit:self:read", revokedMember)).toBe(false);
   });
 });
 

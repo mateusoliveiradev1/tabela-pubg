@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AuditController } from "../audit/audit.controller.js";
 import { MembersController } from "../organizations/members.controller.js";
 import { OrganizationsController } from "../organizations/organizations.controller.js";
-import { REQUIRED_PERMISSION_KEY, type ApiPermission } from "./decorators.js";
+import { type ApiPermission, REQUIRED_PERMISSION_KEY } from "./decorators.js";
 import { PermissionGuard } from "./permission.guard.js";
 
 const ACTOR_ID = "018f0ce7-98e3-7b27-bf2d-6eeac51d2301";
@@ -63,11 +63,7 @@ function pipeline(route: TenantReadRoute, allowed: boolean) {
     getClass: () => route.controller,
     switchToHttp: () => ({ getRequest: () => request }),
   };
-  const guard = new PermissionGuard(
-    new Reflector(),
-    authorization as never,
-    recorder as never,
-  );
+  const guard = new PermissionGuard(new Reflector(), authorization as never, recorder as never);
 
   return {
     authorization,

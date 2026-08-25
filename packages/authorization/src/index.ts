@@ -1,6 +1,7 @@
 import type { AuthorizationScopeId, OrganizationId, UserId } from "@pubg-camp/domain";
 
 export const ALL_PERMISSIONS = [
+  "organization:read",
   "organization:settings:manage",
   "organization:members:manage",
   "organization:roles:manage",
@@ -48,6 +49,10 @@ const permissionSet: ReadonlySet<Permission> = new Set(ALL_PERMISSIONS);
 const organizationPermissionSet: ReadonlySet<Permission> = new Set(
   ALL_PERMISSIONS.filter((permission) => permission.startsWith("organization:")),
 );
+const activeMembershipPermissions: ReadonlySet<Permission> = new Set([
+  "organization:read",
+  "organization:audit:self:read",
+]);
 
 const organizationRoles: ReadonlySet<OrganizationRole> = new Set(["owner", "admin"]);
 const operationalRoles: ReadonlySet<OperationalRole> = new Set([
@@ -153,7 +158,7 @@ export function can(input: AuthorizationInput, snapshot: AuthorizationSnapshot):
       return false;
     }
 
-    if (input.permission === "organization:audit:self:read") {
+    if (activeMembershipPermissions.has(input.permission)) {
       return true;
     }
 

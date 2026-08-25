@@ -14,7 +14,7 @@ export class AuditController {
   ) {}
 
   @Get()
-  @RequirePermission("authenticated")
+  @RequirePermission("organization:audit:self:read")
   query(
     @Param("organizationId") organizationId: string,
     @Query() query: Record<string, unknown>,

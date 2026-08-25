@@ -96,7 +96,7 @@ export class OrganizationsController {
   }
 
   @Get(":organizationId/logo")
-  @RequirePermission("authenticated")
+  @RequirePermission("organization:read")
   getLogo(@Param("organizationId") organizationId: string, @Req() request: SessionAlertRequest) {
     return this.organizations.getLogo(request.auth.actorId, organizationId);
   }

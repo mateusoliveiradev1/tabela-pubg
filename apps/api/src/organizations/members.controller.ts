@@ -21,7 +21,7 @@ export class MembersController {
   ) {}
 
   @Get("members")
-  @RequirePermission("authenticated")
+  @RequirePermission("organization:read")
   list(@Param("organizationId") organizationId: string, @Req() request: SessionAlertRequest) {
     return this.members.list(request.auth.actorId, IdSchema.parse(organizationId));
   }
