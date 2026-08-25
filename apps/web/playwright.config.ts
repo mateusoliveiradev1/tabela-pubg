@@ -27,7 +27,7 @@ export default defineConfig({
   projects: [
     {
       name: "mobile-320",
-      testIgnore: "phase2-runtime.spec.ts",
+      testIgnore: ["phase2-runtime.spec.ts", "phase2-smoke.spec.ts"],
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 320, height: 800 },
@@ -36,7 +36,7 @@ export default defineConfig({
     },
     {
       name: "tablet-768",
-      testIgnore: "phase2-runtime.spec.ts",
+      testIgnore: ["phase2-runtime.spec.ts", "phase2-smoke.spec.ts"],
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 768, height: 1024 },
@@ -54,7 +54,7 @@ export default defineConfig({
     },
     {
       name: "reduced-motion",
-      testIgnore: "phase2-runtime.spec.ts",
+      testIgnore: ["phase2-runtime.spec.ts", "phase2-smoke.spec.ts"],
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1440, height: 900 },

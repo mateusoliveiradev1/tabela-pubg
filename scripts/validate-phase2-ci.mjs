@@ -16,6 +16,7 @@ const sourcePaths = {
   runtimeSpec: path.join(repositoryRoot, "apps/web/e2e/phase2-runtime.spec.ts"),
   playwrightConfig: path.join(repositoryRoot, "apps/web/playwright.config.ts"),
   authSetup: path.join(repositoryRoot, "apps/web/e2e/global-setup.ts"),
+  authState: path.join(repositoryRoot, "apps/web/e2e/auth-state.ts"),
   browserFixtures: path.join(repositoryRoot, "apps/web/e2e/fixtures.ts"),
   accessibilitySpec: path.join(repositoryRoot, "apps/web/e2e/phase2-accessibility.spec.ts"),
   workerMain: path.join(repositoryRoot, "apps/worker/src/main.ts"),
@@ -213,6 +214,14 @@ function validate(input) {
     [/context\.storageState\(\{ path: statePath \}\)/, "persisted reusable authentication state"],
     [/requiredRunMailRoot\(statePath, process\.env\.E2E_MAIL_ROOT\)/, "run-owned OTP mailbox"],
     [/const code = await waitForOtp\(/, "real OTP mailbox lookup"],
+    [/phase2FixtureStatePath\(process\.env\)/, "run-owned browser fixture state"],
+    [/createOrganization\(page, csrf\)/, "real smoke organization fixture"],
+    [
+      /createInvitation\(page, csrf, organization\.organizationId, invitee\)/,
+      "real smoke invitation fixture",
+    ],
+    [/seedSecondarySession\(\)/, "real smoke secondary session fixture"],
+    [/writeFile\(fixturePath,/, "persisted browser fixture metadata"],
   ]);
   rejectMatch(input.authSetup, /12345678/, "hardcoded browser OTP");
   rejectMatch(
@@ -220,6 +229,14 @@ function validate(input) {
     /Receber código|Código de 8 dígitos|organizer@example\.com/,
     "per-test OTP authentication",
   );
+  requireAll(input.authState, [
+    [/export function phase2FixtureStatePath\(/, "owned fixture state path"],
+    [/export function parsePhase2FixtureState\(/, "validated fixture state parser"],
+  ]);
+  requireAll(input.browserFixtures, [
+    [/readFile\(phase2FixtureStatePath\(process\.env\)/, "real fixture state lookup"],
+    [/parsePhase2FixtureState\(/, "validated real fixture metadata"],
+  ]);
   requireAll(input.runtimeSpec, [
     [/select correlation_id from outbox_events/, "real PostgreSQL correlation assertion"],
     [
@@ -544,8 +561,18 @@ function runSelfTest(baseline) {
           "removedRunMailRoot(statePath)",
         ),
     ],
+    [
+      "missing-real-smoke-fixture",
+      (value) =>
+        mutate(
+          value,
+          "authSetup",
+          "createOrganization(page, csrf)",
+          "removedRealOrganizationFixture(page, csrf)",
+        ),
+    ],
   ];
-  if (cases.length !== 36) throw new Error("CI validator self-test inventory cardinality changed");
+  if (cases.length !== 37) throw new Error("CI validator self-test inventory cardinality changed");
   const executed = [];
   for (const [name, change] of cases) {
     let rejected = false;
