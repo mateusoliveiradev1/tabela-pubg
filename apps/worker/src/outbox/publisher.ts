@@ -10,10 +10,7 @@ import { z } from "zod";
 const NotificationEventPayloadSchema = z.object({ deliveryId: z.uuid() }).strict();
 const CleanupEventPayloadSchema = z.object({ cleanupId: z.uuid() }).strict();
 const EventIdSchema = z.uuid();
-const SUPPORTED_EVENT_TYPES = [
-  "notification.delivery.requested",
-  "storage.logo.cleanup",
-] as const;
+const SUPPORTED_EVENT_TYPES = ["notification.delivery.requested", "storage.logo.cleanup"] as const;
 
 export interface OutboxPublisherStore {
   claimBatch(input: ClaimOutboxBatchInput): Promise<readonly OutboxEventRow[]>;
