@@ -211,7 +211,10 @@ function validate(input) {
   requireAll(input.authSetup, [
     [/phase2AuthStatePath\(process\.env\)/, "run-owned authentication state path"],
     [/context\.storageState\(\{ path: statePath \}\)/, "persisted reusable authentication state"],
+    [/requiredRunMailRoot\(statePath, process\.env\.E2E_MAIL_ROOT\)/, "run-owned OTP mailbox"],
+    [/const code = await waitForOtp\(/, "real OTP mailbox lookup"],
   ]);
+  rejectMatch(input.authSetup, /12345678/, "hardcoded browser OTP");
   rejectMatch(
     input.browserFixtures,
     /Receber código|Código de 8 dígitos|organizer@example\.com/,
@@ -531,8 +534,18 @@ function runSelfTest(baseline) {
           'globalSetup: "./e2e/missing-setup.ts"',
         ),
     ],
+    [
+      "missing-run-owned-auth-mailbox",
+      (value) =>
+        mutate(
+          value,
+          "authSetup",
+          "requiredRunMailRoot(statePath, process.env.E2E_MAIL_ROOT)",
+          "removedRunMailRoot(statePath)",
+        ),
+    ],
   ];
-  if (cases.length !== 35) throw new Error("CI validator self-test inventory cardinality changed");
+  if (cases.length !== 36) throw new Error("CI validator self-test inventory cardinality changed");
   const executed = [];
   for (const [name, change] of cases) {
     let rejected = false;

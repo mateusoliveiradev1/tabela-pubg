@@ -28,3 +28,12 @@ export function phase2AuthStatePath(environment: Phase2AuthEnvironment): string 
 export function shouldBootstrapPhase2Auth(environment: Phase2AuthEnvironment): boolean {
   return environment.E2E_BROWSER_AUTH_MODE !== "runtime";
 }
+
+export function otpCodeFromMailbox(
+  message: string,
+  recipient: string,
+  challengeId: string,
+): string | null {
+  if (!message.includes(recipient) || !message.includes(challengeId)) return null;
+  return /\b(\d{8})\b/.exec(message)?.[1] ?? null;
+}
