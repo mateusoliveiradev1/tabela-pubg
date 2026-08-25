@@ -672,6 +672,14 @@ async function discordStepUp(page: Page): Promise<string> {
     { purpose: "step-up", code: "e2e-link-code", state },
   );
   expect(callback.status).toBe(201);
+  const rejectedOldCsrf = await browserJson(
+    page,
+    "POST",
+    "/api/platform/identity/email/otp/step-up/request",
+    csrf,
+    { email: "csrf-rotation-probe@example.invalid" },
+  );
+  expect(rejectedOldCsrf.status).toBe(403);
   return callback.headers["x-csrf-token"] ?? acquireCsrf(page);
 }
 

@@ -139,9 +139,10 @@ async function proxy(request: Request, context: PlatformRouteContext): Promise<R
 
   if (resolved.rule.csrfRotation === "reacquire" && upstream.ok) {
     const csrf = await reacquireCsrf(apiOrigin, request, requestUrl.origin, upstreamCookies);
-    if (!csrf) return unavailable(502);
-    responseHeaders.set("x-csrf-token", csrf.token);
-    for (const cookie of csrf.cookies) responseHeaders.append("set-cookie", cookie);
+    if (csrf) {
+      responseHeaders.set("x-csrf-token", csrf.token);
+      for (const cookie of csrf.cookies) responseHeaders.append("set-cookie", cookie);
+    }
   } else if (resolved.rule.csrfRotation === "clear" && upstream.ok) {
     responseHeaders.set("x-csrf-token", "");
     responseHeaders.set("x-csrf-token-state", "cleared");

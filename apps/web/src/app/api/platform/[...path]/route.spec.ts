@@ -511,6 +511,49 @@ describe("same-origin platform BFF", () => {
     expect(setCookies(response).join(";")).toContain("__Host-csrf=confirmed-secret");
   });
 
+  it("forwards committed step-up success and cookie rotation when CSRF reacquisition fails", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { status: "step-up-confirmed", validUntil: "2026-08-25T08:00:00.000Z" },
+          {
+            cookies: [
+              "__Host-session=current-session; Path=/; Secure; HttpOnly; SameSite=Lax",
+              "__Host-csrf=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+              "__Host-csrf=new-secret; Path=/; Secure; HttpOnly; SameSite=Lax",
+            ],
+          },
+        ),
+      )
+      .mockRejectedValueOnce(new Error("csrf endpoint unavailable"));
+
+    const response = await POST(
+      request("identity/email/otp/step-up/verify", {
+        method: "POST",
+        headers: {
+          cookie: "__Host-session=current-session; __Host-csrf=old-secret",
+          "content-type": "application/json",
+          "x-csrf-token": "old-csrf-token",
+        },
+        body: JSON.stringify({
+          challengeId: "33333333-3333-4333-8333-333333333333",
+          email: "owner@example.test",
+          code: "12345678",
+        }),
+      }),
+      context("identity", "email", "otp", "step-up", "verify"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: "step-up-confirmed",
+      validUntil: "2026-08-25T08:00:00.000Z",
+    });
+    expect(response.headers.get("x-csrf-token")).toBeNull();
+    expect(setCookies(response).join(";")).toContain("__Host-session=current-session");
+    expect(setCookies(response).join(";")).toContain("__Host-csrf=new-secret");
+  });
+
   it("clears client CSRF state on logout while preserving cookie invalidation", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(null, {
