@@ -107,10 +107,7 @@ export function resolveIdentityRedisPrefixes(
   };
 }
 
-export function buildOtpNotificationDelivery(
-  input: OtpDeliveryRequest,
-  now = new Date(),
-) {
+export function buildOtpNotificationDelivery(input: OtpDeliveryRequest, now = new Date()) {
   return {
     id: input.deliveryId,
     template: "otp" as const,

@@ -33,9 +33,9 @@ describe("configuration", () => {
     "http://localhost:3000#fragment",
     "http://user:password@localhost:3000",
   ])("rejects non-canonical APP_ORIGIN shape %s", (appOrigin) => {
-    expect(() =>
-      loadEnv(Phase2EnvSchema, { ...validPhase2Env, APP_ORIGIN: appOrigin }),
-    ).toThrow("APP_ORIGIN");
+    expect(() => loadEnv(Phase2EnvSchema, { ...validPhase2Env, APP_ORIGIN: appOrigin })).toThrow(
+      "APP_ORIGIN",
+    );
   });
 
   it("rejects __Host cookies without Secure and accepts the documented local cookie mode", () => {

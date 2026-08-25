@@ -13,6 +13,10 @@ import {
   verifiedEmails,
 } from "../schema.js";
 import {
+  type CreateEncryptedNotificationDeliveryInput,
+  createEncryptedNotificationDelivery,
+} from "./notifications.js";
+import {
   lockActiveSessionForOtp,
   promoteProvisionalSessionTrust,
   replaceActiveSessionToken,
@@ -20,10 +24,6 @@ import {
   rotateIdentitySession,
   type SessionSecurityPolicy,
 } from "./sessions.js";
-import {
-  createEncryptedNotificationDelivery,
-  type CreateEncryptedNotificationDeliveryInput,
-} from "./notifications.js";
 
 export type Clock = () => Date;
 
@@ -411,11 +411,7 @@ export async function replaceAuthChallengeDigest(
   await input.afterMutation?.("challenge");
 }
 
-export type OtpRequestMutationStage =
-  | "supersession"
-  | "challenge"
-  | "delivery"
-  | "outbox";
+export type OtpRequestMutationStage = "supersession" | "challenge" | "delivery" | "outbox";
 
 export async function replaceAuthChallengeWithNotification(
   database: Pick<PostgresJsDatabase<typeof databaseSchema>, "transaction">,

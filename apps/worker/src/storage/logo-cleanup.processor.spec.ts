@@ -113,9 +113,9 @@ describe("organization logo cleanup processor", () => {
         throw new Error("job-delayed");
       });
 
-      await expect(
-        deferred.processor({ cleanupId }, { deferUntil } as never),
-      ).rejects.toThrow("job-delayed");
+      await expect(deferred.processor({ cleanupId }, { deferUntil } as never)).rejects.toThrow(
+        "job-delayed",
+      );
       expect(deferUntil).toHaveBeenCalledWith(retryAt);
       expect(deferred.storage.deleteObject).not.toHaveBeenCalled();
       expect(deferred.store.complete).not.toHaveBeenCalled();

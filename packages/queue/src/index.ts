@@ -48,8 +48,8 @@ export function createWorker<TData, TResult>(
         },
       }),
     {
-    ...options,
-    connection,
+      ...options,
+      connection,
     },
   );
 }

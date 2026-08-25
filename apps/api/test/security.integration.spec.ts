@@ -146,13 +146,7 @@ describe("CSRF lifecycle through Fastify inject", () => {
       expect.arrayContaining([expect.stringMatching(/pubg-camp-preauth=.*HttpOnly/i)]),
     );
     expect(JSON.stringify(acquired.response.headers["set-cookie"])).not.toMatch(/;\s*Secure/i);
-    const login = await unsafe(
-      server,
-      jar,
-      acquired.token,
-      "/login",
-      localOptions.appOrigin,
-    );
+    const login = await unsafe(server, jar, acquired.token, "/login", localOptions.appOrigin);
     expect(login.statusCode).toBe(200);
   });
 
@@ -162,9 +156,9 @@ describe("CSRF lifecycle through Fastify inject", () => {
       { preauthCookieName: "__Host-preauth" },
       { csrfSecretCookieName: "__Host-csrf" },
     ]) {
-      expect(
-        () => new CsrfService({ ...options, secureCookies: false, ...names }),
-      ).toThrow("__Host- cookies require Secure");
+      expect(() => new CsrfService({ ...options, secureCookies: false, ...names })).toThrow(
+        "__Host- cookies require Secure",
+      );
     }
   });
 

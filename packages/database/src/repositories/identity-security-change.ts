@@ -74,8 +74,7 @@ export function isFreshIdentityReauthentication(
   if (!reauthenticatedAt) return false;
   const timestamp = reauthenticatedAt.getTime();
   return (
-    timestamp > now.getTime() - IDENTITY_REAUTHENTICATION_LIFETIME_MS &&
-    timestamp <= now.getTime()
+    timestamp > now.getTime() - IDENTITY_REAUTHENTICATION_LIFETIME_MS && timestamp <= now.getTime()
   );
 }
 
