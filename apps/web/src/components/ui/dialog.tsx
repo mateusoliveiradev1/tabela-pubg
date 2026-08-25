@@ -11,11 +11,16 @@ interface DialogProps {
   title: string;
   description: string;
   children: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function Dialog({ trigger, title, description, children }: DialogProps) {
+export function Dialog({ trigger, title, description, children, open, onOpenChange }: DialogProps) {
   return (
-    <DialogPrimitive.Root>
+    <DialogPrimitive.Root
+      {...(open === undefined ? {} : { open })}
+      {...(onOpenChange === undefined ? {} : { onOpenChange })}
+    >
       <DialogPrimitive.Trigger asChild>
         <Button>{trigger}</Button>
       </DialogPrimitive.Trigger>

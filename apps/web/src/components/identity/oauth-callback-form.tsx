@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { promoteSensitiveActionContinuation } from "../authorization/sensitive-action-continuation";
 import { InlineAlert } from "../ui/feedback";
+import { promoteIdentityActionContinuation } from "./identity-action-continuation";
 
 type CallbackStatus =
   | { state: "processing" }
@@ -79,8 +80,10 @@ async function completeCallback(
     });
     if (!response.ok) return { state: "error" };
     const payload = (await response.json()) as { nextPath?: unknown };
-    if (purpose === "step-up" && !promoteSensitiveActionContinuation(sessionStorage)) {
-      return { state: "error" };
+    if (purpose === "step-up") {
+      const promotedSensitive = promoteSensitiveActionContinuation(sessionStorage);
+      const promotedIdentity = promoteIdentityActionContinuation(sessionStorage);
+      if (!promotedSensitive && !promotedIdentity) return { state: "error" };
     }
     return {
       state: "success",

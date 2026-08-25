@@ -8,6 +8,7 @@ const codes: Record<number, string> = {
   403: "ACCESS_DENIED",
   404: "RESOURCE_NOT_FOUND",
   413: "PAYLOAD_TOO_LARGE",
+  428: "REAUTHENTICATION_REQUIRED",
   429: "RATE_LIMITED",
 };
 

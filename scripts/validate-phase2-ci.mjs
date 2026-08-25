@@ -56,6 +56,7 @@ const PROVIDER_CASES = [
 ];
 const RUNTIME_CASES = [
   "provisional-to-trusted",
+  "identity-reauthentication-management",
   "invitation-seven-day-one-use",
   "sensitive-membership-step-up",
   "audit-visibility",

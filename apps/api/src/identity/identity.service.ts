@@ -1,8 +1,14 @@
-import { Injectable } from "@nestjs/common";
+import { HttpException, Injectable } from "@nestjs/common";
 import type { DiscordUserProfile } from "./ports/discord-identity-provider.js";
 import type { TokenGenerator } from "./ports/token-generator.js";
 
 export type SessionTrust = "provisional" | "trusted";
+
+export class ReauthenticationRequiredException extends HttpException {
+  constructor() {
+    super({ status: "reauthentication-required" }, 428);
+  }
+}
 
 export interface IdentityRepository {
   findDiscordIdentity(subject: string): Promise<{ userId: string; emailVerified: boolean } | null>;
@@ -210,6 +216,12 @@ export class IdentityService {
     });
   }
 
+  async assertFreshAuthentication(actorId: string, sessionId: string): Promise<void> {
+    if (!(await this.sessions.hasFreshStepUp(actorId, sessionId, this.clock.now()))) {
+      throw new ReauthenticationRequiredException();
+    }
+  }
+
   async confirmIdentityLink(input: {
     actorId: string;
     sessionId: string;
@@ -222,9 +234,7 @@ export class IdentityService {
     otherSessionsRevoked: number;
   }> {
     const now = this.clock.now();
-    if (!(await this.sessions.hasFreshStepUp(input.actorId, input.sessionId, now))) {
-      throw new Error("recent authentication required");
-    }
+    await this.assertFreshAuthentication(input.actorId, input.sessionId);
     const pending = await this.repository.findPendingLink({
       actorId: input.actorId,
       sessionId: input.sessionId,
@@ -255,9 +265,7 @@ export class IdentityService {
     correlationId: string;
   }): Promise<{ sessionId: string; sessionToken: string; otherSessionsRevoked: number }> {
     const now = this.clock.now();
-    if (!(await this.sessions.hasFreshStepUp(input.actorId, input.sessionId, now))) {
-      throw new Error("recent authentication required");
-    }
+    await this.assertFreshAuthentication(input.actorId, input.sessionId);
     const sessionToken = this.tokens.opaque(32);
     const removed = await this.repository.removeOwned({
       actorId: input.actorId,
@@ -289,6 +297,7 @@ export class IdentityService {
     otherSessionsRevoked: number;
   }> {
     const email = input.email.trim().toLowerCase();
+    await this.assertFreshAuthentication(input.actorId, input.sessionId);
     if (input.purpose === "change-email" && !input.identityId) {
       throw new Error("email identity is required");
     }

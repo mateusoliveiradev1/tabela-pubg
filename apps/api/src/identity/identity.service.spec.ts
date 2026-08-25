@@ -4,6 +4,7 @@ import {
   type IdentitySecurityChangeApplicationPort,
   IdentityService,
   type IdentitySessionPort,
+  ReauthenticationRequiredException,
 } from "./identity.service.js";
 import type { TokenGenerator } from "./ports/token-generator.js";
 
@@ -354,7 +355,7 @@ describe("IdentityService", () => {
         proofId: "proof-1",
         correlationId: "corr-link",
       }),
-    ).rejects.toThrow("recent authentication required");
+    ).rejects.toBeInstanceOf(ReauthenticationRequiredException);
     expect(repository.findPendingLink).not.toHaveBeenCalled();
     expect(securityChanges.execute).not.toHaveBeenCalled();
   });

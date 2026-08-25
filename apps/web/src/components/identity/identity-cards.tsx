@@ -2,12 +2,17 @@
 
 import type { IdentityProvider, IdentitySummary, PendingIdentityLink } from "@pubg-camp/contracts";
 import { Link2, Mail, MessageCircle, Unlink } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { InlineAlert, StatusBadge } from "../ui/feedback";
 import { Input } from "../ui/input";
 import { submitDiscordNavigation } from "./discord-navigation";
+import {
+  consumeIdentityActionContinuation,
+  type IdentityActionDescriptor,
+  storeIdentityActionContinuation,
+} from "./identity-action-continuation";
 import { OtpInput } from "./otp-input";
 
 interface IdentityCardsProps {
@@ -22,11 +27,41 @@ export function IdentityCards({ identities, pendingLink, onRefresh }: IdentityCa
   const [linking, setLinking] = useState(false);
   const [removingId, setRemovingId] = useState<string>();
   const [message, setMessage] = useState<LinkMessage>();
+  const [reauthAction, setReauthAction] = useState<IdentityActionDescriptor>();
+  const [emailLinkAuthorized, setEmailLinkAuthorized] = useState(false);
   const refresh = onRefresh ?? (() => window.location.reload());
   const verifiedIdentities = identities.filter((identity) => identity.status === "verified");
 
-  async function confirmPendingLink() {
-    if (!pendingLink || linking) return;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the one-shot continuation must only be consumed on mount.
+  useEffect(() => {
+    const continuation = consumeIdentityActionContinuation(sessionStorage);
+    if (continuation) void executeAuthorizedAction(continuation);
+  }, []);
+
+  function requireReauthentication(action: IdentityActionDescriptor) {
+    setMessage(undefined);
+    setReauthAction(action);
+  }
+
+  async function executeAuthorizedAction(action: IdentityActionDescriptor) {
+    setReauthAction(undefined);
+    if (action.kind === "link-email") {
+      setEmailLinkAuthorized(true);
+      return;
+    }
+    if (action.kind === "link-discord") {
+      await startDiscordIdentityLink(action);
+      return;
+    }
+    if (action.kind === "confirm-link") {
+      await confirmPendingLink(action.candidateIdentityId);
+      return;
+    }
+    await removeIdentity(action.identityId);
+  }
+
+  async function confirmPendingLink(candidateIdentityId: string) {
+    if (linking) return;
     setLinking(true);
     setMessage(undefined);
     try {
@@ -40,8 +75,12 @@ export function IdentityCards({ identities, pendingLink, onRefresh }: IdentityCa
           "content-type": "application/json",
           "x-csrf-token": csrf,
         },
-        body: JSON.stringify({ candidateIdentityId: pendingLink.id, confirmation: true }),
+        body: JSON.stringify({ candidateIdentityId, confirmation: true }),
       });
+      if (response.status === 428) {
+        requireReauthentication({ kind: "confirm-link", candidateIdentityId });
+        return;
+      }
       if (response.status === 409) {
         setMessage({
           tone: "danger",
@@ -65,14 +104,14 @@ export function IdentityCards({ identities, pendingLink, onRefresh }: IdentityCa
     }
   }
 
-  async function removeIdentity(identity: IdentitySummary) {
+  async function removeIdentity(identityId: string) {
     if (verifiedIdentities.length <= 1 || removingId) return;
-    setRemovingId(identity.id);
+    setRemovingId(identityId);
     setMessage(undefined);
     try {
       const csrf = await acquireCsrf();
       const response = await fetch(
-        `/api/platform/identity/identities/${encodeURIComponent(identity.id)}/remove`,
+        `/api/platform/identity/identities/${encodeURIComponent(identityId)}/remove`,
         {
           method: "POST",
           cache: "no-store",
@@ -82,9 +121,13 @@ export function IdentityCards({ identities, pendingLink, onRefresh }: IdentityCa
             "content-type": "application/json",
             "x-csrf-token": csrf,
           },
-          body: JSON.stringify({ identityId: identity.id }),
+          body: JSON.stringify({ identityId }),
         },
       );
+      if (response.status === 428) {
+        requireReauthentication({ kind: "remove-identity", identityId });
+        return;
+      }
       if (!response.ok) throw new Error();
       setMessage({ tone: "info", text: "Forma de acesso removida após confirmação do servidor." });
       window.setTimeout(refresh, 500);
@@ -95,9 +138,23 @@ export function IdentityCards({ identities, pendingLink, onRefresh }: IdentityCa
     }
   }
 
+  async function startDiscordIdentityLink(action: IdentityActionDescriptor) {
+    try {
+      const csrf = await acquireCsrf();
+      submitDiscordNavigation({
+        csrfToken: csrf,
+        purpose: "link-identity",
+        returnPath: "/conta/identidades",
+      });
+    } catch {
+      setMessage({ tone: "danger", text: "NÃ£o foi possÃ­vel abrir o Discord." });
+      setReauthAction(action);
+    }
+  }
+
   return (
     <div className="identity-access-list">
-      {message && !pendingLink ? (
+      {message ? (
         <InlineAlert tone={message.tone}>
           <span aria-live="polite">{message.text}</span>
         </InlineAlert>
@@ -151,7 +208,12 @@ export function IdentityCards({ identities, pendingLink, onRefresh }: IdentityCa
                       variant="destructive"
                       loading={removingId === identity.id}
                       loadingLabel="Removendo…"
-                      onClick={() => removeIdentity(identity)}
+                      onClick={() =>
+                        requireReauthentication({
+                          kind: "remove-identity",
+                          identityId: identity.id,
+                        })
+                      }
                     >
                       Remover forma de acesso
                     </Button>
@@ -173,16 +235,31 @@ export function IdentityCards({ identities, pendingLink, onRefresh }: IdentityCa
                   variant="primary"
                   loading={linking}
                   loadingLabel="Vinculando…"
-                  onClick={confirmPendingLink}
+                  onClick={() =>
+                    requireReauthentication({
+                      kind: "confirm-link",
+                      candidateIdentityId: candidate.id,
+                    })
+                  }
                 >
                   <Link2 aria-hidden="true" size={18} />
                   Vincular identidade
                 </Button>
               </Dialog>
             ) : provider === "discord" ? (
-              <DiscordIdentityLink />
+              <Button onClick={() => requireReauthentication({ kind: "link-discord" })}>
+                Vincular Discord
+              </Button>
             ) : (
-              <EmailIdentityLink onVerified={refresh} />
+              <EmailIdentityLink
+                authorized={emailLinkAuthorized}
+                onRequireReauthentication={() => requireReauthentication({ kind: "link-email" })}
+                onReauthenticationRequired={() => {
+                  setEmailLinkAuthorized(false);
+                  requireReauthentication({ kind: "link-email" });
+                }}
+                onVerified={refresh}
+              />
             )}
           </article>
         );
@@ -191,56 +268,182 @@ export function IdentityCards({ identities, pendingLink, onRefresh }: IdentityCa
         Vincular ou trocar uma identidade encerra as outras sessões. Somente esta sessão confirmada
         permanece ativa.
       </InlineAlert>
+      {reauthAction ? (
+        <IdentityReauthenticationDialog
+          identities={verifiedIdentities}
+          action={reauthAction}
+          onCancel={() => setReauthAction(undefined)}
+          onConfirmed={() => executeAuthorizedAction(reauthAction)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function DiscordIdentityLink() {
-  const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
+function IdentityReauthenticationDialog({
+  identities,
+  action,
+  onCancel,
+  onConfirmed,
+}: {
+  identities: readonly IdentitySummary[];
+  action: IdentityActionDescriptor;
+  onCancel: () => void;
+  onConfirmed: () => void | Promise<void>;
+}) {
+  const hasDiscord = identities.some((identity) => identity.provider === "discord");
+  const hasEmail = identities.some((identity) => identity.provider === "email");
+  const [email, setEmail] = useState("");
+  const [challengeId, setChallengeId] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
 
-  async function startLink() {
-    if (loading) return;
-    setLoading(true);
-    setFailed(false);
+  async function startDiscordStepUp() {
+    if (busy) return;
+    setBusy(true);
+    setError(undefined);
     try {
       const csrf = await acquireCsrf();
+      storeIdentityActionContinuation(sessionStorage, action);
       submitDiscordNavigation({
         csrfToken: csrf,
-        purpose: "link-identity",
+        purpose: "step-up",
         returnPath: "/conta/identidades",
       });
     } catch {
-      setFailed(true);
-      setLoading(false);
+      setError("Não foi possível abrir o Discord.");
+      setBusy(false);
+    }
+  }
+
+  async function requestEmailStepUp() {
+    if (busy || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Informe o e-mail já vinculado à conta.");
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      const csrf = await acquireCsrf();
+      const response = await fetch("/api/platform/identity/email/otp/step-up/request", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: jsonHeaders(csrf),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      const challenge = response.headers.get("x-otp-challenge-id");
+      if (!response.ok || !challenge) throw new Error();
+      setChallengeId(challenge);
+    } catch {
+      setError("Não foi possível enviar o código de confirmação.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verifyEmailStepUp() {
+    if (busy || code.length !== 8) {
+      setError("Informe os 8 dígitos do código.");
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      const csrf = await acquireCsrf();
+      const response = await fetch("/api/platform/identity/email/otp/step-up/verify", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: jsonHeaders(csrf),
+        body: JSON.stringify({
+          challengeId,
+          email: email.trim().toLowerCase(),
+          code,
+        }),
+      });
+      const payload = response.ok ? ((await response.json()) as { status?: unknown }) : null;
+      if (payload?.status !== "step-up-confirmed") throw new Error();
+      await onConfirmed();
+    } catch {
+      setError("Código inválido ou expirado. Solicite um novo código.");
+      setBusy(false);
     }
   }
 
   return (
     <Dialog
-      trigger="Vincular Discord"
-      title="Vincular Discord"
-      description="Você retornará a esta sessão para confirmar a identidade antes do vínculo final."
+      trigger={<span hidden />}
+      title="Confirme que é você"
+      description="Use uma forma de acesso já vinculada antes de alterar sua conta."
+      open
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
     >
-      <Button
-        loading={loading}
-        loadingLabel="Abrindo Discord…"
-        variant="discord"
-        onClick={startLink}
-      >
-        Vincular Discord
-      </Button>
-      {failed ? <InlineAlert tone="danger">Não foi possível abrir o Discord.</InlineAlert> : null}
+      {hasDiscord ? (
+        <Button variant="discord" loading={busy} onClick={startDiscordStepUp}>
+          Confirmar com Discord
+        </Button>
+      ) : null}
+      {hasEmail ? (
+        <div className="identity-link-form">
+          {!challengeId ? (
+            <>
+              <Input
+                label="E-mail já vinculado"
+                type="email"
+                autoComplete="email"
+                value={email}
+                disabled={busy}
+                onChange={(event) => setEmail(event.currentTarget.value)}
+              />
+              <Button loading={busy} onClick={requestEmailStepUp}>
+                Receber código de confirmação
+              </Button>
+            </>
+          ) : (
+            <>
+              <OtpInput value={code} onChange={setCode} />
+              <Button loading={busy} onClick={verifyEmailStepUp}>
+                Confirmar código
+              </Button>
+            </>
+          )}
+        </div>
+      ) : null}
+      {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
+      <div className="ui-dialog-actions">
+        <Button disabled={busy} onClick={onCancel}>
+          Cancelar
+        </Button>
+      </div>
     </Dialog>
   );
 }
 
-function EmailIdentityLink({ onVerified }: { onVerified: () => void }) {
+function EmailIdentityLink({
+  authorized,
+  onRequireReauthentication,
+  onReauthenticationRequired,
+  onVerified,
+}: {
+  authorized: boolean;
+  onRequireReauthentication: () => void;
+  onReauthenticationRequired: () => void;
+  onVerified: () => void;
+}) {
   const [email, setEmail] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (authorized) setOpen(true);
+  }, [authorized]);
 
   async function requestCode(event: React.FormEvent) {
     event.preventDefault();
@@ -264,6 +467,11 @@ function EmailIdentityLink({ onVerified }: { onVerified: () => void }) {
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
       const challenge = response.headers.get("x-otp-challenge-id");
+      if (response.status === 428) {
+        setOpen(false);
+        onReauthenticationRequired();
+        return;
+      }
       if (!response.ok || !challenge) throw new Error();
       setChallengeId(challenge);
     } catch {
@@ -298,6 +506,13 @@ function EmailIdentityLink({ onVerified }: { onVerified: () => void }) {
           code,
         }),
       });
+      if (response.status === 428) {
+        setCode("");
+        setChallengeId("");
+        setOpen(false);
+        onReauthenticationRequired();
+        return;
+      }
       if (!response.ok) throw new Error();
       setCode("");
       setChallengeId("");
@@ -314,24 +529,41 @@ function EmailIdentityLink({ onVerified }: { onVerified: () => void }) {
       trigger="Vincular e-mail"
       title="Vincular e-mail"
       description="O vínculo só será concluído após o código e uma confirmação explícita nesta sessão."
+      open={open}
+      onOpenChange={setOpen}
     >
-      <form className="identity-link-form" onSubmit={challengeId ? verifyCode : requestCode}>
-        {challengeId ? (
-          <OtpInput value={code} onChange={setCode} {...(error ? { error } : {})} />
-        ) : (
-          <Input
-            label="E-mail a vincular"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.currentTarget.value)}
-            {...(error ? { error } : {})}
-          />
-        )}
-        <Button type="submit" variant="primary" loading={loading}>
-          {challengeId ? "Verificar e continuar" : "Enviar código de vínculo"}
-        </Button>
-      </form>
+      {authorized ? (
+        <form className="identity-link-form" onSubmit={challengeId ? verifyCode : requestCode}>
+          {challengeId ? (
+            <OtpInput value={code} onChange={setCode} {...(error ? { error } : {})} />
+          ) : (
+            <Input
+              label="E-mail a vincular"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.currentTarget.value)}
+              {...(error ? { error } : {})}
+            />
+          )}
+          <Button type="submit" variant="primary" loading={loading}>
+            {challengeId ? "Verificar e continuar" : "Enviar código de vínculo"}
+          </Button>
+        </form>
+      ) : (
+        <div className="identity-link-form">
+          <InlineAlert>Confirme primeiro uma forma de acesso já vinculada.</InlineAlert>
+          <Button
+            variant="primary"
+            onClick={() => {
+              setOpen(false);
+              onRequireReauthentication();
+            }}
+          >
+            Confirmar identidade
+          </Button>
+        </div>
+      )}
     </Dialog>
   );
 }
@@ -346,6 +578,14 @@ async function acquireCsrf(): Promise<string> {
   const token = response.headers.get("x-csrf-token");
   if (!response.ok || !token) throw new Error();
   return token;
+}
+
+function jsonHeaders(csrf: string) {
+  return {
+    accept: "application/json",
+    "content-type": "application/json",
+    "x-csrf-token": csrf,
+  };
 }
 
 function providerLabel(provider: IdentityProvider): string {

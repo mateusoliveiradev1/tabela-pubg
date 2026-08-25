@@ -5,7 +5,7 @@ import type { AuthenticatedSession } from "../authorization/authorization.servic
 import { PUBLIC_ROUTE_KEY } from "../authorization/decorators.js";
 import type { CsrfService } from "../security/csrf.service.js";
 import { IdentityController } from "./identity.controller.js";
-import type { IdentityService } from "./identity.service.js";
+import { type IdentityService, ReauthenticationRequiredException } from "./identity.service.js";
 import type { OAuthService } from "./oauth.service.js";
 import type { OtpService } from "./otp.service.js";
 import type { SessionService } from "./session.service.js";
@@ -38,6 +38,7 @@ function setup() {
     }),
   } as unknown as OtpService;
   const identity = {
+    assertFreshAuthentication: vi.fn(async () => undefined),
     startEmailSession: vi.fn(async () => {
       events.push("session");
       return {
@@ -102,6 +103,39 @@ function reply() {
 }
 
 describe("IdentityController", () => {
+  it("returns reauthentication-required before issuing or consuming a candidate proof", async () => {
+    const { controller, identity, otp } = setup();
+    vi.mocked(identity.assertFreshAuthentication).mockRejectedValue(
+      new ReauthenticationRequiredException(),
+    );
+
+    await expect(
+      controller.requestLinkEmailOtp(
+        { email: "candidate@example.com" },
+        "127.0.0.1",
+        "corr-request",
+        request(),
+        reply(),
+      ),
+    ).rejects.toBeInstanceOf(ReauthenticationRequiredException);
+    await expect(
+      controller.verifyLinkEmailOtp(
+        {
+          challengeId: "33333333-3333-4333-8333-333333333333",
+          email: "candidate@example.com",
+          code: "12345678",
+        },
+        "127.0.0.1",
+        "corr-verify",
+        request(),
+        reply(),
+      ),
+    ).rejects.toBeInstanceOf(ReauthenticationRequiredException);
+
+    expect(otp.request).not.toHaveBeenCalled();
+    expect(otp.verify).not.toHaveBeenCalled();
+  });
+
   it("keeps public sign-in routes explicit and protected OTP routes non-public", () => {
     expect(
       Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.requestEmailSignInOtp),

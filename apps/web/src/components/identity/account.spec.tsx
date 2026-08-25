@@ -7,6 +7,7 @@ import { AppShell, type ShellOrganization } from "../layout/app-shell";
 import { OrganizationSwitcher } from "../layout/organization-switcher";
 import { CreateOrganizationForm } from "../organizations/create-organization-form";
 import { SessionsPanel } from "./device-session-card";
+import { promoteIdentityActionContinuation } from "./identity-action-continuation";
 import { IdentityCards } from "./identity-cards";
 
 const organizations: ShellOrganization[] = [
@@ -31,6 +32,7 @@ const organizations: ShellOrganization[] = [
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  sessionStorage.clear();
 });
 
 describe("platform shell e organização explícita", () => {
@@ -181,11 +183,21 @@ describe("criação de organização", () => {
 });
 
 describe("formas de acesso", () => {
-  it("usa endpoints OTP purpose-specific para vincular e-mail", async () => {
+  it("reautentica a sessão Discord nula antes de iniciar e concluir o vínculo por e-mail", async () => {
     const user = userEvent.setup();
     const challengeId = "00000000-0000-4000-8000-000000000099";
+    const submitted: Array<{ action: string; fields: Record<string, string> }> = [];
+    vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(function submit(
+      this: HTMLFormElement,
+    ) {
+      submitted.push({
+        action: this.action,
+        fields: Object.fromEntries(new FormData(this).entries()) as Record<string, string>,
+      });
+    });
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(csrfResponse())
       .mockResolvedValueOnce(csrfResponse())
       .mockResolvedValueOnce(
         new Response(null, { status: 202, headers: { "x-otp-challenge-id": challengeId } }),
@@ -214,41 +226,23 @@ describe("formas de acesso", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Vincular e-mail" }));
-    await user.type(screen.getByLabelText("E-mail a vincular"), "New@Example.test");
-    await user.click(screen.getByRole("button", { name: "Enviar código de vínculo" }));
-    await screen.findByLabelText("Código de 8 dígitos");
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      "/api/platform/identity/email/otp/link-email/request",
-      expect.objectContaining({ body: JSON.stringify({ email: "new@example.test" }) }),
-    );
+    await user.click(screen.getByRole("button", { name: "Confirmar identidade" }));
+    expect(screen.getByRole("heading", { name: "Confirme que é você" })).toBeTruthy();
+    expect(screen.queryByLabelText("E-mail já vinculado")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Confirmar com Discord" }));
+    await waitFor(() => expect(submitted).toHaveLength(1));
+    expect(submitted[0]).toMatchObject({
+      action: "http://localhost:3000/api/platform/identity/oauth/discord/step-up/start",
+      fields: {
+        csrfToken: "csrf-token-with-safe-length",
+        purpose: "step-up",
+        returnPath: "/conta/identidades",
+      },
+    });
+    expect(JSON.stringify(sessionStorage)).not.toMatch(/@|otp|code/i);
 
-    await user.type(screen.getByLabelText("Código de 8 dígitos"), "12345678");
-    await user.click(screen.getByRole("button", { name: "Verificar e continuar" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      "/api/platform/identity/email/otp/link-email/verify",
-      expect.objectContaining({
-        body: JSON.stringify({ challengeId, email: "new@example.test", code: "12345678" }),
-      }),
-    );
-  });
-
-  it("não remove a última identidade e confirma vínculo explicitamente sem estado otimista", async () => {
-    const user = userEvent.setup();
-    let finishLink: ((response: Response) => void) | undefined;
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(csrfResponse())
-      .mockImplementationOnce(
-        () =>
-          new Promise<Response>((resolve) => {
-            finishLink = resolve;
-          }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-
+    cleanup();
+    expect(promoteIdentityActionContinuation(sessionStorage)).toBe(true);
     render(
       <IdentityCards
         identities={[
@@ -260,14 +254,219 @@ describe("formas de acesso", () => {
             linkedAt: "2026-08-20T10:00:00.000Z",
           },
         ]}
-        pendingLink={{
-          id: "00000000-0000-4000-8000-000000000011",
-          provider: "email",
-          displayIdentifier: "l•••@example.com",
-        }}
         onRefresh={() => undefined}
       />,
     );
+
+    await screen.findByLabelText("E-mail a vincular");
+    await user.type(screen.getByLabelText("E-mail a vincular"), "New@Example.test");
+    await user.click(screen.getByRole("button", { name: "Enviar código de vínculo" }));
+    await screen.findByLabelText("Código de 8 dígitos");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/platform/identity/email/otp/link-email/request",
+      expect.objectContaining({ body: JSON.stringify({ email: "new@example.test" }) }),
+    );
+
+    await user.type(screen.getByLabelText("Código de 8 dígitos"), "12345678");
+    await user.click(screen.getByRole("button", { name: "Verificar e continuar" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "/api/platform/identity/email/otp/link-email/verify",
+      expect.objectContaining({
+        body: JSON.stringify({ challengeId, email: "new@example.test", code: "12345678" }),
+      }),
+    );
+
+    cleanup();
+    render(
+      <IdentityCards
+        identities={[
+          {
+            id: "00000000-0000-4000-8000-000000000010",
+            provider: "discord",
+            status: "verified",
+            displayIdentifier: "li•••a",
+            linkedAt: "2026-08-20T10:00:00.000Z",
+          },
+        ]}
+        onRefresh={() => undefined}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Vincular e-mail" }));
+    expect(screen.getByRole("button", { name: "Confirmar identidade" })).toBeTruthy();
+    expect(screen.queryByLabelText("E-mail a vincular")).toBeNull();
+  });
+
+  it("reautentica uma sessão de e-mail stale antes de iniciar o vínculo Discord", async () => {
+    const user = userEvent.setup();
+    const challengeId = "00000000-0000-4000-8000-000000000098";
+    const submitted: Array<{ action: string; fields: Record<string, string> }> = [];
+    vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(function submit(
+      this: HTMLFormElement,
+    ) {
+      submitted.push({
+        action: this.action,
+        fields: Object.fromEntries(new FormData(this).entries()) as Record<string, string>,
+      });
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(null, { status: 202, headers: { "x-otp-challenge-id": challengeId } }),
+      )
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "step-up-confirmed" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(csrfResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <IdentityCards
+        identities={[
+          {
+            id: "00000000-0000-4000-8000-000000000012",
+            provider: "email",
+            status: "verified",
+            displayIdentifier: "o•••@example.com",
+            linkedAt: "2026-08-20T10:00:00.000Z",
+          },
+        ]}
+        onRefresh={() => undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Vincular Discord" }));
+    expect(screen.queryByRole("button", { name: "Confirmar com Discord" })).toBeNull();
+    await user.type(screen.getByLabelText("E-mail já vinculado"), "Owner@Example.com");
+    await user.click(screen.getByRole("button", { name: "Receber código de confirmação" }));
+    await user.type(await screen.findByLabelText("Código de 8 dígitos"), "12345678");
+    await user.click(screen.getByRole("button", { name: "Confirmar código" }));
+
+    await waitFor(() => expect(submitted).toHaveLength(1));
+    expect(submitted[0]).toMatchObject({
+      action: "http://localhost:3000/api/platform/identity/oauth/discord/link-identity/start",
+      fields: {
+        csrfToken: "csrf-token-with-safe-length",
+        purpose: "link-identity",
+        returnPath: "/conta/identidades",
+      },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/platform/identity/email/otp/step-up/request",
+      expect.objectContaining({ body: JSON.stringify({ email: "owner@example.com" }) }),
+    );
+  });
+
+  it("reautentica e remove uma identidade com rotação confirmada pelo servidor", async () => {
+    const user = userEvent.setup();
+    const changed = vi.fn();
+    const emailId = "00000000-0000-4000-8000-000000000012";
+    const challengeId = "00000000-0000-4000-8000-000000000097";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(null, { status: 202, headers: { "x-otp-challenge-id": challengeId } }),
+      )
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "step-up-confirmed" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "removed" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <IdentityCards
+        identities={[
+          {
+            id: "00000000-0000-4000-8000-000000000010",
+            provider: "discord",
+            status: "verified",
+            displayIdentifier: "li•••a",
+            linkedAt: "2026-08-20T10:00:00.000Z",
+          },
+          {
+            id: emailId,
+            provider: "email",
+            status: "verified",
+            displayIdentifier: "o•••@example.com",
+            linkedAt: "2026-08-20T10:00:00.000Z",
+          },
+        ]}
+        onRefresh={changed}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Desvincular E-mail" }));
+    await user.click(screen.getByRole("button", { name: "Remover forma de acesso" }));
+    await user.type(screen.getByLabelText("E-mail já vinculado"), "owner@example.com");
+    await user.click(screen.getByRole("button", { name: "Receber código de confirmação" }));
+    await user.type(await screen.findByLabelText("Código de 8 dígitos"), "12345678");
+    await user.click(screen.getByRole("button", { name: "Confirmar código" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/platform/identity/identities/${emailId}/remove`,
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ identityId: emailId }) }),
+    );
+    expect(await screen.findByText(/Forma de acesso removida/)).toBeTruthy();
+  });
+
+  it("não remove a última identidade e confirma vínculo explicitamente sem estado otimista", async () => {
+    const user = userEvent.setup();
+    let finishLink: ((response: Response) => void) | undefined;
+    const submit = vi
+      .spyOn(HTMLFormElement.prototype, "submit")
+      .mockImplementation(() => undefined);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(csrfResponse())
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishLink = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const renderPending = () =>
+      render(
+        <IdentityCards
+          identities={[
+            {
+              id: "00000000-0000-4000-8000-000000000010",
+              provider: "discord",
+              status: "verified",
+              displayIdentifier: "li•••a",
+              linkedAt: "2026-08-20T10:00:00.000Z",
+            },
+          ]}
+          pendingLink={{
+            id: "00000000-0000-4000-8000-000000000011",
+            provider: "email",
+            displayIdentifier: "l•••@example.com",
+          }}
+          onRefresh={() => undefined}
+        />,
+      );
+    renderPending();
 
     expect(
       (screen.getByRole("button", { name: "Desvincular Discord" }) as HTMLButtonElement).disabled,
@@ -278,7 +477,14 @@ describe("formas de acesso", () => {
     expect(document.body.textContent).not.toContain("00000000-0000-4000-8000-000000000011");
 
     await user.click(screen.getByRole("button", { name: "Vincular identidade" }));
-    expect(screen.getByRole("button", { name: "Vinculando…" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Confirme que é você" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Confirmar com Discord" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+
+    cleanup();
+    expect(promoteIdentityActionContinuation(sessionStorage)).toBe(true);
+    renderPending();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     expect(document.body.textContent).not.toContain("Vínculo concluído");
     finishLink?.(
       new Response(
@@ -290,7 +496,7 @@ describe("formas de acesso", () => {
       await screen.findByText("Vínculo concluído. Encerramos 2 outras sessões por segurança."),
     ).toBeTruthy();
     expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
+      3,
       "/api/platform/identity/identities/link/confirm",
       expect.objectContaining({
         method: "POST",
@@ -304,34 +510,44 @@ describe("formas de acesso", () => {
 
   it("mantém conflito de vínculo não enumerável", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(csrfResponse())
-        .mockResolvedValueOnce(new Response(null, { status: 409 })),
-    );
-    render(
-      <IdentityCards
-        identities={[
-          {
-            id: "00000000-0000-4000-8000-000000000010",
-            provider: "discord",
-            status: "verified",
-            displayIdentifier: "li•••a",
-            linkedAt: "2026-08-20T10:00:00.000Z",
-          },
-        ]}
-        pendingLink={{
-          id: "00000000-0000-4000-8000-000000000011",
-          provider: "email",
-          displayIdentifier: "l•••@example.com",
-        }}
-        onRefresh={() => undefined}
-      />,
-    );
+    const submit = vi
+      .spyOn(HTMLFormElement.prototype, "submit")
+      .mockImplementation(() => undefined);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(new Response(null, { status: 409 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const renderPending = () =>
+      render(
+        <IdentityCards
+          identities={[
+            {
+              id: "00000000-0000-4000-8000-000000000010",
+              provider: "discord",
+              status: "verified",
+              displayIdentifier: "li•••a",
+              linkedAt: "2026-08-20T10:00:00.000Z",
+            },
+          ]}
+          pendingLink={{
+            id: "00000000-0000-4000-8000-000000000011",
+            provider: "email",
+            displayIdentifier: "l•••@example.com",
+          }}
+          onRefresh={() => undefined}
+        />,
+      );
+    renderPending();
     await user.click(screen.getByRole("button", { name: "Confirmar vínculo de e-mail" }));
     await user.click(screen.getByRole("button", { name: "Vincular identidade" }));
+    await user.click(screen.getByRole("button", { name: "Confirmar com Discord" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    cleanup();
+    expect(promoteIdentityActionContinuation(sessionStorage)).toBe(true);
+    renderPending();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
 
     expect(
       await screen.findByText(

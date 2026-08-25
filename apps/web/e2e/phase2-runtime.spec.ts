@@ -6,6 +6,7 @@ import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 
 const EXPECTED_RUNTIME_CASES = [
   "provisional-to-trusted",
+  "identity-reauthentication-management",
   "invitation-seven-day-one-use",
   "sensitive-membership-step-up",
   "audit-visibility",
@@ -18,6 +19,7 @@ const postgresModule = databaseRequire("postgres");
 const postgres = postgresModule.default ?? postgresModule;
 const evidence = parseEvidence();
 const ownerEmail = `owner-${evidence.runScopeId}@example.test`;
+const relinkedOwnerEmail = `owner-relinked-${evidence.runScopeId}@example.test`;
 const adminEmail = `admin-${evidence.runScopeId}@example.test`;
 const memberEmail = `member-${evidence.runScopeId}@example.test`;
 const png = Buffer.from(
@@ -129,6 +131,118 @@ test.describe
     `;
       state.ownerUserId = owner.user_id;
       state.ownerSessionId = owner.session_id;
+    });
+
+    test("identity-reauthentication-management", async () => {
+      test.setTimeout(360_000);
+      const page = state.ownerPage;
+      const originalDiscord = await activeIdentity("discord");
+      const originalEmail = await activeIdentity("email");
+      expect(originalDiscord).toBeTruthy();
+      expect(originalEmail).toBeTruthy();
+
+      await expireCurrentProof();
+      await page.goto("/conta/identidades");
+      await page.getByRole("button", { name: "Desvincular Discord" }).click();
+      await page.getByRole("button", { name: "Remover forma de acesso" }).click();
+      await completeEmailStepUpFromDialog(page, ownerEmail);
+      await expect.poll(() => activeIdentity("discord")).toBeNull();
+      expect(await activeIdentity("email")).toBeTruthy();
+
+      await expireCurrentProof();
+      await page.goto("/conta/identidades");
+      await page.getByRole("button", { name: "Vincular Discord" }).click();
+      const candidateStart = page.waitForResponse((response) =>
+        new URL(response.url()).pathname.endsWith("/identity/oauth/discord/link-identity/start"),
+      );
+      await completeEmailStepUpFromDialog(page, ownerEmail);
+      const candidateResponse = await candidateStart;
+      const candidateState = new URL(candidateResponse.headers().location ?? "").searchParams.get(
+        "state",
+      );
+      expect(candidateState).toBeTruthy();
+      await finishDiscordCallback(page, "link-identity", candidateState as string, "e2e-link-code");
+      await page.getByRole("link", { name: "Continuar" }).click();
+      await expect(page).toHaveURL(/\/conta\/identidades$/);
+      await page.getByRole("button", { name: "Confirmar vínculo de Discord" }).click();
+      await page.getByRole("button", { name: "Vincular identidade" }).click();
+      await completeEmailStepUpFromDialog(page, ownerEmail);
+      await expect.poll(() => activeIdentity("discord")).not.toBeNull();
+      await expect(page.getByRole("button", { name: "Desvincular Discord" })).toBeVisible();
+
+      state.csrf = await acquireCsrf(page);
+      await discordSignIn(page, state.csrf, "e2e-link-code");
+      state.csrf = await acquireCsrf(page);
+      const [current] = await state.sql`
+        select id from sessions
+        where user_id = ${state.ownerUserId} and revoked_at is null
+        order by created_at desc limit 1
+      `;
+      state.ownerSessionId = current.id;
+      const [discordSession] = await state.sql`
+        select reauthenticated_at from sessions where id = ${state.ownerSessionId}
+      `;
+      expect(discordSession.reauthenticated_at).toBeNull();
+
+      await page.goto("/conta/identidades");
+      await page.getByRole("button", { name: "Desvincular E-mail" }).click();
+      await page.getByRole("button", { name: "Remover forma de acesso" }).click();
+      await completeDiscordStepUpFromDialog(page, "e2e-link-code");
+      await expect.poll(() => activeIdentity("email")).toBeNull();
+      await expect(page.getByRole("button", { name: "Vincular e-mail" })).toBeVisible();
+
+      await expireCurrentProof();
+      await page.getByRole("button", { name: "Vincular e-mail" }).click();
+      await page.getByRole("button", { name: "Confirmar identidade" }).click();
+      await completeDiscordStepUpFromDialog(page, "e2e-link-code");
+      await expect(page.getByLabel("E-mail a vincular")).toBeVisible();
+      await page.getByLabel("E-mail a vincular").fill(relinkedOwnerEmail);
+      const candidateRequest = page.waitForResponse((response) =>
+        new URL(response.url()).pathname.endsWith("/identity/email/otp/link-email/request"),
+      );
+      await page.getByRole("button", { name: "Enviar código de vínculo" }).click();
+      const candidateOtp = await candidateRequest;
+      const candidateChallenge = candidateOtp.headers()["x-otp-challenge-id"];
+      expect(candidateChallenge).toBeTruthy();
+      const candidateCode = await waitForOtp(relinkedOwnerEmail, candidateChallenge);
+      await page.getByLabel("Código de 8 dígitos").fill(candidateCode);
+      const candidateVerify = page.waitForResponse((response) =>
+        new URL(response.url()).pathname.endsWith("/identity/email/otp/link-email/verify"),
+      );
+      await page.getByRole("button", { name: "Verificar e continuar" }).click();
+      expect((await candidateVerify).ok()).toBe(true);
+      await expect.poll(() => activeIdentity("email"), { timeout: 15_000 }).not.toBeNull();
+
+      await page.reload();
+      expect(
+        await page.evaluate(() => ({
+          pending: sessionStorage.getItem("pubg-camp:identity-action:pending"),
+          ready: sessionStorage.getItem("pubg-camp:identity-action:ready"),
+        })),
+      ).toEqual({ pending: null, ready: null });
+      const [counts] = await state.sql`
+        select
+          count(*) filter (where provider = 'discord' and revoked_at is null)::int as discord,
+          count(*) filter (where provider = 'email' and revoked_at is null)::int as email
+        from identities where user_id = ${state.ownerUserId}
+      `;
+      expect(counts).toEqual({ discord: 1, email: 1 });
+
+      async function activeIdentity(provider: "discord" | "email") {
+        const [identity] = await state.sql`
+          select id from identities
+          where user_id = ${state.ownerUserId} and provider = ${provider} and revoked_at is null
+          limit 1
+        `;
+        return identity ?? null;
+      }
+
+      async function expireCurrentProof() {
+        await state.sql`
+          update sessions set reauthenticated_at = now() - interval '11 minutes'
+          where id = ${state.ownerSessionId}
+        `;
+      }
     });
 
     test("invitation-seven-day-one-use", async ({ browser }) => {
@@ -499,7 +613,7 @@ async function acquireCsrf(page: Page): Promise<string> {
   return result.token as string;
 }
 
-async function discordSignIn(page: Page, csrf: string): Promise<string> {
+async function discordSignIn(page: Page, csrf: string, code = "e2e-code"): Promise<string> {
   const started = await startDiscordNavigation(page, "sign-in", csrf);
   const location = started.headers().location;
   expect(location).toBeTruthy();
@@ -511,7 +625,7 @@ async function discordSignIn(page: Page, csrf: string): Promise<string> {
     "POST",
     "/api/platform/identity/oauth/discord/sign-in/callback",
     csrf,
-    { purpose: "sign-in", code: "e2e-code", state },
+    { purpose: "sign-in", code, state },
   );
   expect(callback.status).toBe(201);
   return sessionToken(page.context());
@@ -531,6 +645,53 @@ async function discordStepUp(page: Page): Promise<string> {
   );
   expect(callback.status).toBe(201);
   return callback.headers["x-csrf-token"] ?? acquireCsrf(page);
+}
+
+async function completeEmailStepUpFromDialog(page: Page, email: string): Promise<void> {
+  await page.getByLabel("E-mail já vinculado").fill(email);
+  const requestPromise = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/identity/email/otp/step-up/request"),
+  );
+  await page.getByRole("button", { name: "Receber código de confirmação" }).click();
+  const requested = await requestPromise;
+  expect(requested.ok()).toBe(true);
+  const challengeId = requested.headers()["x-otp-challenge-id"];
+  expect(challengeId).toBeTruthy();
+  const code = await waitForOtp(email, challengeId);
+  await page.getByLabel("Código de 8 dígitos").fill(code);
+  const verifyPromise = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/identity/email/otp/step-up/verify"),
+  );
+  await page.getByRole("button", { name: "Confirmar código" }).click();
+  expect((await verifyPromise).ok()).toBe(true);
+}
+
+async function completeDiscordStepUpFromDialog(page: Page, code = "e2e-code"): Promise<void> {
+  const routePath = "/api/platform/identity/oauth/discord/step-up/start";
+  await page.route("https://discord.com/**", (route) => route.abort());
+  const responsePromise = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === routePath,
+  );
+  await page.getByRole("button", { name: "Confirmar com Discord" }).click();
+  const started = await responsePromise;
+  const state = new URL(started.headers().location ?? "").searchParams.get("state");
+  expect(state).toBeTruthy();
+  await page.unroute("https://discord.com/**");
+  await finishDiscordCallback(page, "step-up", state as string, code);
+  await page.getByRole("link", { name: "Continuar" }).click();
+  await expect(page).toHaveURL(/\/conta\/identidades$/);
+}
+
+async function finishDiscordCallback(
+  page: Page,
+  purpose: "link-identity" | "step-up",
+  state: string,
+  code = "e2e-code",
+): Promise<void> {
+  await page.goto(
+    `/entrar/discord/retorno?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}&purpose=${purpose}`,
+  );
+  await expect(page.getByRole("link", { name: "Continuar" })).toBeVisible();
 }
 
 async function startDiscordNavigation(page: Page, purpose: "sign-in" | "step-up", csrf: string) {
@@ -608,7 +769,8 @@ async function requestOtp(
 
 async function waitForOtp(email: string, challengeId: string): Promise<string> {
   const message = await waitForMailbox(email, (text) => text.includes(challengeId));
-  const match = /\b(\d{8})\b/.exec(message);
+  const parsed = JSON.parse(message) as { message?: { text?: string } };
+  const match = /^(\d{8})$/m.exec(parsed.message?.text ?? "");
   if (!match) throw new Error("OTP mailbox did not contain an eight-digit code");
   return match[1];
 }

@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpException,
   Inject,
   Ip,
   Optional,
@@ -432,6 +433,9 @@ export class IdentityController {
     reply?: Pick<FastifyReply, "header">,
   ): Promise<EmailOtpResponse> {
     const body = EmailOnlySchema.parse(rawBody);
+    if (purpose === "link-email" || purpose === "change-email") {
+      await this.identity.assertFreshAuthentication(request.auth.actorId, request.auth.sessionId);
+    }
     const result = await this.otp.request({
       email: body.email,
       purpose,
@@ -458,6 +462,12 @@ export class IdentityController {
     try {
       const body = OAuthStartRequestSchema.parse(rawBody);
       if (body.purpose !== purpose) throw new Error("oauth purpose mismatch");
+      if (purpose === "link-identity" && authRequest) {
+        await this.identity.assertFreshAuthentication(
+          authRequest.auth.actorId,
+          authRequest.auth.sessionId,
+        );
+      }
       const started = await this.oauth.start({
         purpose,
         browserBinding: resolvedBrowserBinding,
@@ -471,7 +481,8 @@ export class IdentityController {
       });
       reply?.header("location", started.authorizationUrl).status(302);
       return OAuthStartResponseSchema.parse({ status: "redirect-required" });
-    } catch {
+    } catch (error) {
+      if (error instanceof HttpException && error.getStatus() === 428) throw error;
       throw stableCancelled();
     }
   }
@@ -541,6 +552,7 @@ export class IdentityController {
     const identityId =
       purpose === "change-email" ? ChangeEmailOtpCodeSchema.parse(rawBody).identityId : undefined;
     const normalizedCorrelationId = normalizeCorrelationId(correlationId);
+    await this.identity.assertFreshAuthentication(request.auth.actorId, request.auth.sessionId);
     const result = await this.otp.verify({
       challengeId: body.challengeId,
       email: body.email,

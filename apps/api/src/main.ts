@@ -97,16 +97,21 @@ export function createFakeDiscordFetch(runId: string): typeof globalThis.fetch {
   if (!E2E_RUN_ID.test(runId) || BROAD_E2E_RUN_ID.test(runId)) {
     throw new Error("E2E Discord run scope is invalid");
   }
-  const token = createHash("sha256").update(`discord-token:${runId}`, "utf8").digest("base64url");
-  const profileSuffix = BigInt(`0x${createHash("sha256").update(runId).digest("hex").slice(0, 12)}`)
-    .toString(10)
-    .padStart(14, "0")
-    .slice(0, 14);
-  return async (input) => {
+  return async (input, init) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.origin !== "https://discord.com")
       throw new Error("E2E Discord transport rejected origin");
     if (url.pathname === "/api/oauth2/token") {
+      const body = init?.body;
+      const authorizationCode =
+        body instanceof URLSearchParams
+          ? body.get("code")
+          : typeof body === "string"
+            ? new URLSearchParams(body).get("code")
+            : null;
+      const token = createHash("sha256")
+        .update(`discord-token:${runId}:${authorizationCode ?? "default"}`, "utf8")
+        .digest("base64url");
       return Response.json({
         access_token: token,
         token_type: "Bearer",
@@ -115,6 +120,14 @@ export function createFakeDiscordFetch(runId: string): typeof globalThis.fetch {
       });
     }
     if (url.pathname === "/api/users/@me") {
+      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      const authorization = headers.get("authorization") ?? "Bearer default";
+      const profileSuffix = BigInt(
+        `0x${createHash("sha256").update(`${runId}:${authorization}`).digest("hex").slice(0, 12)}`,
+      )
+        .toString(10)
+        .padStart(14, "0")
+        .slice(0, 14);
       return Response.json({
         id: `1000${profileSuffix}`,
         username: `e2e-${profileSuffix.slice(-8)}`,

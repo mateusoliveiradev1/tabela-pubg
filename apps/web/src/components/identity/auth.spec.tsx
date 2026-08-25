@@ -7,6 +7,10 @@ import {
 } from "../authorization/sensitive-action-continuation";
 import { DiscordButton } from "./discord-button";
 import { EmailOtpForm } from "./email-otp-form";
+import {
+  consumeIdentityActionContinuation,
+  storeIdentityActionContinuation,
+} from "./identity-action-continuation";
 import { InvitationAcceptForm } from "./invitation-accept-form";
 import { OAuthCallbackForm } from "./oauth-callback-form";
 import { OtpInput } from "./otp-input";
@@ -268,6 +272,34 @@ describe("callback OAuth seguro", () => {
       reason: "Revogação confirmada",
     });
     expect(consumeSensitiveActionContinuation(sessionStorage, organizationId)).toBeNull();
+  });
+
+  it("promotes an identity continuation once without storing candidate secrets", async () => {
+    storeIdentityActionContinuation(sessionStorage, { kind: "link-email" });
+    expect(JSON.stringify(sessionStorage)).not.toMatch(/@|code|otp/i);
+    window.history.replaceState(
+      {},
+      "",
+      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length&purpose=step-up",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(csrfResponse())
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ status: "authenticated", nextPath: "/conta/identidades" }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        ),
+    );
+
+    render(<OAuthCallbackForm />);
+
+    expect(await screen.findByRole("link", { name: "Continuar" })).toBeTruthy();
+    expect(consumeIdentityActionContinuation(sessionStorage)).toEqual({ kind: "link-email" });
+    expect(consumeIdentityActionContinuation(sessionStorage)).toBeNull();
   });
 });
 

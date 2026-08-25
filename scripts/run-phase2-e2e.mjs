@@ -26,6 +26,7 @@ const workerOrigin = `http://127.0.0.1:${WORKER_PORT}`;
 const logoOrigin = `http://127.0.0.1:${LOGO_PORT}`;
 const RUNTIME_CASES = Object.freeze([
   "provisional-to-trusted",
+  "identity-reauthentication-management",
   "invitation-seven-day-one-use",
   "sensitive-membership-step-up",
   "audit-visibility",
@@ -247,6 +248,7 @@ function runtimeEnvironment(source, runScopeId, objectRoot) {
     SESSION_COOKIE_SECURE: "true",
     CSRF_SECRET: "csr_2vN8kP4mY6tR1xQ9aL5wH3uF7cD0eJsD",
     OTP_PEPPER: "otp_7xR3mK9vQ2nT6pL8aF4wH1uC5yD0eJsE",
+    OTP_COOLDOWN_SECONDS: "10",
     AES_GCM_KEY_V1: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     ENCRYPTION_KEY_VERSION: "v1",
     RESEND_API_KEY: "re_4nQ8vK2mT6xP9aL3yH7uF1cR5wD0eJsC",
