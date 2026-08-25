@@ -81,7 +81,7 @@ describe("identity security change transaction", () => {
     }
   }, 30_000);
 
-  async function seedActor(now: Date): Promise<SeededActor> {
+  async function seedActor(now: Date, reauthenticatedAt: Date | null = now): Promise<SeededActor> {
     const actorId = randomUUID();
     const currentSessionId = randomUUID();
     const otherSessionId = randomUUID();
@@ -107,15 +107,15 @@ describe("identity security change transaction", () => {
     await client`
       insert into sessions
         (id, user_id, device_id, token_digest, trust, issued_at, last_seen_at,
-         idle_expires_at, absolute_expires_at, created_at, updated_at)
+         idle_expires_at, absolute_expires_at, reauthenticated_at, created_at, updated_at)
       values
         (${currentSessionId}, ${actorId}, ${currentDeviceId},
          ${identityDigests.opaque(oldCurrentToken)}, 'trusted', ${now.toISOString()},
          ${now.toISOString()}, ${idleExpiresAt.toISOString()}, ${absoluteExpiresAt.toISOString()},
-         ${now.toISOString()}, ${now.toISOString()}),
+         ${reauthenticatedAt?.toISOString() ?? null}, ${now.toISOString()}, ${now.toISOString()}),
         (${otherSessionId}, ${actorId}, ${otherDeviceId}, ${identityDigests.opaque(otherToken)},
          'trusted', ${now.toISOString()}, ${now.toISOString()}, ${idleExpiresAt.toISOString()},
-         ${absoluteExpiresAt.toISOString()}, ${now.toISOString()}, ${now.toISOString()})
+         ${absoluteExpiresAt.toISOString()}, null, ${now.toISOString()}, ${now.toISOString()})
     `;
     return { actorId, currentSessionId, otherSessionId, oldCurrentToken, otherToken };
   }
@@ -248,6 +248,108 @@ describe("identity security change transaction", () => {
     ]);
     return JSON.stringify({ proofs, identities, emails, sessions, events });
   }
+
+  it.each(["link-email", "change-email"] as const)(
+    "requires a fresh current-session proof transactionally for %s",
+    async (purpose) => {
+      const issuedAt = new Date("2026-08-24T11:00:00.000Z");
+      const now = new Date("2026-08-24T12:00:00.000Z");
+      for (const [label, reauthenticatedAt] of [
+        ["null", null],
+        ["stale", new Date(now.getTime() - 10 * 60_000 - 1)],
+        ["boundary", new Date(now.getTime() - 10 * 60_000)],
+        ["future", new Date(now.getTime() + 1)],
+      ] as const) {
+        const actor = await seedActor(issuedAt, reauthenticatedAt);
+        const email = `${purpose}-${label}-${randomUUID()}@example.test`;
+        const proofId = await seedEmailProof(actor, issuedAt, purpose, email);
+        const current = purpose === "change-email" ? await seedCurrentEmail(actor.actorId, issuedAt, `old-${randomUUID()}@example.test`) : null;
+        const before = await actorSnapshot(actor.actorId, proofId);
+        await expect(
+          executeIdentitySecurityChange(
+            commandInput(
+              actor,
+              proofId,
+              now,
+              purpose === "link-email"
+                ? { type: "link-identity", provider: "email", email }
+                : { type: "change-email", identityId: current?.identityId as string, email },
+              71,
+            ),
+          ),
+        ).rejects.toThrow("identity security change rejected");
+        expect(await actorSnapshot(actor.actorId, proofId)).toBe(before);
+      }
+
+      const wrongSessionActor = await seedActor(issuedAt, now);
+      const wrongSessionEmail = `${purpose}-wrong-session-${randomUUID()}@example.test`;
+      const wrongSessionProofId = randomUUID();
+      await createIdentityLinkProof(
+        db,
+        {
+          id: wrongSessionProofId,
+          actorId: wrongSessionActor.actorId,
+          sessionId: wrongSessionActor.otherSessionId,
+          purpose,
+          provider: "email",
+          providerSubject: identityDigests.email(wrongSessionEmail),
+          expiresAt: new Date(now.getTime() + 10 * 60_000),
+        },
+        () => issuedAt,
+      );
+      const wrongSessionCurrent =
+        purpose === "change-email"
+          ? await seedCurrentEmail(
+              wrongSessionActor.actorId,
+              issuedAt,
+              `old-${randomUUID()}@example.test`,
+            )
+          : null;
+      await expect(
+        executeIdentitySecurityChange(
+          commandInput(
+            wrongSessionActor,
+            wrongSessionProofId,
+            now,
+            purpose === "link-email"
+              ? { type: "link-identity", provider: "email", email: wrongSessionEmail }
+              : {
+                  type: "change-email",
+                  identityId: wrongSessionCurrent?.identityId as string,
+                  email: wrongSessionEmail,
+                },
+            72,
+          ),
+        ),
+      ).rejects.toThrow("identity security change rejected");
+
+      const freshActor = await seedActor(issuedAt, new Date(now.getTime() - 10 * 60_000 + 1));
+      const freshEmail = `${purpose}-fresh-${randomUUID()}@example.test`;
+      const freshProofId = await seedEmailProof(freshActor, issuedAt, purpose, freshEmail);
+      const freshCurrent =
+        purpose === "change-email"
+          ? await seedCurrentEmail(freshActor.actorId, issuedAt, `old-${randomUUID()}@example.test`)
+          : null;
+      await expect(
+        executeIdentitySecurityChange(
+          commandInput(
+            freshActor,
+            freshProofId,
+            now,
+            purpose === "link-email"
+              ? { type: "link-identity", provider: "email", email: freshEmail }
+              : {
+                  type: "change-email",
+                  identityId: freshCurrent?.identityId as string,
+                  email: freshEmail,
+                },
+            73,
+          ),
+        ),
+      ).resolves.toMatchObject({ sessionId: freshActor.currentSessionId });
+    },
+    60_000,
+  );
 
   it("commits a Discord identity link, current-token rotation, revoke-others and redacted evidence together", async () => {
     const issuedAt = new Date("2026-08-24T12:00:00.000Z");

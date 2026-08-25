@@ -59,6 +59,19 @@ interface ExpectedProof {
 }
 
 const identitySecurityChangeRejected = Symbol("identity-security-change-rejected");
+const IDENTITY_REAUTHENTICATION_LIFETIME_MS = 10 * 60_000;
+
+export function isFreshIdentityReauthentication(
+  reauthenticatedAt: Date | null,
+  now: Date,
+): boolean {
+  if (!reauthenticatedAt) return false;
+  const timestamp = reauthenticatedAt.getTime();
+  return (
+    timestamp > now.getTime() - IDENTITY_REAUTHENTICATION_LIFETIME_MS &&
+    timestamp <= now.getTime()
+  );
+}
 
 function normalizeEmail(email: string): string {
   const normalized = email.trim().toLowerCase();
@@ -217,7 +230,12 @@ export async function executeIdentitySecurityChange(
         sessionId: input.currentSessionId,
         now: input.now,
       });
-      if (!currentSession) throw identitySecurityChangeRejected;
+      if (
+        !currentSession ||
+        !isFreshIdentityReauthentication(currentSession.reauthenticatedAt, input.now)
+      ) {
+        throw identitySecurityChangeRejected;
+      }
       await lockAndValidateProof(transaction, input, expected);
       const consumed = await consumeIdentityLinkProof(
         transaction,

@@ -588,6 +588,7 @@ export async function hasRecentReauthentication(
         gt(sessions.idleExpiresAt, now),
         gt(sessions.absoluteExpiresAt, now),
         gt(sessions.reauthenticatedAt, threshold),
+        lte(sessions.reauthenticatedAt, now),
       ),
     )
     .limit(1);
