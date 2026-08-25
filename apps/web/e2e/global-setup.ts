@@ -68,24 +68,28 @@ async function signIn(page: Page, mailRoot: string): Promise<void> {
 }
 
 async function acquireCsrf(page: Page): Promise<string> {
-  const response = await page.request.get("/api/platform/security/csrf", {
-    headers: { accept: "application/json" },
+  const result = await page.evaluate(async () => {
+    const response = await fetch("/api/platform/security/csrf", {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+    return { status: response.status, token: response.headers.get("x-csrf-token") };
   });
-  const token = response.headers()["x-csrf-token"];
-  if (!response.ok() || !token) throw new Error("phase 2 fixture could not acquire CSRF");
-  return token;
+  if (result.status !== 200 || !result.token)
+    throw new Error("phase 2 fixture could not acquire CSRF");
+  return result.token;
 }
 
 async function createOrganization(
   page: Page,
   csrf: string,
 ): Promise<Omit<Phase2FixtureState, "invitationContext">> {
-  const response = await page.request.post("/api/platform/organizations", {
-    headers: { accept: "application/json", "x-csrf-token": csrf },
-    multipart: { name: ORGANIZATION_NAME },
+  const response = await browserForm(page, "/api/platform/organizations", csrf, {
+    name: ORGANIZATION_NAME,
   });
-  if (response.status() !== 201) throw new Error("phase 2 fixture could not create organization");
-  const body: unknown = await response.json();
+  if (response.status !== 201) throw new Error("phase 2 fixture could not create organization");
+  const body: unknown = response.body;
   if (!body || typeof body !== "object" || !("organization" in body)) {
     throw new Error("phase 2 fixture received an invalid organization response");
   }
@@ -110,14 +114,63 @@ async function createInvitation(
   organizationId: string,
   email: string,
 ): Promise<void> {
-  const response = await page.request.post(
+  const response = await browserJson(
+    page,
+    "POST",
     `/api/platform/organizations/${organizationId}/invitations`,
-    {
-      headers: { accept: "application/json", "x-csrf-token": csrf },
-      data: { email, organizationRole: "member", assignments: [] },
-    },
+    csrf,
+    { email, organizationRole: "member", assignments: [] },
   );
-  if (response.status() !== 201) throw new Error("phase 2 fixture could not create invitation");
+  if (response.status !== 201) throw new Error("phase 2 fixture could not create invitation");
+}
+
+async function browserForm(
+  page: Page,
+  url: string,
+  csrf: string,
+  fields: Record<string, string>,
+): Promise<{ status: number; body: unknown }> {
+  return page.evaluate(
+    async ({ url, csrf, fields }) => {
+      const form = new FormData();
+      for (const [name, value] of Object.entries(fields)) form.set(name, value);
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { accept: "application/json", "x-csrf-token": csrf },
+        body: form,
+      });
+      return { status: response.status, body: await response.json() };
+    },
+    { url, csrf, fields },
+  );
+}
+
+async function browserJson(
+  page: Page,
+  method: string,
+  url: string,
+  csrf: string,
+  body: unknown,
+): Promise<{ status: number; body: unknown }> {
+  return page.evaluate(
+    async ({ method, url, csrf, body }) => {
+      const response = await fetch(url, {
+        method,
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        body: JSON.stringify(body),
+      });
+      return { status: response.status, body: await response.json() };
+    },
+    { method, url, csrf, body },
+  );
 }
 
 async function seedSecondarySession(): Promise<void> {
