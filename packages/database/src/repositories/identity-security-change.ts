@@ -65,7 +65,17 @@ interface ExpectedProof {
 }
 
 const identitySecurityChangeRejected = Symbol("identity-security-change-rejected");
+const identityReauthenticationRequired = Symbol("identity-reauthentication-required");
 const IDENTITY_REAUTHENTICATION_LIFETIME_MS = 10 * 60_000;
+
+export class IdentitySecurityChangeReauthenticationRequiredError extends Error {
+  readonly code = "IDENTITY_REAUTHENTICATION_REQUIRED";
+
+  constructor() {
+    super("identity reauthentication required");
+    this.name = "IdentitySecurityChangeReauthenticationRequiredError";
+  }
+}
 
 export function isFreshIdentityReauthentication(
   reauthenticatedAt: Date | null,
@@ -235,11 +245,9 @@ export async function executeIdentitySecurityChange(
         sessionId: input.currentSessionId,
         now: input.now,
       });
-      if (
-        !currentSession ||
-        !isFreshIdentityReauthentication(currentSession.reauthenticatedAt, input.now)
-      ) {
-        throw identitySecurityChangeRejected;
+      if (!currentSession) throw identitySecurityChangeRejected;
+      if (!isFreshIdentityReauthentication(currentSession.reauthenticatedAt, input.now)) {
+        throw identityReauthenticationRequired;
       }
       await lockAndValidateProof(transaction, input, expected);
       const consumed = await consumeIdentityLinkProof(
@@ -311,6 +319,9 @@ export async function executeIdentitySecurityChange(
       revokedOtherSessions: committed.revokedOtherSessions,
     };
   } catch (error) {
+    if (error === identityReauthenticationRequired) {
+      throw new IdentitySecurityChangeReauthenticationRequiredError();
+    }
     if (error === identitySecurityChangeRejected) {
       throw new Error("identity security change rejected");
     }

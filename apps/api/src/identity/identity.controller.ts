@@ -34,7 +34,7 @@ import { z } from "zod";
 import type { AuthenticatedSession } from "../authorization/authorization.service.js";
 import { AllowProvisional, Public, RequirePermission } from "../authorization/decorators.js";
 import type { CsrfService } from "../security/csrf.service.js";
-import type { IdentityService } from "./identity.service.js";
+import { type IdentityService, ReauthenticationRequiredException } from "./identity.service.js";
 import type { OAuthService } from "./oauth.service.js";
 import type { OtpService } from "./otp.service.js";
 import type { SessionService } from "./session.service.js";
@@ -571,7 +571,8 @@ export class IdentityController {
       });
       this.csrf?.rotateToSession(request, reply, secured.sessionId, secured.sessionToken);
       return VerifyEmailOtpResponseSchema.parse({ status: expectedStatus });
-    } catch {
+    } catch (error) {
+      if (error instanceof ReauthenticationRequiredException) throw error;
       throw stableCancelled();
     }
   }

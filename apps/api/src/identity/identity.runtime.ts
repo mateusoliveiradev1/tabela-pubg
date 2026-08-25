@@ -7,6 +7,7 @@ import {
   type DatabaseConnection,
   type EncryptionKey,
   executeIdentitySecurityChange,
+  IdentitySecurityChangeReauthenticationRequiredError,
   findActiveAuthChallenge,
   findDiscordIdentity,
   findPendingIdentityLink,
@@ -36,7 +37,11 @@ import {
 } from "./adapters/redis-auth-rate-limiter.js";
 import type { IdentityModuleServices } from "./identity.module.js";
 import type { IdentitySecurityChangeApplicationPort } from "./identity.service.js";
-import { type IdentityRepository, IdentityService } from "./identity.service.js";
+import {
+  type IdentityRepository,
+  IdentityService,
+  ReauthenticationRequiredException,
+} from "./identity.service.js";
 import { OAuthService, type OAuthTransactionRepository } from "./oauth.service.js";
 import {
   type OtpDeliveryRequest,
@@ -220,18 +225,26 @@ export function buildIdentitySecurityChangeApplication(input: {
   const execute = input.execute ?? executeIdentitySecurityChange;
   return {
     execute: async (command) => {
-      const committed = await execute({
-        database: input.database,
-        actorId: command.actorId,
-        currentSessionId: command.currentSessionId,
-        proofId: command.proofId,
-        change: command.change,
-        now: command.now,
-        generateId: () => input.tokens.id(),
-        generateCorrelationId: () => command.correlationId,
-        generateOpaqueToken: () => Buffer.from(input.tokens.opaque(32), "base64url"),
-        ...(input.sessionPolicy === undefined ? {} : { sessionPolicy: input.sessionPolicy }),
-      });
+      let committed: Awaited<ReturnType<typeof executeIdentitySecurityChange>>;
+      try {
+        committed = await execute({
+          database: input.database,
+          actorId: command.actorId,
+          currentSessionId: command.currentSessionId,
+          proofId: command.proofId,
+          change: command.change,
+          now: command.now,
+          generateId: () => input.tokens.id(),
+          generateCorrelationId: () => command.correlationId,
+          generateOpaqueToken: () => Buffer.from(input.tokens.opaque(32), "base64url"),
+          ...(input.sessionPolicy === undefined ? {} : { sessionPolicy: input.sessionPolicy }),
+        });
+      } catch (error) {
+        if (error instanceof IdentitySecurityChangeReauthenticationRequiredError) {
+          throw new ReauthenticationRequiredException();
+        }
+        throw error;
+      }
       return {
         sessionId: committed.sessionId,
         sessionToken: committed.newSessionToken,
