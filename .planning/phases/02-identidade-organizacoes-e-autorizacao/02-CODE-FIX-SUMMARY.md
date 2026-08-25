@@ -1,6 +1,6 @@
 ---
 phase: 02-identidade-organizacoes-e-autorizacao
-fixed_at: 2026-08-25T00:24:00-03:00
+fixed_at: 2026-08-25T01:26:54-03:00
 review_path: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-CODE-REVIEW.md
 iteration: 1
 findings_in_scope: 11
@@ -25,14 +25,19 @@ All eight Critical/BLOCKER and three Warning findings were resolved without weak
 - `da7bd40` — CR-08 injected session/OTP/rate-limit policies.
 - `d49ce1b` — WR-02/WR-03 valid local cookies and canonical origins.
 - `e4f775d`, `76fd225` — formatting-only follow-ups required by repository gates.
+- `a934d53` — real-PostgreSQL CR-06 proof-time and per-session token fixtures.
+- `cad756c` — real-PostgreSQL CR-07 rollback assertion typing and per-boundary timing.
+- `3e57a46` — batched runtime-security migration setup under the existing 30-second hook.
+- `fa2d099` — batched migration setup across all PostgreSQL integration/concurrency fixtures.
 
 ## Verification
 
 - `pnpm ci:verify`: passed, including secrets, migration/Drizzle checks, compose structure, Phase 2 CI structure, lint, dependency boundaries, typecheck, unit/component tests, and all builds.
 - Focused CSRF/Fastify integration: 17/17 passed.
-- Temporary real Redis limiter integration: 6/6 passed; process stopped after the run.
-- Temporary real BullMQ delayed-transition probe: passed with exactly two executions; queue obliterated and Redis stopped.
-- PostgreSQL fault/concurrency suites for CR-01, CR-02, CR-05, CR-06, CR-07, and WR-01 were added or extended and compile, but did not execute locally because PostgreSQL, Docker, and Podman are unavailable. They remain mandatory in the CI service environment.
-- Full-stack Chromium/runtime was not run locally for the same PostgreSQL preflight blocker; focused web/BFF tests (120/120) and the production Next build passed.
+- Real Redis limiter integration: 6/6 passed, and real BullMQ delayed-transition evidence completed with exactly two executions.
+- Direct non-pooler Neon focused gates: identity security change 15/15, session/alert rollback 12/12, identity/organization repositories 24/24, and runtime migration 4/4 in 18.84 seconds under the unchanged 30-second hook.
+- Direct non-pooler Neon plus Redis full gates: `phase2:integration` 58/58 with zero skips; `phase2:concurrent` 4/4.
+- Full-stack Chromium: runtime 6/6, smoke 2/2, and full browser 26 passed with six expected project-conditioned skips.
+- Cleanup verification found zero owned Phase 2 test schemas after removing five schemas left by deliberately interrupted RED/diagnostic runs. E2E lifecycle cleanup completed for every browser run; the Neon branch and Redis service remain active for orchestrator cleanup.
 
-No migrations were added or changed, no external services were mutated, and no secrets were persisted.
+No migrations were added or changed, no secrets were persisted, and no external branch, compute, or Redis service was deleted.

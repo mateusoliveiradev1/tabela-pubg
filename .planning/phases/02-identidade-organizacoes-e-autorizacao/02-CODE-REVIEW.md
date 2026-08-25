@@ -191,7 +191,7 @@ resolved_findings:
   critical: 8
   warning: 3
   total: 11
-fixed_at: 2026-08-25T00:24:00-03:00
+fixed_at: 2026-08-25T01:26:54-03:00
 status: clean
 ---
 
@@ -204,9 +204,9 @@ status: clean
 
 ## Summary
 
-The review originally found eight release-blocking correctness/security defects and three robustness warnings. Review-fix iteration 1 resolved every finding in commits `08c0bc1` through `d49ce1b`, followed by formatting-only commits `e4f775d` and `76fd225`.
+The review originally found eight release-blocking correctness/security defects and three robustness warnings. Review-fix iteration 1 resolved every finding in commits `08c0bc1` through `d49ce1b`, followed by formatting-only commits `e4f775d` and `76fd225`. PostgreSQL follow-up commits `a934d53`, `cad756c`, `3e57a46`, and `fa2d099` corrected the real-service fixtures and made migration setup robust without relaxing test timeouts.
 
-Post-fix verification passed `pnpm ci:verify`, including secrets, Drizzle migration checks, dependency boundaries, lint, typecheck, all unit/component suites, and all builds. Redis integration passed 6/6 against a temporary real Redis instance, and a temporary real BullMQ queue proved persisted delayed rescheduling. PostgreSQL fault/concurrency cases are committed and compile, but could not execute locally because neither PostgreSQL nor Docker is installed; the test suites remain fail-closed behind `DATABASE_URL` for CI execution.
+Post-fix verification passed `pnpm ci:verify`, including secrets, Drizzle migration checks, dependency boundaries, lint, typecheck, all unit/component suites, and all builds. Against a direct, non-pooler temporary Neon compute plus real Redis, `phase2:integration` passed 58/58 with zero skips and `phase2:concurrent` passed 4/4. Focused PostgreSQL evidence passed identity security change 15/15, session/alert rollback 12/12, identity/organization repositories 24/24, and runtime migration 4/4 in 18.84 seconds with the original 30-second hook. Chromium passed runtime 6/6, smoke 2/2, and full browser 26 passed with six expected project-conditioned skips. All owned test schemas and E2E run data were cleaned; the temporary Neon branch and Redis service were deliberately left active for orchestrator cleanup.
 
 ## Narrative Findings (AI reviewer)
 
@@ -230,7 +230,7 @@ Post-fix verification passed `pnpm ci:verify`, including secrets, Drizzle migrat
 
 **Fix:** Make `claim` return a discriminated result (`completed`, `missing`, `leased-until`, `retry-at`, `claimed`). Only completed/missing are successful no-ops; deferred/leased results must reschedule or fail the BullMQ job until the persisted time. Make post-delete completion recoverable and idempotent. Add a real BullMQ + PostgreSQL test covering completion-write failure and a retry before both the lease and `nextAttemptAt`.
 
-**Resolution:** `f987178` introduces the discriminated claim result and persisted-time deferral through BullMQ `moveToDelayed`/`DelayedError`. Processor tests pass 7/7; a temporary real Redis/BullMQ run proved delayed re-execution exactly twice. PostgreSQL eligibility cases are committed for the CI service environment.
+**Resolution:** `f987178` introduces the discriminated claim result and persisted-time deferral through BullMQ `moveToDelayed`/`DelayedError`. Processor tests pass 7/7; real Redis/BullMQ proved delayed re-execution exactly twice, and the complete real-service PostgreSQL integration gate passed 58/58.
 
 ### CR-03: [RESOLVED] Email identity linking calls an OTP route that the BFF deliberately rejects
 
@@ -250,7 +250,7 @@ Post-fix verification passed `pnpm ci:verify`, including secrets, Drizzle migrat
 
 **Fix:** Point email step-up at `/identity/email/otp/step-up/{request,verify}`. For Discord, persist a one-use, session-bound continuation describing the exact action and reason, restore it after callback, verify fresh server-side reauthentication, then enter/perform commit and clear the continuation. Add browser E2E for both methods that asserts the original mutation, audit reason, and final capability refresh.
 
-**Resolution:** `24a374d` uses purpose-specific step-up routes and adds an exact-action, reason-preserving, session-bound one-use Discord continuation consumed only after callback success. Focused continuation/component/BFF tests and the complete web suite passed; full stack Chromium remains delegated to CI because local PostgreSQL is unavailable.
+**Resolution:** `24a374d` uses purpose-specific step-up routes and adds an exact-action, reason-preserving, session-bound one-use Discord continuation consumed only after callback success. Focused continuation/component/BFF tests and the complete web suite passed; real full-stack Chromium subsequently passed runtime 6/6, smoke 2/2, and the full multi-project browser gate.
 
 ### CR-05: [RESOLVED] Discord creates a pending link proof whose identifier is never returned to the user
 
@@ -270,7 +270,7 @@ Post-fix verification passed `pnpm ci:verify`, including secrets, Drizzle migrat
 
 **Fix:** Enforce fresh current-method proof at the database transaction boundary: lock the current session and require `reauthenticated_at` to be greater than `now - 10 minutes` and not in the future before consuming the candidate proof or mutating identities. The controller/UI should initiate step-up first, but the atomic database check must remain authoritative. Add stale, null, future, wrong-session, and boundary-time integration cases for both link-email and change-email.
 
-**Resolution:** `5edde9c` makes fresh current-session reauthentication an authoritative precondition inside the email security-change transaction. Null, stale, exact-boundary, future, wrong-session, and just-inside-boundary cases cover both purposes; focused tests, types, builds, and `ci:verify` passed.
+**Resolution:** `5edde9c` makes fresh current-session reauthentication an authoritative precondition inside the email security-change transaction. `a934d53` corrected proof time and per-session token fixtures exposed by real PostgreSQL and split the three negative proof modes into independently timed cases. Null, stale, exact-boundary, future, wrong-session, and just-inside-boundary cases now pass for both purposes, with 15/15 focused and 58/58 full integration tests green.
 
 ### CR-07: [RESOLVED] New-device session issuance and its security alert are not one transaction
 
@@ -280,7 +280,7 @@ Post-fix verification passed `pnpm ci:verify`, including secrets, Drizzle migrat
 
 **Fix:** Wrap device resolution, session issue, alert context, delivery, and outbox insertion in a single database transaction and pass that transaction through every repository call. Preserve the unique-device race handling inside the transaction. Add fault-injection integration cases after each mutation and prove rollback leaves no device/session/delivery/outbox residue; then prove a retry still emits exactly one alert.
 
-**Resolution:** `422b5b8` owns the transaction inside `issueSessionForDevice` and threads it through alert, encrypted delivery, and outbox writes while preserving conflict-based device resolution. Fault injection covers every boundary plus clean retry with exactly one alert.
+**Resolution:** `422b5b8` owns the transaction inside `issueSessionForDevice` and threads it through alert, encrypted delivery, and outbox writes while preserving conflict-based device resolution. `cad756c` corrected the real PostgreSQL `text`/`uuid` assertion and isolated each fault boundary under the existing timeout. All five rollback stages plus clean retry pass in the 12/12 focused suite.
 
 ### CR-08: [RESOLVED] Validated session and OTP security settings are ignored at runtime
 
