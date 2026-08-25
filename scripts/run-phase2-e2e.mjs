@@ -157,6 +157,7 @@ async function runLifecycle() {
     cleanupEnvironment = baseEnvironment;
     const environment = {
       ...seeded.environment,
+      E2E_BROWSER_AUTH_MODE: process.argv.includes("--runtime") ? "runtime" : "shared",
       PHASE2_RUNTIME_EVIDENCE: JSON.stringify({
         cases: RUNTIME_CASES,
         runScopeId: scopes.runScopeId,

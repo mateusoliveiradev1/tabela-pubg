@@ -14,6 +14,9 @@ const sourcePaths = {
   runner: path.join(repositoryRoot, "scripts/run-phase2-e2e.mjs"),
   providerSpec: path.join(repositoryRoot, "apps/api/src/e2e/provider-mode.spec.ts"),
   runtimeSpec: path.join(repositoryRoot, "apps/web/e2e/phase2-runtime.spec.ts"),
+  playwrightConfig: path.join(repositoryRoot, "apps/web/playwright.config.ts"),
+  authSetup: path.join(repositoryRoot, "apps/web/e2e/global-setup.ts"),
+  browserFixtures: path.join(repositoryRoot, "apps/web/e2e/fixtures.ts"),
   accessibilitySpec: path.join(repositoryRoot, "apps/web/e2e/phase2-accessibility.spec.ts"),
   workerMain: path.join(repositoryRoot, "apps/worker/src/main.ts"),
   integrationConfig: path.join(repositoryRoot, "vitest.integration.config.ts"),
@@ -198,8 +201,29 @@ function validate(input) {
     [/assertNoCurrentRunKeys/, "current-run key cleanup assertion"],
     [/assertForeignSentinel/, "foreign-run preservation assertion"],
     [/removeOwnedRoot\(objectRoot\)/, "owned root cleanup"],
+    [/E2E_BROWSER_AUTH_MODE:/, "explicit browser authentication mode"],
   ]);
   rejectMatch(input.runner, /--serve-api/, "synthetic runner path");
+  requireAll(input.playwrightConfig, [
+    [/globalSetup:\s*"\.\/e2e\/global-setup\.ts"/, "single browser authentication setup"],
+    [/storageState:\s*authStatePath/, "reused browser authentication state"],
+  ]);
+  requireAll(input.authSetup, [
+    [/phase2AuthStatePath\(process\.env\)/, "run-owned authentication state path"],
+    [/context\.storageState\(\{ path: statePath \}\)/, "persisted reusable authentication state"],
+  ]);
+  rejectMatch(
+    input.browserFixtures,
+    /Receber código|Código de 8 dígitos|organizer@example\.com/,
+    "per-test OTP authentication",
+  );
+  requireAll(input.runtimeSpec, [
+    [/select correlation_id from outbox_events/, "real PostgreSQL correlation assertion"],
+    [
+      /expect\(otpOutbox\.correlation_id\)\.toBe\(otpRequest\.correlationId\)/,
+      "outbox correlation propagation",
+    ],
+  ]);
   requireAll(input.workerMain, [
     [/new OutboxPublisher\(/, "real outbox publisher"],
     [/publisher\.start\(\)/, "started outbox publisher"],
@@ -497,8 +521,18 @@ function runSelfTest(baseline) {
       "missing-accessibility-suite",
       (value) => mutateAll(value, "accessibilitySpec", "test(", "removed("),
     ],
+    [
+      "missing-reusable-browser-auth-state",
+      (value) =>
+        mutate(
+          value,
+          "playwrightConfig",
+          'globalSetup: "./e2e/global-setup.ts"',
+          'globalSetup: "./e2e/missing-setup.ts"',
+        ),
+    ],
   ];
-  if (cases.length !== 34) throw new Error("CI validator self-test inventory cardinality changed");
+  if (cases.length !== 35) throw new Error("CI validator self-test inventory cardinality changed");
   const executed = [];
   for (const [name, change] of cases) {
     let rejected = false;

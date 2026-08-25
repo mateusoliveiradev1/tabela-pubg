@@ -28,12 +28,11 @@ export const test = base.extend<{ phase2: Phase2Fixture }>({
       invitationContext: `invite-${runId}-0123456789abcdef`,
       logoBytes,
       async signIn(page) {
-        await page.goto("/entrar");
-        await page.getByLabel("E-mail").fill("organizer@example.com");
-        await page.getByRole("button", { name: "Receber código" }).click();
-        await expect(page.getByRole("heading", { name: "Digite o código" })).toBeVisible();
-        await page.getByLabel("Código de 8 dígitos").fill("12345678");
-        await page.getByRole("button", { name: "Confirmar código" }).click();
+        const session = (await page.context().cookies()).find(
+          (cookie) => cookie.name === "__Host-session",
+        );
+        if (!session) throw new Error("phase 2 reusable authentication state is missing");
+        await page.goto("/");
         await page.waitForURL((url) => url.pathname === "/");
       },
     });

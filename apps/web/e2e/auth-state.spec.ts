@@ -1,5 +1,5 @@
-import path from "node:path";
 import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { phase2AuthStatePath, shouldBootstrapPhase2Auth } from "./auth-state.js";
 
@@ -26,6 +26,7 @@ describe("phase 2 reusable browser authentication state", () => {
 
   it("bootstraps once for smoke/full browser runs and stays out of the owned runtime project", () => {
     expect(shouldBootstrapPhase2Auth({})).toBe(true);
-    expect(shouldBootstrapPhase2Auth({ PHASE2_RUNTIME_EVIDENCE: "{}" })).toBe(false);
+    expect(shouldBootstrapPhase2Auth({ E2E_BROWSER_AUTH_MODE: "shared" })).toBe(true);
+    expect(shouldBootstrapPhase2Auth({ E2E_BROWSER_AUTH_MODE: "runtime" })).toBe(false);
   });
 });

@@ -82,14 +82,20 @@ test.describe
     `;
       expect(deniedCount.count).toBe(0);
 
-      const challenge = await requestOtp(page, "verify-provisional-email", ownerEmail, state.csrf);
-      const code = await waitForOtp(ownerEmail, challenge);
+      const otpRequest = await requestOtp(page, "verify-provisional-email", ownerEmail, state.csrf);
+      const code = await waitForOtp(ownerEmail, otpRequest.challengeId);
+      const [otpOutbox] = await state.sql`
+      select correlation_id from outbox_events
+      where event_type = 'notification.delivery.requested'
+      order by created_at desc limit 1
+    `;
+      expect(otpOutbox.correlation_id).toBe(otpRequest.correlationId);
       const promoted = await browserJson(
         page,
         "POST",
         "/api/platform/identity/email/otp/verify-provisional-email/verify",
         state.csrf,
-        { challengeId: challenge, email: ownerEmail, code },
+        { challengeId: otpRequest.challengeId, email: ownerEmail, code },
       );
       expect(promoted.status).toBe(201);
       const replacementToken = await sessionToken(state.ownerContext);
@@ -563,14 +569,14 @@ async function startDiscordNavigation(page: Page, purpose: "sign-in" | "step-up"
 async function signInEmail(page: Page, email: string): Promise<string> {
   await page.goto("/entrar");
   let csrf = await acquireCsrf(page);
-  const challenge = await requestOtp(page, "sign-in", email, csrf);
-  const code = await waitForOtp(email, challenge);
+  const otpRequest = await requestOtp(page, "sign-in", email, csrf);
+  const code = await waitForOtp(email, otpRequest.challengeId);
   const verified = await browserJson(
     page,
     "POST",
     "/api/platform/identity/email/otp/sign-in/verify",
     csrf,
-    { challengeId: challenge, email, code },
+    { challengeId: otpRequest.challengeId, email, code },
   );
   expect(verified.status).toBe(201);
   csrf = verified.headers["x-csrf-token"] ?? (await acquireCsrf(page));
@@ -582,7 +588,7 @@ async function requestOtp(
   purpose: "sign-in" | "verify-provisional-email",
   email: string,
   csrf: string,
-): Promise<string> {
+): Promise<{ challengeId: string; correlationId: string }> {
   const requested = await browserJson(
     page,
     "POST",
@@ -593,7 +599,11 @@ async function requestOtp(
   expect(requested.status, JSON.stringify(requested.body)).toBe(201);
   const challenge = requested.headers["x-otp-challenge-id"];
   expect(challenge).toBeTruthy();
-  return challenge as string;
+  const correlationId = requested.headers["x-correlation-id"];
+  expect(correlationId).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+  return { challengeId: challenge as string, correlationId };
 }
 
 async function waitForOtp(email: string, challengeId: string): Promise<string> {
@@ -640,7 +650,6 @@ async function browserJson(
         headers: {
           accept: "application/json",
           "content-type": "application/json",
-          "x-correlation-id": crypto.randomUUID(),
           "x-csrf-token": csrf,
         },
         body: JSON.stringify(body),
@@ -665,7 +674,7 @@ async function browserForm(
       const response = await fetch(url, {
         method: "POST",
         credentials: "same-origin",
-        headers: { "x-correlation-id": crypto.randomUUID(), "x-csrf-token": csrf },
+        headers: { "x-csrf-token": csrf },
         body: form,
       });
       return { status: response.status, body: await response.json() };
