@@ -14,7 +14,7 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: ["src/**/*.test.ts", "src/**/*.spec.ts"],
+          include: ["src/**/*.test.ts", "src/**/*.spec.ts", "e2e/auth-state.spec.ts"],
         },
       },
       {
