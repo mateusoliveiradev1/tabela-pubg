@@ -43,6 +43,7 @@ export interface ClaimOutboxBatchInput {
   leaseMs: number;
   batchSize: number;
   maxAttempts: number;
+  eventTypes: readonly string[];
 }
 
 export interface MarkOutboxPublishedInput {
@@ -109,6 +110,16 @@ export async function claimOutboxBatch(
   assertIntegerInRange(input.leaseMs, "outbox lease", 1, 5 * 60_000);
   assertIntegerInRange(input.batchSize, "outbox batch size", 1, 100);
   assertIntegerInRange(input.maxAttempts, "outbox maximum attempts", 1, 100);
+  if (input.eventTypes.length === 0 || input.eventTypes.length > 100) {
+    throw new Error("outbox event type allowlist must contain between 1 and 100 entries");
+  }
+  for (const eventType of input.eventTypes) {
+    assertNonEmptyBounded(eventType, "outbox event type", 128);
+  }
+  const eventTypes = sql.join(
+    input.eventTypes.map((eventType) => sql`${eventType}`),
+    sql`, `,
+  );
   const leaseExpiresAt = new Date(input.now.getTime() + input.leaseMs);
   const nowIso = input.now.toISOString();
   const leaseExpiresAtIso = leaseExpiresAt.toISOString();
@@ -119,6 +130,7 @@ export async function claimOutboxBatch(
       select "candidate"."id"
       from "outbox_events" as "candidate"
       where "candidate"."attempts" < ${input.maxAttempts}
+        and "candidate"."event_type" in (${eventTypes})
         and (
           (
             "candidate"."status" in ('pending', 'failed')

@@ -386,13 +386,16 @@ describe.runIf(process.env.PHASE2_SUITE === "integration")("runtime security mig
 
   it("serializes claims, reclaims expired leases and rejects stale publishers", async () => {
     const eventId = randomUUID();
+    const unrelatedEventId = randomUUID();
     const now = new Date("2026-08-24T09:00:00.000Z");
     await freshClient`
       insert into outbox_events
         (id, event_type, event_version, aggregate_type, aggregate_id, payload,
          status, attempts, available_at, occurred_at)
       values
-        (${eventId}, 'runtime-security.claim', 1, 'migration-test', ${eventId}, '{}'::jsonb,
+        (${eventId}, 'notification.delivery.requested', 1, 'migration-test', ${eventId}, '{}'::jsonb,
+         'pending', 0, ${now.toISOString()}, ${now.toISOString()}),
+        (${unrelatedEventId}, 'organization.created', 1, 'organization', ${unrelatedEventId}, '{}'::jsonb,
          'pending', 0, ${now.toISOString()}, ${now.toISOString()})
     `;
 
@@ -403,6 +406,7 @@ describe.runIf(process.env.PHASE2_SUITE === "integration")("runtime security mig
         leaseMs: 60_000,
         batchSize: 1,
         maxAttempts: 5,
+        eventTypes: ["notification.delivery.requested", "storage.logo.cleanup"],
       }),
       claimOutboxBatch(claimPeerDb, {
         now,
@@ -410,6 +414,7 @@ describe.runIf(process.env.PHASE2_SUITE === "integration")("runtime security mig
         leaseMs: 60_000,
         batchSize: 1,
         maxAttempts: 5,
+        eventTypes: ["notification.delivery.requested", "storage.logo.cleanup"],
       }),
     ]);
     expect([...firstClaim, ...competingClaim].filter((row) => row.id === eventId)).toHaveLength(1);
@@ -427,6 +432,7 @@ describe.runIf(process.env.PHASE2_SUITE === "integration")("runtime security mig
       leaseMs: 60_000,
       batchSize: 1,
       maxAttempts: 5,
+      eventTypes: ["notification.delivery.requested", "storage.logo.cleanup"],
     });
     expect(reclaimed.map((row) => row.id)).toContain(eventId);
 
@@ -470,7 +476,18 @@ describe.runIf(process.env.PHASE2_SUITE === "integration")("runtime security mig
       leaseMs: 60_000,
       batchSize: 1,
       maxAttempts: 5,
+      eventTypes: ["notification.delivery.requested", "storage.logo.cleanup"],
     });
     expect(terminalClaim.map((row) => row.id)).not.toContain(eventId);
+    const [unrelated] = await freshClient`
+      select status, attempts, claim_token, lease_expires_at
+      from outbox_events where id = ${unrelatedEventId}
+    `;
+    expect(unrelated).toEqual({
+      status: "pending",
+      attempts: 0,
+      claim_token: null,
+      lease_expires_at: null,
+    });
   });
 });

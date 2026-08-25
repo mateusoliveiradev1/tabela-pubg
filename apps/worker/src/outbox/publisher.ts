@@ -10,6 +10,10 @@ import { z } from "zod";
 const NotificationEventPayloadSchema = z.object({ deliveryId: z.uuid() }).strict();
 const CleanupEventPayloadSchema = z.object({ cleanupId: z.uuid() }).strict();
 const EventIdSchema = z.uuid();
+const SUPPORTED_EVENT_TYPES = [
+  "notification.delivery.requested",
+  "storage.logo.cleanup",
+] as const;
 
 export interface OutboxPublisherStore {
   claimBatch(input: ClaimOutboxBatchInput): Promise<readonly OutboxEventRow[]>;
@@ -128,6 +132,7 @@ export class OutboxPublisher {
       leaseMs: this.leaseMs,
       batchSize: this.batchSize,
       maxAttempts: this.maxAttempts,
+      eventTypes: SUPPORTED_EVENT_TYPES,
     });
     let published = 0;
     let retried = 0;

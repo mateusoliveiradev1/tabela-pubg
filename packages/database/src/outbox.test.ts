@@ -63,6 +63,7 @@ describe("transactional outbox", () => {
       leaseMs: 60_000,
       batchSize: 10,
       maxAttempts: 5,
+      eventTypes: ["notification.delivery.requested", "storage.logo.cleanup"],
     });
 
     expect(claimed).toHaveLength(1);
@@ -74,6 +75,8 @@ describe("transactional outbox", () => {
         now.toISOString(),
         "claim-1",
         new Date("2026-08-24T08:01:00.000Z").toISOString(),
+        "notification.delivery.requested",
+        "storage.logo.cleanup",
         10,
         5,
       ]),
