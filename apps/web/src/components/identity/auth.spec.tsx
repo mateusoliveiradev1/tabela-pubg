@@ -234,7 +234,11 @@ describe("callback OAuth seguro", () => {
 
   it("promotes one exact session continuation only after Discord step-up succeeds", async () => {
     const organizationId = "00000000-0000-4000-8000-000000000001";
-    storeSensitiveActionContinuation(
+    const abandonedIdentityNonce = storeIdentityActionContinuation(sessionStorage, {
+      kind: "remove-identity",
+      identityId: "00000000-0000-4000-8000-000000000099",
+    });
+    const organizationNonce = storeSensitiveActionContinuation(
       sessionStorage,
       {
         kind: "membership-revocation",
@@ -255,7 +259,10 @@ describe("callback OAuth seguro", () => {
         .mockResolvedValueOnce(csrfResponse())
         .mockResolvedValueOnce(
           new Response(
-            JSON.stringify({ status: "authenticated", nextPath: `/o/${organizationId}/membros` }),
+            JSON.stringify({
+              status: "authenticated",
+              nextPath: `/o/${organizationId}/membros?__stepUpFlow=organization.${organizationNonce}`,
+            }),
             {
               status: 200,
               headers: { "content-type": "application/json" },
@@ -266,16 +273,20 @@ describe("callback OAuth seguro", () => {
 
     render(<OAuthCallbackForm />);
 
-    expect(await screen.findByRole("link", { name: "Continuar" })).toBeTruthy();
+    expect(
+      (await screen.findByRole("link", { name: "Continuar" })).getAttribute("href"),
+    ).toBe(`/o/${organizationId}/membros`);
     expect(consumeSensitiveActionContinuation(sessionStorage, organizationId)).toMatchObject({
       kind: "membership-revocation",
       reason: "Revogação confirmada",
     });
     expect(consumeSensitiveActionContinuation(sessionStorage, organizationId)).toBeNull();
+    expect(consumeIdentityActionContinuation(sessionStorage)).toBeNull();
+    expect(abandonedIdentityNonce).toMatch(/^[0-9a-f-]{36}$/i);
   });
 
   it("promotes an identity continuation once without storing candidate secrets", async () => {
-    storeIdentityActionContinuation(sessionStorage, { kind: "link-email" });
+    const identityNonce = storeIdentityActionContinuation(sessionStorage, { kind: "link-email" });
     expect(JSON.stringify(sessionStorage)).not.toMatch(/@|code|otp/i);
     window.history.replaceState(
       {},
@@ -289,7 +300,10 @@ describe("callback OAuth seguro", () => {
         .mockResolvedValueOnce(csrfResponse())
         .mockResolvedValueOnce(
           new Response(
-            JSON.stringify({ status: "authenticated", nextPath: "/conta/identidades" }),
+            JSON.stringify({
+              status: "authenticated",
+              nextPath: `/conta/identidades?__stepUpFlow=identity.${identityNonce}`,
+            }),
             { status: 200, headers: { "content-type": "application/json" } },
           ),
         ),
@@ -297,8 +311,32 @@ describe("callback OAuth seguro", () => {
 
     render(<OAuthCallbackForm />);
 
-    expect(await screen.findByRole("link", { name: "Continuar" })).toBeTruthy();
+    expect(
+      (await screen.findByRole("link", { name: "Continuar" })).getAttribute("href"),
+    ).toBe("/conta/identidades");
     expect(consumeIdentityActionContinuation(sessionStorage)).toEqual({ kind: "link-email" });
+    expect(consumeIdentityActionContinuation(sessionStorage)).toBeNull();
+  });
+
+  it("clears pending step-up continuations when the confirmed callback fails", async () => {
+    storeIdentityActionContinuation(sessionStorage, { kind: "link-email" });
+    window.history.replaceState(
+      {},
+      "",
+      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length&purpose=step-up",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(csrfResponse())
+        .mockResolvedValueOnce(new Response(null, { status: 400 })),
+    );
+
+    render(<OAuthCallbackForm />);
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(sessionStorage.getItem("pubg-camp:identity-action:pending")).toBeNull();
     expect(consumeIdentityActionContinuation(sessionStorage)).toBeNull();
   });
 });

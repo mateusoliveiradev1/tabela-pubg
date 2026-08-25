@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clearSensitiveActionContinuation,
   consumeSensitiveActionContinuation,
   promoteSensitiveActionContinuation,
   storeSensitiveActionContinuation,
@@ -34,15 +35,23 @@ const membershipId = "00000000-0000-4000-8000-000000000002";
 describe("sensitive action continuation", () => {
   it("becomes reachable only after step-up promotion and is consumed once", () => {
     const storage = new MemoryStorage();
-    storeSensitiveActionContinuation(
+    const nonce = storeSensitiveActionContinuation(
       storage,
       { kind: "membership-revocation", organizationId, membershipId },
       "Motivo auditável",
       now,
     );
 
+    expect(nonce).toMatch(/^[0-9a-f-]{36}$/i);
     expect(consumeSensitiveActionContinuation(storage, organizationId, now)).toBeNull();
-    expect(promoteSensitiveActionContinuation(storage, now)).toBe(true);
+    expect(
+      promoteSensitiveActionContinuation(
+        storage,
+        "00000000-0000-4000-8000-000000000099",
+        now,
+      ),
+    ).toBe(false);
+    expect(promoteSensitiveActionContinuation(storage, nonce, now)).toBe(true);
     expect(consumeSensitiveActionContinuation(storage, organizationId, now)).toMatchObject({
       kind: "membership-revocation",
       organizationId,
@@ -54,23 +63,40 @@ describe("sensitive action continuation", () => {
 
   it("fails closed for an expired or wrong-tenant continuation", () => {
     const storage = new MemoryStorage();
-    storeSensitiveActionContinuation(
+    const expiredNonce = storeSensitiveActionContinuation(
       storage,
       { kind: "membership-revocation", organizationId, membershipId },
       "Motivo auditável",
       now,
     );
-    expect(promoteSensitiveActionContinuation(storage, now + 10 * 60_000)).toBe(false);
+    expect(
+      promoteSensitiveActionContinuation(storage, expiredNonce, now + 10 * 60_000),
+    ).toBe(false);
 
-    storeSensitiveActionContinuation(
+    const tenantNonce = storeSensitiveActionContinuation(
       storage,
       { kind: "membership-revocation", organizationId, membershipId },
       "Motivo auditável",
       now,
     );
-    expect(promoteSensitiveActionContinuation(storage, now)).toBe(true);
+    expect(promoteSensitiveActionContinuation(storage, tenantNonce, now)).toBe(true);
     expect(
       consumeSensitiveActionContinuation(storage, "00000000-0000-4000-8000-000000000099", now),
     ).toBeNull();
+  });
+
+  it("clears an abandoned organization flow without replay", () => {
+    const storage = new MemoryStorage();
+    const nonce = storeSensitiveActionContinuation(
+      storage,
+      { kind: "membership-revocation", organizationId, membershipId },
+      "Motivo auditável",
+      now,
+    );
+
+    clearSensitiveActionContinuation(storage, nonce);
+
+    expect(promoteSensitiveActionContinuation(storage, nonce, now + 1)).toBe(false);
+    expect(consumeSensitiveActionContinuation(storage, organizationId, now + 2)).toBeNull();
   });
 });
