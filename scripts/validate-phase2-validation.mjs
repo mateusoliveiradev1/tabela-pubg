@@ -330,6 +330,21 @@ async function expectRejected(label, content, expectedFlags = true) {
 
 async function runSelfTest(targetPath) {
   const baseline = await validateDocument(targetPath, true);
+  await expectRejected(
+    "missing-post-remediation-authority",
+    baseline.replace("## Phase 2 Post-Remediation Evidence", "## Removed Evidence"),
+  );
+  await expectRejected(
+    "coverage-stops-before-02-42",
+    baseline.replace(/^\| 02-42 \|.*\r?\n/m, ""),
+  );
+  await expectRejected(
+    "stale-final-sha",
+    baseline.replaceAll(
+      "5b1555d7693b0f5678eeaa131550cedc985345ad",
+      "a41f87c539435ed00dd848571699e5ebede8f97c",
+    ),
+  );
   await expectRejected("missing-requirement", baseline.replace(/^\| AUTH-006 \|.*\r?\n/m, ""));
   await expectRejected("wrong-run", baseline.replaceAll("32676449341", "32676449342"));
   await expectRejected(
