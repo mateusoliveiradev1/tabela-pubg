@@ -83,9 +83,9 @@ describe("tenant-scoped read authorization", () => {
       const test = pipeline(route, false);
 
       expect(test.permission).toBe(route.permission);
-      await expect(test.guard.canActivate(test.context as never)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      );
+      const denied = await test.guard.canActivate(test.context as never).catch((error) => error);
+      expect(denied).toBeInstanceOf(ForbiddenException);
+      expect((denied as ForbiddenException).getStatus()).toBe(403);
       expect(test.authorization.can).toHaveBeenCalledOnce();
       expect(test.authorization.can).toHaveBeenCalledWith({
         actorId: ACTOR_ID,
