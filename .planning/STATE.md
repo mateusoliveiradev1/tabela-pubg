@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-25T01:51:32.349Z"
+last_updated: "2026-08-25T02:19:22.727Z"
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 45
-  completed_plans: 44
-  percent: 33
+  completed_plans: 45
+  percent: 67
 ---
 
 # Estado do projeto
 
 ## Posição atual
 
-- Milestone: v1 completo
-- Fase: 2 — Identidade, organizações e autorização
-- Plano: 02-34 concluído; próximo plano pendente 02-40
-- Status: evidência CI pós-remediação aprovada em stack real; promoção final do ledger pendente
-- Progresso: 44/45 planos do milestone concluídos; resta 1 plano de gap closure da Fase 2
+- Milestone: v1 em progresso
+- Fase: 2 concluída — próxima fase 2.1, direção visual Impeccable
+- Plano: 02-40 concluído; ledger final promovido
+- Status: evidência CI pós-remediação aprovada e validação fail-closed encerrada
+- Progresso: 45/45 planos existentes concluídos; Fase 2 em 42/42
 
 ## Decisões acumuladas
 
@@ -108,8 +108,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar o plano pendente `02-40` para consumir a autoridade estruturada de `02-34-SUMMARY.md` e promover o ledger final.
-- Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
+- Avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
 
@@ -117,9 +116,9 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano 02-34 registrou o run push 32798458788 do SHA 5b1555d7693b0f5678eeaa131550cedc985345ad com 8/8 jobs e cleanup run-scoped
-- Próxima ação: executar o plano 02-40 e promover a validação final fail-closed
-- Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-40-PLAN.md
+- Última ação: plano 02-40 validou 284 regressões negativas e promoveu o ledger somente do run push 32798458788 no SHA 5b1555d7693b0f5678eeaa131550cedc985345ad
+- Próxima ação: iniciar a Fase 2.1 de direção visual Impeccable
+- Arquivo de retomada: None
 
 ## Accumulated Context
 
@@ -142,6 +141,7 @@ progress:
 | Phase 02 P33 | 41min | 1 tasks | 9 files |
 | Phase 02 P39 | 1h 16m | 2 tasks | 10 files |
 | Phase 02 P34 | 5h 10m | 1 checkpoint | 1 file |
+| Phase 02 P40 | 20 min | 1 tasks | 3 files |
 
 ## Decisions
 
@@ -179,3 +179,6 @@ progress:
 - [Phase 02]: O run push 32798458788 do SHA 5b1555d7693b0f5678eeaa131550cedc985345ad é a única autoridade final pós-remediação consumida por 02-40.
 - [Phase 02]: A cardinalidade obrigatória da CI é definida pelos oito pares key/matrix/name canônicos do workflow rastreado.
 - [Phase 02]: Runtime e cleanup compartilham byte-for-byte o E2E_RUN_ID run-ci-32798458788-1-phase2.
+- [Phase 02]: Final Phase 2 authority is parsed only from the single structured object in 02-34-SUMMARY; ledger prose can only mirror it.
+- [Phase 02]: D-10, D-16 and D-17 require their complete historical producer tuples plus the exact 02-39 runtime assertions.
+- [Phase 02]: The canonical eight workflow jobs, real-stack runtime and three byte-equal cleanup scopes are fixed expectations rather than evidence-defined expectations.
