@@ -425,18 +425,19 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
     expect(JSON.stringify(outbox)).not.toContain(issued.alertToken);
   });
 
-  it("rolls back every new-device mutation boundary and retries with exactly one alert", async () => {
-    const rollbackUserId = randomUUID();
-    await client`
-      insert into users (id, display_name) values (${rollbackUserId}, 'Rollback organizer')
-    `;
-    for (const failureStage of [
+  it.each([
       "device",
       "session",
       "alert-context",
       "delivery",
       "outbox",
-    ] as const) {
+    ] as const)(
+    "rolls back the %s new-device mutation boundary and retries with exactly one alert",
+    async (failureStage) => {
+      const rollbackUserId = randomUUID();
+      await client`
+        insert into users (id, display_name) values (${rollbackUserId}, 'Rollback organizer')
+      `;
       const deviceFingerprint = `rollback-device-${failureStage}`;
       const idempotencyKey = `rollback-new-device-${failureStage}`;
       await expect(
@@ -465,7 +466,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
           (select count(*)::int from session_alert_contexts where user_id = ${rollbackUserId}) as alerts,
           (select count(*)::int from notification_deliveries where idempotency_key = ${idempotencyKey}) as deliveries,
           (select count(*)::int from outbox_events where aggregate_id in (
-            select id from notification_deliveries where idempotency_key = ${idempotencyKey}
+            select id::text from notification_deliveries where idempotency_key = ${idempotencyKey}
           )) as outbox
       `;
       expect(counts).toMatchObject({ devices: 0, sessions: 0, alerts: 0, deliveries: 0, outbox: 0 });
@@ -483,8 +484,6 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
       );
       expect(retry).toMatchObject({ isNewDevice: true });
       expect(retry.notificationDeliveryId).toBeDefined();
-
-      await db.delete(devices).where(eq(devices.userId, rollbackUserId));
-    }
-  });
+    },
+  );
 });
