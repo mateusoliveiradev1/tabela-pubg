@@ -58,6 +58,7 @@ export interface CreateEncryptedNotificationDeliveryInput {
   occurredAt: Date;
   correlationId?: string;
   causationId?: string;
+  afterMutation?: (stage: "delivery" | "outbox") => void | Promise<void>;
 }
 
 export async function createEncryptedNotificationDelivery(
@@ -99,6 +100,7 @@ export async function createEncryptedNotificationDelivery(
     createdAt: input.occurredAt,
     updatedAt: input.occurredAt,
   });
+  await input.afterMutation?.("delivery");
 
   const event: EventEnvelope = {
     id: input.outboxEventId,
@@ -111,6 +113,7 @@ export async function createEncryptedNotificationDelivery(
     ...(input.causationId === undefined ? {} : { causationId: input.causationId }),
   };
   await appendOutboxEvent(executor, event);
+  await input.afterMutation?.("outbox");
 }
 
 export async function decryptNotificationPayload<T extends Record<string, unknown>>(

@@ -100,10 +100,9 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
 
   it("stores only a digest and invalidates the old token during rotation", async () => {
     const now = new Date("2026-08-21T08:00:00.000Z");
-    const issued = await db.transaction((tx) =>
-      issueSessionForDevice(
-        tx,
-        {
+    const issued = await issueSessionForDevice(
+      db,
+      {
           userId,
           trust: "trusted",
           deviceFingerprint: "desktop-browser-profile-1",
@@ -115,9 +114,8 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
             summarizedUserAgent: "Chrome on Windows",
           },
           newDeviceNotification: notificationInput("new-device-primary"),
-        },
-        deterministicDependencies(now),
-      ),
+      },
+      deterministicDependencies(now),
     );
 
     expect(Buffer.from(issued.token, "base64url")).toHaveLength(32);
@@ -342,18 +340,16 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
 
   it("resolves alert context by digest and user without mutating or authorizing", async () => {
     const now = new Date("2026-08-21T11:00:00.000Z");
-    const issued = await db.transaction((tx) =>
-      issueSessionForDevice(
-        tx,
-        {
+    const issued = await issueSessionForDevice(
+      db,
+      {
           userId,
           trust: "trusted",
           deviceFingerprint: "alert-context-device",
           device: { label: "Unknown PC", browser: "Edge", operatingSystem: "Windows" },
           newDeviceNotification: notificationInput("alert-context-device"),
-        },
-        deterministicDependencies(now),
-      ),
+      },
+      deterministicDependencies(now),
     );
     expect(issued.alertToken).toBeDefined();
     if (!issued.alertToken || !issued.notificationDeliveryId) {
@@ -391,35 +387,66 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
     expect(JSON.stringify(outbox)).not.toContain(issued.alertToken);
   });
 
-  it("rolls device, session, alert, delivery and outbox back together", async () => {
+  it("rolls back every new-device mutation boundary and retries with exactly one alert", async () => {
     const rollbackUserId = randomUUID();
     await client`
       insert into users (id, display_name) values (${rollbackUserId}, 'Rollback organizer')
     `;
-    await expect(
-      db.transaction(async (tx) => {
-        await issueSessionForDevice(
-          tx,
+    for (const failureStage of [
+      "device",
+      "session",
+      "alert-context",
+      "delivery",
+      "outbox",
+    ] as const) {
+      const deviceFingerprint = `rollback-device-${failureStage}`;
+      const idempotencyKey = `rollback-new-device-${failureStage}`;
+      await expect(
+        issueSessionForDevice(
+          db,
           {
             userId: rollbackUserId,
             trust: "trusted",
-            deviceFingerprint: "rollback-device",
+            deviceFingerprint,
             device: { label: "Rollback PC", browser: "Chrome", operatingSystem: "Windows" },
-            newDeviceNotification: notificationInput("rollback-new-device"),
+            newDeviceNotification: notificationInput(idempotencyKey),
           },
-          deterministicDependencies(new Date("2026-08-21T12:00:00.000Z")),
-        );
-        throw new Error("force session rollback");
-      }),
-    ).rejects.toThrow("force session rollback");
+          {
+            ...deterministicDependencies(new Date("2026-08-21T12:00:00.000Z")),
+            afterMutation: (stage) => {
+              if (stage === failureStage) throw new Error(`fail after ${stage}`);
+            },
+          },
+        ),
+      ).rejects.toThrow(`fail after ${failureStage}`);
 
-    const [counts] = await client`
-      select
-        (select count(*)::int from devices where user_id = ${rollbackUserId}) as devices,
-        (select count(*)::int from sessions where user_id = ${rollbackUserId}) as sessions,
-        (select count(*)::int from session_alert_contexts where user_id = ${rollbackUserId}) as alerts,
-        (select count(*)::int from notification_deliveries where idempotency_key = 'rollback-new-device') as deliveries
-    `;
-    expect(counts).toMatchObject({ devices: 0, sessions: 0, alerts: 0, deliveries: 0 });
+      const [counts] = await client`
+        select
+          (select count(*)::int from devices where user_id = ${rollbackUserId}) as devices,
+          (select count(*)::int from sessions where user_id = ${rollbackUserId}) as sessions,
+          (select count(*)::int from session_alert_contexts where user_id = ${rollbackUserId}) as alerts,
+          (select count(*)::int from notification_deliveries where idempotency_key = ${idempotencyKey}) as deliveries,
+          (select count(*)::int from outbox_events where aggregate_id in (
+            select id from notification_deliveries where idempotency_key = ${idempotencyKey}
+          )) as outbox
+      `;
+      expect(counts).toMatchObject({ devices: 0, sessions: 0, alerts: 0, deliveries: 0, outbox: 0 });
+
+      const retry = await issueSessionForDevice(
+        db,
+        {
+          userId: rollbackUserId,
+          trust: "trusted",
+          deviceFingerprint,
+          device: { label: "Rollback PC", browser: "Chrome", operatingSystem: "Windows" },
+          newDeviceNotification: notificationInput(idempotencyKey),
+        },
+        deterministicDependencies(new Date("2026-08-21T12:01:00.000Z")),
+      );
+      expect(retry).toMatchObject({ isNewDevice: true });
+      expect(retry.notificationDeliveryId).toBeDefined();
+
+      await db.delete(devices).where(eq(devices.userId, rollbackUserId));
+    }
   });
 });

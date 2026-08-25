@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, exists, gt, isNull, lte, ne, sql } from "drizzle-orm";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type * as databaseSchema from "../schema.js";
 import { devices, type SessionRow, sessionAlertContexts, sessions, users } from "../schema.js";
 import type { Clock, RepositoryExecutor } from "./identity.js";
 import { createEncryptedNotificationDelivery, type EncryptionKey } from "./notifications.js";
@@ -27,6 +29,9 @@ export interface SessionRepositoryDependencies {
   clock: Clock;
   generateId: () => string;
   randomBytes: (size: number) => Uint8Array;
+  afterMutation?: (
+    stage: "device" | "session" | "alert-context" | "delivery" | "outbox",
+  ) => void | Promise<void>;
 }
 
 export interface DeviceMetadata {
@@ -62,6 +67,16 @@ export interface IssuedSession {
 }
 
 export async function issueSessionForDevice(
+  database: Pick<PostgresJsDatabase<typeof databaseSchema>, "transaction">,
+  input: IssueSessionForDeviceInput,
+  dependencies: SessionRepositoryDependencies,
+): Promise<IssuedSession> {
+  return database.transaction((transaction) =>
+    issueSessionForDeviceTransaction(transaction, input, dependencies),
+  );
+}
+
+async function issueSessionForDeviceTransaction(
   executor: RepositoryExecutor,
   input: IssueSessionForDeviceInput,
   dependencies: SessionRepositoryDependencies,
@@ -117,6 +132,7 @@ export async function issueSessionForDevice(
       })
       .where(and(eq(devices.userId, input.userId), eq(devices.id, existingDevice.id)));
   }
+  await dependencies.afterMutation?.("device");
 
   const token = encodeOpaqueToken(dependencies.randomBytes(32));
   const lifetimeMs = input.trust === "trusted" ? ABSOLUTE_TTL_MS : PROVISIONAL_TTL_MS;
@@ -141,6 +157,7 @@ export async function issueSessionForDevice(
   if (!session) {
     throw new Error("session was not persisted");
   }
+  await dependencies.afterMutation?.("session");
 
   if (!createdDevice) {
     return { token, session, device: existingDevice, isNewDevice: false };
@@ -155,6 +172,7 @@ export async function issueSessionForDevice(
     expiresAt: new Date(now.getTime() + ALERT_TTL_MS),
     createdAt: now,
   });
+  await dependencies.afterMutation?.("alert-context");
 
   const notificationDeliveryId = dependencies.generateId();
   await createEncryptedNotificationDelivery(executor, {
@@ -179,6 +197,7 @@ export async function issueSessionForDevice(
     availableAt: now,
     occurredAt: now,
     outboxEventId: dependencies.generateId(),
+    afterMutation: async (stage) => dependencies.afterMutation?.(stage),
   });
 
   return {
