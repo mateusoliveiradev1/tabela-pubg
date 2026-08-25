@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { InvitationList } from "../../../../../components/organizations/invitation-list";
 import { FeedbackState } from "../../../../../components/ui/feedback";
 import { loadPlatformOrganizations } from "../../../layout";
+import { trustedOrganizationContext } from "../../../trusted-organization-context";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function InvitationsPage({ params }: { params: Promise<{ sl
   if (organizations.state !== "ready") return <PageState state={organizations.state} />;
   const organization = organizations.organizations.find((candidate) => candidate.slug === slug);
   if (!organization) return <PageState state="permission" />;
-  const result = await loadInvitations(organization.id);
+  const result = await loadInvitations(slug, organization);
   if (result.state !== "ready") return <PageState state={result.state} />;
 
   return (
@@ -45,17 +46,25 @@ function PageState({ state }: { state: "permission" | "error" | "offline" | "ses
   );
 }
 
-async function loadInvitations(organizationId: string): Promise<PageResult> {
+async function loadInvitations(
+  routeSlug: string,
+  organization: { id: string; slug: string },
+): Promise<PageResult> {
   const origin = resolveApiOrigin();
   if (!origin) return { state: "error" };
   try {
+    const organizationContext = trustedOrganizationContext(routeSlug, organization);
     const cookieHeader = (await cookies()).toString();
     const response = await fetch(
-      new URL(`/platform/organizations/${organizationId}/invitations`, origin),
+      new URL(`/platform/organizations/${organization.id}/invitations`, origin),
       {
         method: "GET",
         cache: "no-store",
-        headers: { accept: "application/json", ...(cookieHeader ? { cookie: cookieHeader } : {}) },
+        headers: {
+          accept: "application/json",
+          ...organizationContext,
+          ...(cookieHeader ? { cookie: cookieHeader } : {}),
+        },
         signal: AbortSignal.timeout(10_000),
       },
     );

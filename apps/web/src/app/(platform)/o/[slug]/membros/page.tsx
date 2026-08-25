@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { MemberList } from "../../../../../components/organizations/member-list";
 import { FeedbackState } from "../../../../../components/ui/feedback";
 import { loadPlatformOrganizations } from "../../../layout";
+import { trustedOrganizationContext } from "../../../trusted-organization-context";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export default async function MembersPage({ params }: { params: Promise<{ slug: 
   const organization = organizations.organizations.find((candidate) => candidate.slug === slug);
   if (!organization) return <PageState state="permission" />;
 
-  const result = await loadMembers(organization.id);
+  const result = await loadMembers(slug, organization);
   if (result.state !== "ready") return <PageState state={result.state} />;
   return (
     <section className="platform-page" aria-labelledby="members-title">
@@ -51,23 +52,28 @@ function PageState({ state }: { state: "permission" | "error" | "offline" | "ses
   );
 }
 
-async function loadMembers(organizationId: string): Promise<MembersPageState> {
+async function loadMembers(
+  routeSlug: string,
+  organization: { id: string; slug: string },
+): Promise<MembersPageState> {
   const origin = resolveApiOrigin();
   if (!origin) return { state: "error" };
   try {
+    const organizationContext = trustedOrganizationContext(routeSlug, organization);
     const cookieHeader = (await cookies()).toString();
     const headers = {
       accept: "application/json",
+      ...organizationContext,
       ...(cookieHeader ? { cookie: cookieHeader } : {}),
     };
     const [membersResponse, managementProbe] = await Promise.all([
-      fetch(new URL(`/platform/organizations/${organizationId}/members`, origin), {
+      fetch(new URL(`/platform/organizations/${organization.id}/members`, origin), {
         method: "GET",
         cache: "no-store",
         headers,
         signal: AbortSignal.timeout(10_000),
       }),
-      fetch(new URL(`/platform/organizations/${organizationId}/invitations`, origin), {
+      fetch(new URL(`/platform/organizations/${organization.id}/invitations`, origin), {
         method: "GET",
         cache: "no-store",
         headers,

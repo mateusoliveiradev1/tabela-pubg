@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { type AuditFilters, AuditTimeline } from "../../../../../components/audit/audit-event";
 import { FeedbackState } from "../../../../../components/ui/feedback";
 import { loadPlatformOrganizations } from "../../../layout";
+import { trustedOrganizationContext } from "../../../trusted-organization-context";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export default async function AuditPage({
   const organization = organizations.organizations.find((candidate) => candidate.slug === slug);
   if (!organization) return <PageState state="permission" />;
   const filters = parseFilters(rawSearch);
-  const result = await loadAudit(organization.id, filters, positivePage(rawSearch.page));
+  const result = await loadAudit(slug, organization, filters, positivePage(rawSearch.page));
   if (result.state !== "ready") return <PageState state={result.state} />;
 
   return (
@@ -55,7 +56,8 @@ function PageState({ state }: { state: "permission" | "error" | "offline" | "ses
 }
 
 async function loadAudit(
-  organizationId: string,
+  routeSlug: string,
+  organization: { id: string; slug: string },
   filters: AuditFilters,
   page: number,
 ): Promise<PageResult> {
@@ -70,13 +72,18 @@ async function loadAudit(
     query.set("authorizationScopeId", filters.authorizationScopeId);
   }
   try {
+    const organizationContext = trustedOrganizationContext(routeSlug, organization);
     const cookieHeader = (await cookies()).toString();
     const response = await fetch(
-      new URL(`/platform/organizations/${organizationId}/audit?${query}`, origin),
+      new URL(`/platform/organizations/${organization.id}/audit?${query}`, origin),
       {
         method: "GET",
         cache: "no-store",
-        headers: { accept: "application/json", ...(cookieHeader ? { cookie: cookieHeader } : {}) },
+        headers: {
+          accept: "application/json",
+          ...organizationContext,
+          ...(cookieHeader ? { cookie: cookieHeader } : {}),
+        },
         signal: AbortSignal.timeout(10_000),
       },
     );
