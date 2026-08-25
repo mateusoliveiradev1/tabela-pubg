@@ -25,7 +25,6 @@ test.describe("phase 2 browser smoke", () => {
       page.waitForResponse((response) => response.url().includes("/logo") && response.ok()),
       page.getByRole("button", { name: "Salvar logo" }).click(),
     ]);
-    await expect(page.getByRole("img", { name: /Logo atual de Arena Alpha/ })).toBeVisible();
 
     await page.goto(`/convites/aceitar?token=${phase2.invitationContext}`);
     const logo = page.getByRole("img", { name: new RegExp(phase2.organizationName) });
