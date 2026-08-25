@@ -19,6 +19,9 @@ const postgresModule = databaseRequire("postgres");
 const postgres = postgresModule.default ?? postgresModule;
 const evidence = parseEvidence();
 const otpRequestReadyAt = new Map<string, number>();
+const otpRequestCooldownSeconds = requiredOtpRequestCooldownSeconds(
+  process.env.OTP_COOLDOWN_SECONDS,
+);
 const ownerEmail = `owner-${evidence.runScopeId}@example.test`;
 const relinkedOwnerEmail = `owner-relinked-${evidence.runScopeId}@example.test`;
 const adminEmail = `admin-${evidence.runScopeId}@example.test`;
@@ -686,8 +689,7 @@ async function completeEmailStepUpFromDialog(page: Page, email: string): Promise
   await page.getByRole("button", { name: "Receber código de confirmação" }).click();
   const requested = await requestPromise;
   expect(requested.ok()).toBe(true);
-  const accepted = (await requested.json()) as { retryAfterSeconds?: unknown };
-  rememberOtpRequestCooldown(email, accepted.retryAfterSeconds);
+  rememberOtpRequestCooldown(email, otpRequestCooldownSeconds);
   const challengeId = requested.headers()["x-otp-challenge-id"];
   expect(challengeId).toBeTruthy();
   const code = await waitForOtp(email, challengeId);
@@ -800,7 +802,8 @@ async function requestOtp(
   );
   expect(requested.status, JSON.stringify(requested.body)).toBe(201);
   const accepted = requested.body as { retryAfterSeconds?: unknown };
-  rememberOtpRequestCooldown(email, accepted.retryAfterSeconds);
+  expect(accepted.retryAfterSeconds).toBe(otpRequestCooldownSeconds);
+  rememberOtpRequestCooldown(email, otpRequestCooldownSeconds);
   const challenge = requested.headers["x-otp-challenge-id"];
   expect(challenge).toBeTruthy();
   const correlationId = requested.headers["x-correlation-id"];
@@ -824,16 +827,19 @@ async function waitForOtpRequestCooldown(email: string): Promise<void> {
   }
 }
 
-function rememberOtpRequestCooldown(email: string, retryAfterSeconds: unknown): void {
-  if (
-    typeof retryAfterSeconds !== "number" ||
-    !Number.isInteger(retryAfterSeconds) ||
-    retryAfterSeconds < 1 ||
-    retryAfterSeconds > 3_600
-  ) {
-    throw new Error("OTP request response contained an invalid cooldown");
-  }
+function rememberOtpRequestCooldown(email: string, retryAfterSeconds: number): void {
   otpRequestReadyAt.set(email.trim().toLowerCase(), Date.now() + retryAfterSeconds * 1_000);
+}
+
+function requiredOtpRequestCooldownSeconds(value: string | undefined): number {
+  if (value === undefined || !/^\d+$/.test(value)) {
+    throw new Error("OTP_COOLDOWN_SECONDS is required by the real runtime spec");
+  }
+  const seconds = Number(value);
+  if (!Number.isSafeInteger(seconds) || seconds < 10 || seconds > 3_600) {
+    throw new Error("OTP_COOLDOWN_SECONDS is invalid for the real runtime spec");
+  }
+  return seconds;
 }
 
 async function waitForOtp(email: string, challengeId: string): Promise<string> {

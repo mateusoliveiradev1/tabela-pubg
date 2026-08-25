@@ -248,6 +248,11 @@ function validate(input) {
     [/update sessions set revoked_at = now\(\)/, "prior owned session retirement"],
     [/insert into sessions/, "fresh per-test secondary session"],
   ]);
+  rejectMatch(
+    input.runtimeSpec,
+    /const requested = await requestPromise;[\s\S]{0,200}?requested\.json\(\)/,
+    "Playwright navigation response body reread",
+  );
   requireAll(input.runtimeSpec, [
     [/select correlation_id from outbox_events/, "real PostgreSQL correlation assertion"],
     [
@@ -256,6 +261,14 @@ function validate(input) {
     ],
     [/await waitForOtpRequestCooldown\(email\)/, "server-advertised OTP cooldown wait"],
     [/rememberOtpRequestCooldown\(email,/, "server-advertised OTP cooldown tracking"],
+    [
+      /requiredOtpRequestCooldownSeconds\(\s*process\.env\.OTP_COOLDOWN_SECONDS/,
+      "required OTP harness cooldown",
+    ],
+    [
+      /expect\(accepted\.retryAfterSeconds\)\.toBe\(otpRequestCooldownSeconds\)/,
+      "OTP harness cooldown agreement",
+    ],
   ]);
   requireAll(input.workerMain, [
     [/new OutboxPublisher\(/, "real outbox publisher"],
@@ -579,6 +592,20 @@ function runSelfTest(baseline) {
         ),
     ],
     [
+      "navigation-response-body-reread",
+      (value) =>
+        mutate(
+          value,
+          "runtimeSpec",
+          "const requested = await requestPromise;",
+          "const requested = await requestPromise;\n  await requested.json();",
+        ),
+    ],
+    [
+      "missing-runtime-otp-harness-cooldown",
+      (value) => mutate(value, "runtimeSpec", "process.env.OTP_COOLDOWN_SECONDS", "undefined"),
+    ],
+    [
       "missing-run-owned-auth-mailbox",
       (value) =>
         mutate(
@@ -599,7 +626,7 @@ function runSelfTest(baseline) {
         ),
     ],
   ];
-  if (cases.length !== 39) throw new Error("CI validator self-test inventory cardinality changed");
+  if (cases.length !== 41) throw new Error("CI validator self-test inventory cardinality changed");
   const executed = [];
   for (const [name, change] of cases) {
     let rejected = false;
