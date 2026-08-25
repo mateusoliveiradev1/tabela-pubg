@@ -21,6 +21,11 @@ function setup() {
         linkedAt: new Date("2026-08-01T12:00:00.000Z"),
       },
     ]),
+    findPendingIdentityLink: vi.fn(async () => ({
+      id: proofId,
+      provider: "discord" as const,
+      displayIdentifier: "pl•••er",
+    })),
     confirmIdentityLink: vi.fn(async () => ({
       provider: "discord" as const,
       sessionId,
@@ -69,7 +74,13 @@ describe("IdentityManagementController", () => {
     const result = await controller.list(request);
 
     expect(identity.listIdentities).toHaveBeenCalledWith(actorId);
+    expect(identity.findPendingIdentityLink).toHaveBeenCalledWith(actorId, sessionId);
     expect(result.identities).toHaveLength(1);
+    expect(result.pendingLink).toEqual({
+      id: proofId,
+      provider: "discord",
+      displayIdentifier: "pl•••er",
+    });
     expect(JSON.stringify(result)).not.toMatch(/providerSubject|email|digest|token|credential/i);
   });
 

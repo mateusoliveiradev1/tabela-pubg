@@ -33,6 +33,11 @@ function setup(options?: { existingSubject?: string; linkConflict?: boolean }) {
         linkedAt: now,
       },
     ]),
+    findPendingLinkForSession: vi.fn(async () => ({
+      id: "00000000-0000-4000-8000-000000000011",
+      provider: "discord" as const,
+      displayIdentifier: "pl•••er",
+    })),
     findPendingLink: vi.fn(async () => ({
       proofId: "proof-1",
       provider: "discord" as const,
@@ -266,6 +271,24 @@ describe("IdentityService", () => {
       expect.objectContaining({ provider: "discord", displayIdentifier: "p***r" }),
     ]);
     expect(JSON.stringify(result)).not.toMatch(/providerSubject|digest|token|email/i);
+  });
+
+  it("projects a pending Discord proof only for the current actor and session", async () => {
+    const { service, repository } = setup();
+
+    await expect(service.findPendingIdentityLink("user-1", "session-1")).resolves.toEqual({
+      id: "00000000-0000-4000-8000-000000000011",
+      provider: "discord",
+      displayIdentifier: "pl•••er",
+    });
+    expect(repository.findPendingLinkForSession).toHaveBeenCalledWith({
+      actorId: "user-1",
+      sessionId: "session-1",
+      now,
+    });
+    expect(
+      JSON.stringify(await service.findPendingIdentityLink("user-1", "session-1")),
+    ).not.toMatch(/providerSubject|discord-subject|token|digest/i);
   });
 
   it("requires fresh step-up and delegates an explicit actor/session-bound Discord candidate once", async () => {

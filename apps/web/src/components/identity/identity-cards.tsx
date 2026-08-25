@@ -1,6 +1,6 @@
 "use client";
 
-import type { IdentityProvider, IdentitySummary } from "@pubg-camp/contracts";
+import type { IdentityProvider, IdentitySummary, PendingIdentityLink } from "@pubg-camp/contracts";
 import { Link2, Mail, MessageCircle, Unlink } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../ui/button";
@@ -9,12 +9,6 @@ import { InlineAlert, StatusBadge } from "../ui/feedback";
 import { Input } from "../ui/input";
 import { submitDiscordNavigation } from "./discord-navigation";
 import { OtpInput } from "./otp-input";
-
-interface PendingIdentityLink {
-  id: string;
-  provider: IdentityProvider;
-  displayIdentifier: string;
-}
 
 interface IdentityCardsProps {
   identities: readonly IdentitySummary[];

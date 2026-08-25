@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
-import { and, eq, exists, gt, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, exists, gt, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type * as databaseSchema from "../schema.js";
 import {
@@ -1102,6 +1102,41 @@ export async function findPendingIdentityLink(
         provider: "discord",
         providerSubject: proof.providerSubject,
         ...(proof.displayName === null ? {} : { displayName: proof.displayName }),
+      }
+    : null;
+}
+
+export async function findPendingIdentityLinkForSession(
+  executor: RepositoryExecutor,
+  input: { actorId: string; sessionId: string; now: Date },
+): Promise<{
+  id: string;
+  provider: "discord";
+  displayIdentifier: string;
+} | null> {
+  const [proof] = await executor
+    .select({
+      id: identityLinkProofs.id,
+      displayName: identityLinkProofs.displayName,
+    })
+    .from(identityLinkProofs)
+    .where(
+      and(
+        eq(identityLinkProofs.userId, input.actorId),
+        eq(identityLinkProofs.sessionId, input.sessionId),
+        eq(identityLinkProofs.purpose, "link-identity"),
+        eq(identityLinkProofs.provider, "discord"),
+        isNull(identityLinkProofs.consumedAt),
+        gt(identityLinkProofs.expiresAt, input.now),
+      ),
+    )
+    .orderBy(desc(identityLinkProofs.createdAt))
+    .limit(1);
+  return proof
+    ? {
+        id: proof.id,
+        provider: "discord",
+        displayIdentifier: maskIdentifier(proof.displayName ?? "Discord"),
       }
     : null;
 }

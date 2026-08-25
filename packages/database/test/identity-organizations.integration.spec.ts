@@ -15,6 +15,7 @@ import {
   consumeOAuthTransaction,
   createIdentityLinkProof,
   createOAuthTransaction,
+  findPendingIdentityLinkForSession,
   identityDigests,
   linkIdentity,
   replaceAuthChallenge,
@@ -398,6 +399,16 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
       () => now,
     );
     await expect(
+      findPendingIdentityLinkForSession(db, { actorId, sessionId, now }),
+    ).resolves.toEqual({
+      id: proofId,
+      provider: "discord",
+      displayIdentifier: "C***e",
+    });
+    await expect(
+      findPendingIdentityLinkForSession(db, { actorId, sessionId: otherSessionId, now }),
+    ).resolves.toBeNull();
+    await expect(
       consumeIdentityLinkProof(
         db,
         { proofId, actorId, sessionId: otherSessionId, provider: "discord" },
@@ -437,6 +448,9 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     }
     await expect(
       consumeIdentityLinkProof(db, { proofId, actorId, sessionId, provider: "discord" }, () => now),
+    ).resolves.toBeNull();
+    await expect(
+      findPendingIdentityLinkForSession(db, { actorId, sessionId, now }),
     ).resolves.toBeNull();
 
     const expiredProofId = randomUUID();

@@ -136,4 +136,39 @@ describe("identity contracts", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("exposes only a scoped one-use pending-link projection", () => {
+    const base = {
+      identities: [
+        {
+          id: "018f0ce7-98e3-7b27-bf2d-6eeac51d2312",
+          provider: "email",
+          status: "verified",
+          displayIdentifier: "m•••@example.com",
+          linkedAt: "2026-08-20T12:00:00.000Z",
+        },
+      ],
+    };
+    expect(
+      IdentityListResponseSchema.safeParse({
+        ...base,
+        pendingLink: {
+          id: "018f0ce7-98e3-7b27-bf2d-6eeac51d2313",
+          provider: "discord",
+          displayIdentifier: "pl•••er",
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      IdentityListResponseSchema.safeParse({
+        ...base,
+        pendingLink: {
+          id: "018f0ce7-98e3-7b27-bf2d-6eeac51d2313",
+          provider: "discord",
+          displayIdentifier: "pl•••er",
+          providerSubject: "discord-secret-subject",
+        },
+      }).success,
+    ).toBe(false);
+  });
 });

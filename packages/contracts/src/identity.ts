@@ -83,9 +83,18 @@ export const IdentitySummarySchema = z
   })
   .strict();
 
+export const PendingIdentityLinkSchema = z
+  .object({
+    id: PublicIdSchema,
+    provider: IdentityProviderSchema,
+    displayIdentifier: MaskedIdentifierSchema,
+  })
+  .strict();
+
 export const IdentityListResponseSchema = z
   .object({
     identities: z.array(IdentitySummarySchema).min(1).max(8),
+    pendingLink: PendingIdentityLinkSchema.nullable().optional(),
   })
   .strict();
 
@@ -208,6 +217,7 @@ export type EmailOtpResponse = z.infer<typeof EmailOtpResponseSchema>;
 export type VerifyEmailOtpRequest = z.infer<typeof VerifyEmailOtpRequestSchema>;
 export type VerifyEmailOtpResponse = z.infer<typeof VerifyEmailOtpResponseSchema>;
 export type IdentitySummary = z.infer<typeof IdentitySummarySchema>;
+export type PendingIdentityLink = z.infer<typeof PendingIdentityLinkSchema>;
 export type IdentityListResponse = z.infer<typeof IdentityListResponseSchema>;
 export type ConfirmIdentityLinkRequest = z.infer<typeof ConfirmIdentityLinkRequestSchema>;
 export type ConfirmIdentityLinkResponse = z.infer<typeof ConfirmIdentityLinkResponseSchema>;

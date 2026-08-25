@@ -22,6 +22,11 @@ export interface IdentityRepository {
     verifiedAt: Date;
   }): Promise<{ status: "linked" } | { status: "conflict" }>;
   listForUser(userId: string): Promise<readonly IdentityManagementSummary[]>;
+  findPendingLinkForSession(input: {
+    actorId: string;
+    sessionId: string;
+    now: Date;
+  }): Promise<{ id: string; provider: "discord"; displayIdentifier: string } | null>;
   findPendingLink(input: {
     actorId: string;
     sessionId: string;
@@ -195,6 +200,14 @@ export class IdentityService {
 
   listIdentities(userId: string): Promise<readonly IdentityManagementSummary[]> {
     return this.repository.listForUser(userId);
+  }
+
+  findPendingIdentityLink(actorId: string, sessionId: string) {
+    return this.repository.findPendingLinkForSession({
+      actorId,
+      sessionId,
+      now: this.clock.now(),
+    });
   }
 
   async confirmIdentityLink(input: {

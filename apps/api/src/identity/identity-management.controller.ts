@@ -31,12 +31,16 @@ export class IdentityManagementController {
   @Get()
   @RequirePermission("authenticated")
   async list(@Req() request: SessionAlertRequest) {
-    const identities = await this.identity.listIdentities(request.auth.actorId);
+    const [identities, pendingLink] = await Promise.all([
+      this.identity.listIdentities(request.auth.actorId),
+      this.identity.findPendingIdentityLink(request.auth.actorId, request.auth.sessionId),
+    ]);
     return IdentityListResponseSchema.parse({
       identities: identities.map((identity) => ({
         ...identity,
         linkedAt: identity.linkedAt.toISOString(),
       })),
+      pendingLink,
     });
   }
 

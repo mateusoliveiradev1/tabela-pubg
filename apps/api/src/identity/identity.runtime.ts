@@ -11,6 +11,7 @@ import {
   findActiveAuthChallenge,
   findDiscordIdentity,
   findPendingIdentityLink,
+  findPendingIdentityLinkForSession,
   findSessionForStepUp,
   issueIdentitySession,
   issueSessionForDevice,
@@ -285,6 +286,7 @@ function identityRepository(
       return { status: linked.status };
     },
     listForUser: (userId) => listIdentitiesForUser(database, userId),
+    findPendingLinkForSession: (input) => findPendingIdentityLinkForSession(database, input),
     findPendingLink: (input) => findPendingIdentityLink(database, input),
     removeOwned: (input) => removeOwnedIdentity(database, input),
   };

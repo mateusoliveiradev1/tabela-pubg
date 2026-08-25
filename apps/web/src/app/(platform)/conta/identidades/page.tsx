@@ -1,7 +1,7 @@
 import {
   IdentityListResponseSchema,
-  IdentityProviderSchema,
   type IdentitySummary,
+  type PendingIdentityLink,
 } from "@pubg-camp/contracts";
 import { cookies } from "next/headers";
 import { IdentityCards } from "../../../../components/identity/identity-cards";
@@ -10,10 +10,8 @@ import { FeedbackState } from "../../../../components/ui/feedback";
 export const dynamic = "force-dynamic";
 
 type IdentityPageState =
-  | { state: "ready"; identities: IdentitySummary[]; pendingLink: PendingLink | null }
+  | { state: "ready"; identities: IdentitySummary[]; pendingLink: PendingIdentityLink | null }
   | { state: "error" | "offline" | "session-expired" };
-
-type PendingLink = { id: string; provider: "discord" | "email"; displayIdentifier: string };
 
 export default async function IdentitiesPage() {
   const result = await loadIdentities();
@@ -55,24 +53,11 @@ async function loadIdentities(): Promise<IdentityPageState> {
     return {
       state: "ready",
       identities: parsed.data.identities,
-      pendingLink: parsePendingLink(payload.pendingLink),
+      pendingLink: parsed.data.pendingLink ?? null,
     };
   } catch {
     return { state: "offline" };
   }
-}
-
-function parsePendingLink(value: unknown): PendingLink | null {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as Record<string, unknown>;
-  const provider = IdentityProviderSchema.safeParse(candidate.provider);
-  return typeof candidate.id === "string" &&
-    /^[0-9a-f-]{36}$/i.test(candidate.id) &&
-    provider.success &&
-    typeof candidate.displayIdentifier === "string" &&
-    candidate.displayIdentifier.length <= 160
-    ? { id: candidate.id, provider: provider.data, displayIdentifier: candidate.displayIdentifier }
-    : null;
 }
 
 function resolveApiOrigin(): URL | undefined {
