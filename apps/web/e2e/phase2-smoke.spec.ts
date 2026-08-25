@@ -21,13 +21,13 @@ test.describe("phase 2 browser smoke", () => {
       mimeType: "image/png",
       buffer: phase2.logoBytes,
     });
-    await Promise.all([
+    const [logoResponse] = await Promise.all([
       page.waitForResponse((response) => response.url().includes("/logo") && response.ok()),
       page.getByRole("button", { name: "Salvar logo" }).click(),
     ]);
-    const uploaded = await page.request.get(
-      `/api/platform/organizations/${phase2.organizationId}/logo`,
-    );
+    const logoPayload = (await logoResponse.json()) as { url?: unknown };
+    expect(typeof logoPayload.url).toBe("string");
+    const uploaded = await page.request.get(logoPayload.url as string);
     expect(uploaded.ok()).toBe(true);
     expect(Buffer.from(await uploaded.body())).toEqual(phase2.logoBytes);
 
