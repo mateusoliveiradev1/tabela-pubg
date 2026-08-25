@@ -31,7 +31,9 @@ function claimed(overrides: Partial<OrphanStorageCleanupRow> = {}): OrphanStorag
 
 function setup(row: OrphanStorageCleanupRow | null = claimed()) {
   const store: LogoCleanupStore = {
-    claim: vi.fn(async () => row),
+    claim: vi.fn<LogoCleanupStore["claim"]>(async () =>
+      row ? ({ status: "claimed", cleanup: row } as const) : ({ status: "completed" } as const),
+    ),
     complete: vi.fn(async () => true),
     retry: vi.fn(async () => true),
   };
@@ -101,6 +103,25 @@ describe("organization logo cleanup processor", () => {
     expect(replay.store.complete).not.toHaveBeenCalled();
   });
 
+  it.each(["leased-until", "retry-at"] as const)(
+    "defers BullMQ processing until a persisted %s timestamp",
+    async (status) => {
+      const retryAt = new Date(now.getTime() + 60_000);
+      const deferred = setup(null);
+      vi.mocked(deferred.store.claim).mockResolvedValueOnce({ status, retryAt } as never);
+      const deferUntil = vi.fn(async () => {
+        throw new Error("job-delayed");
+      });
+
+      await expect(
+        deferred.processor({ cleanupId }, { deferUntil } as never),
+      ).rejects.toThrow("job-delayed");
+      expect(deferUntil).toHaveBeenCalledWith(retryAt);
+      expect(deferred.storage.deleteObject).not.toHaveBeenCalled();
+      expect(deferred.store.complete).not.toHaveBeenCalled();
+    },
+  );
+
   it("records a bounded failure and exponential nextAttemptAt before rethrowing for BullMQ", async () => {
     const { processor, store, storage, logger } = setup(claimed({ attempts: 2 }));
     vi.mocked(storage.deleteObject).mockRejectedValueOnce(
@@ -122,16 +143,14 @@ describe("organization logo cleanup processor", () => {
     let clockNow = now;
     let ledger = claimed({ status: "pending", claimedAt: null });
     const store: LogoCleanupStore = {
-      claim: vi.fn(async (id, at) => {
-        if (
-          id !== cleanupId ||
-          ledger.status === "completed" ||
-          ledger.nextAttemptAt.getTime() > at.getTime()
-        ) {
-          return null;
+      claim: vi.fn<LogoCleanupStore["claim"]>(async (id, at) => {
+        if (id !== cleanupId) return { status: "missing" };
+        if (ledger.status === "completed") return { status: "completed" };
+        if (ledger.nextAttemptAt.getTime() > at.getTime()) {
+          return { status: "retry-at", retryAt: ledger.nextAttemptAt };
         }
         ledger = { ...ledger, status: "claimed", claimedAt: at, updatedAt: at };
-        return ledger;
+        return { status: "claimed", cleanup: ledger };
       }),
       retry: vi.fn(async (id, input) => {
         if (id !== cleanupId || ledger.status !== "claimed") return false;

@@ -1,9 +1,13 @@
 import { OrganizationLogoCleanupJobSchema } from "@pubg-camp/contracts";
-import type { OrphanStorageCleanupRow, RetryOrphanCleanupInput } from "@pubg-camp/database";
+import type {
+  OrphanCleanupClaimResult,
+  OrphanStorageCleanupRow,
+  RetryOrphanCleanupInput,
+} from "@pubg-camp/database";
 import { ObjectKeySchema } from "@pubg-camp/storage";
 
 export interface LogoCleanupStore {
-  claim(cleanupId: string, now: Date): Promise<OrphanStorageCleanupRow | null>;
+  claim(cleanupId: string, now: Date): Promise<OrphanCleanupClaimResult>;
   complete(cleanupId: string, now: Date): Promise<boolean>;
   retry(cleanupId: string, input: RetryOrphanCleanupInput): Promise<boolean>;
 }
@@ -27,19 +31,33 @@ export interface LogoCleanupProcessorDependencies {
 
 export type LogoCleanupProcessorResult = { status: "completed" } | { status: "ignored" };
 
+export interface LogoCleanupJobControl {
+  deferUntil(retryAt: Date): Promise<never>;
+}
+
 export function createLogoCleanupProcessor(dependencies: LogoCleanupProcessorDependencies) {
   const retryBaseDelayMs = dependencies.retryBaseDelayMs ?? 1_000;
   if (!Number.isInteger(retryBaseDelayMs) || retryBaseDelayMs < 100 || retryBaseDelayMs > 60_000) {
     throw new Error("organization logo cleanup retry delay is invalid");
   }
 
-  return async (job: unknown): Promise<LogoCleanupProcessorResult> => {
+  return async (
+    job: unknown,
+    control?: LogoCleanupJobControl,
+  ): Promise<LogoCleanupProcessorResult> => {
     const parsedJob = OrganizationLogoCleanupJobSchema.safeParse(job);
     if (!parsedJob.success) throw new Error("invalid organization logo cleanup job");
     const { cleanupId } = parsedJob.data;
     const now = dependencies.clock.now();
-    const claimed = await dependencies.store.claim(cleanupId, now);
-    if (!claimed) return { status: "ignored" };
+    const claim = await dependencies.store.claim(cleanupId, now);
+    if (claim.status === "completed" || claim.status === "missing") {
+      return { status: "ignored" };
+    }
+    if (claim.status === "leased-until" || claim.status === "retry-at") {
+      if (!control) throw new Error("organization logo cleanup requires deferred queue control");
+      return control.deferUntil(claim.retryAt);
+    }
+    const claimed = claim.cleanup;
 
     let objectKey: string;
     try {

@@ -226,7 +226,9 @@ describe.runIf(Boolean(databaseUrl))("organization logo repositories", () => {
     if (!databaseUrl) throw new Error("DATABASE_URL is required for concurrent cleanup claim");
     const connectionA = await connectToSchema(databaseUrl, schemaName);
     const connectionB = await connectToSchema(databaseUrl, schemaName);
-    let firstClaim: Array<schemaType.OrphanStorageCleanupRow | null> = [];
+    let firstClaim: Array<
+      Awaited<ReturnType<typeof StorageCleanupRepository.claimOrphanCleanup>>
+    > = [];
     try {
       const databaseA = drizzle(connectionA, { schema });
       const databaseB = drizzle(connectionB, { schema });
@@ -245,7 +247,7 @@ describe.runIf(Boolean(databaseUrl))("organization logo repositories", () => {
     } finally {
       await Promise.all([connectionA.end({ timeout: 5 }), connectionB.end({ timeout: 5 })]);
     }
-    expect(firstClaim.filter(Boolean)).toHaveLength(1);
+    expect(firstClaim.filter((claim) => claim.status === "claimed")).toHaveLength(1);
 
     await expect(
       StorageCleanupRepository.retryOrphanCleanup(db, cleanupId, {
@@ -260,14 +262,20 @@ describe.runIf(Boolean(databaseUrl))("organization logo repositories", () => {
         cleanupId,
         new Date("2026-08-21T06:04:00.000Z"),
       ),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      status: "retry-at",
+      retryAt: new Date("2026-08-21T06:05:00.000Z"),
+    });
     await expect(
       StorageCleanupRepository.claimOrphanCleanup(
         db,
         cleanupId,
         new Date("2026-08-21T06:05:00.000Z"),
       ),
-    ).resolves.toMatchObject({ cleanupId, attempts: 1 });
+    ).resolves.toMatchObject({
+      status: "claimed",
+      cleanup: { cleanupId, attempts: 1 },
+    });
     await expect(
       StorageCleanupRepository.completeOrphanCleanup(
         db,

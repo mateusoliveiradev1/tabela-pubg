@@ -13,6 +13,7 @@ import {
   type OrganizationLogoAssetRow,
   type OrganizationMembershipRow,
   type OrganizationRow,
+  type OrphanStorageCleanupRow,
   organizationLogoAssets,
   organizationMemberships,
   organizations,
@@ -33,6 +34,13 @@ export type OrganizationRepositoryExecutor = Pick<
 export type LogoActivationExecutor = OrganizationRepositoryExecutor & {
   rollback(): never;
 };
+
+export type OrphanCleanupClaimResult =
+  | { status: "claimed"; cleanup: OrphanStorageCleanupRow }
+  | { status: "completed" }
+  | { status: "missing" }
+  | { status: "leased-until"; retryAt: Date }
+  | { status: "retry-at"; retryAt: Date };
 
 export interface CreatePendingLogoInput {
   id: string;
@@ -1217,7 +1225,7 @@ export const StorageCleanupRepository = {
     cleanupId: string,
     now: Date,
     leaseMs = CLEANUP_LEASE_MS,
-  ) {
+  ): Promise<OrphanCleanupClaimResult> {
     const staleClaimedAt = new Date(now.getTime() - leaseMs);
     const [claimed] = await executor
       .update(orphanStorageCleanupLedger)
@@ -1241,7 +1249,27 @@ export const StorageCleanupRepository = {
         ),
       )
       .returning();
-    return claimed ?? null;
+    if (claimed) return { status: "claimed", cleanup: claimed };
+
+    const [existing] = await executor
+      .select({
+        status: orphanStorageCleanupLedger.status,
+        claimedAt: orphanStorageCleanupLedger.claimedAt,
+        nextAttemptAt: orphanStorageCleanupLedger.nextAttemptAt,
+      })
+      .from(orphanStorageCleanupLedger)
+      .where(eq(orphanStorageCleanupLedger.cleanupId, cleanupId))
+      .limit(1);
+    if (!existing) return { status: "missing" };
+    if (existing.status === "completed") return { status: "completed" };
+    if (existing.status === "claimed") {
+      if (!existing.claimedAt) throw new Error("claimed orphan cleanup has no lease timestamp");
+      return {
+        status: "leased-until",
+        retryAt: new Date(existing.claimedAt.getTime() + leaseMs),
+      };
+    }
+    return { status: "retry-at", retryAt: existing.nextAttemptAt };
   },
 
   async completeOrphanCleanup(

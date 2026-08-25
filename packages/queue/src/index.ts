@@ -1,4 +1,4 @@
-import { Queue, type QueueOptions, Worker, type WorkerOptions } from "bullmq";
+import { DelayedError, Queue, type QueueOptions, Worker, type WorkerOptions } from "bullmq";
 import { Redis } from "ioredis";
 
 export function createRedisConnection(url: string): Redis {
@@ -30,13 +30,28 @@ export function createQueue<TData>(
 export function createWorker<TData, TResult>(
   name: string,
   connection: Redis,
-  processor: (data: TData) => Promise<TResult>,
+  processor: (
+    data: TData,
+    control: { deferUntil(retryAt: Date): Promise<never> },
+  ) => Promise<TResult>,
   options: Omit<WorkerOptions, "connection"> = {},
 ) {
-  return new Worker<TData, TResult>(name, (job) => processor(job.data), {
+  return new Worker<TData, TResult>(
+    name,
+    (job, token) =>
+      processor(job.data, {
+        deferUntil: async (retryAt) => {
+          const timestamp = retryAt.getTime();
+          if (!Number.isFinite(timestamp)) throw new Error("queue deferral timestamp is invalid");
+          await job.moveToDelayed(Math.max(timestamp, Date.now() + 1), token);
+          throw new DelayedError();
+        },
+      }),
+    {
     ...options,
     connection,
-  });
+    },
+  );
 }
 
 export async function pingRedis(connection: Redis): Promise<void> {
