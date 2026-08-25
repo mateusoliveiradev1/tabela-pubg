@@ -406,7 +406,7 @@ describe("IdentityController", () => {
     ).rejects.toThrow();
   });
 
-  it("persists email step-up before rotating current CSRF", async () => {
+  it("trusts the committed OTP step-up without a second session mutation", async () => {
     const { controller, otp, sessions, csrf, events } = setup();
     const confirmedAt = new Date("2026-08-24T12:00:00.000Z");
     vi.mocked(otp.verify).mockResolvedValueOnce({
@@ -429,14 +429,9 @@ describe("IdentityController", () => {
       req,
       response,
     );
-    expect(sessions.confirmStepUp).toHaveBeenCalledWith({
-      userId: authenticated.actorId,
-      sessionId: authenticated.sessionId,
-      method: "email",
-      confirmedAt,
-    });
+    expect(sessions.confirmStepUp).not.toHaveBeenCalled();
     expect(csrf.rotateCurrent).toHaveBeenCalledWith(req, response);
-    expect(events).toEqual(["step-up", "csrf-current"]);
+    expect(events).toEqual(["csrf-current"]);
     expect(result).toEqual({
       status: "step-up-confirmed",
       validUntil: "2026-08-24T12:10:00.000Z",

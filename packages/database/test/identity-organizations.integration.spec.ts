@@ -1299,6 +1299,83 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     ).resolves.toEqual({ status: "rejected" });
   }, 20_000);
 
+  it("rolls back OTP consumption and email step-up together before one committed retry", async () => {
+    const issuedAt = new Date("2026-08-25T04:00:00.000Z");
+    const now = new Date(issuedAt.getTime() + 60_000);
+    const actorId = randomUUID();
+    const sessionId = randomUUID();
+    const email = `atomic-step-up-${randomUUID()}@example.test`;
+    const challengeId = randomUUID();
+    const hmacKey = Buffer.alloc(32, 29);
+    await seedSession({
+      userId: actorId,
+      sessionId,
+      token: `atomic-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await seedVerifiedEmailIdentity({ userId: actorId, email, now: issuedAt });
+    await replaceAuthChallenge(
+      db,
+      {
+        id: challengeId,
+        email,
+        purpose: "step-up",
+        code: "12345678",
+        expiresAt: new Date(now.getTime() + 10 * 60_000),
+        actorId,
+        sessionId,
+      },
+      hmacKey,
+      () => issuedAt,
+    );
+    const completion = {
+      challengeId,
+      email,
+      purpose: "step-up" as const,
+      code: "12345678",
+      hmacKey,
+      actorId,
+      sessionId,
+      now,
+      ids: {
+        userId: randomUUID(),
+        identityId: randomUUID(),
+        verifiedEmailId: randomUUID(),
+        proofId: randomUUID(),
+      },
+    };
+
+    await expect(
+      completeOtpChallenge(db, {
+        ...completion,
+        afterMutation: (boundary) => {
+          if (boundary === "challenge") throw new Error("fault before step-up commit");
+        },
+      }),
+    ).rejects.toThrow("fault before step-up commit");
+    const [rolledBack] = await client`
+      select
+        (select consumed_at from auth_challenges where id = ${challengeId}) as consumed_at,
+        (select reauthenticated_at from sessions where id = ${sessionId}) as reauthenticated_at
+    `;
+    expect(rolledBack).toEqual({ consumed_at: null, reauthenticated_at: null });
+
+    await expect(completeOtpChallenge(db, completion)).resolves.toMatchObject({
+      status: "step-up-confirmed",
+      actorId,
+      sessionId,
+      confirmedAt: now,
+    });
+    const [committed] = await client`
+      select
+        (select consumed_at from auth_challenges where id = ${challengeId}) as consumed_at,
+        (select reauthenticated_at from sessions where id = ${sessionId}) as reauthenticated_at
+    `;
+    expect(new Date(committed?.consumed_at as string).toISOString()).toBe(now.toISOString());
+    expect(new Date(committed?.reauthenticated_at as string).toISOString()).toBe(now.toISOString());
+  }, 20_000);
+
   it("resolves concurrent first email sign-in once and never merges a Discord email coincidence", async () => {
     const now = new Date("2026-08-21T11:00:00.000Z");
     const email = `first-${randomUUID()}@example.test`;
