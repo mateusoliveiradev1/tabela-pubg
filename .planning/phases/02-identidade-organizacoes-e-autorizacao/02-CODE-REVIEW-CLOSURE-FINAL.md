@@ -37,11 +37,11 @@ files_reviewed_list:
   - packages/database/test/identity-organizations.integration.spec.ts
   - packages/database/test/identity-security-change.integration.spec.ts
 findings:
-  critical: 3
+  critical: 0
   warning: 0
   info: 0
-  total: 3
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 02: Final Closure Code Review
@@ -49,23 +49,24 @@ status: issues_found
 **Reviewed:** 2026-08-25T07:44:09Z
 **Depth:** deep
 **Diff:** `aff81da..6e78027`
-**Status:** issues_found
+**Status:** clean
 
 ## Summary
 
-The PostgreSQL ownership predicate, atomic OTP consumption/session elevation, proof-first freshness classification, and namespace/nonce comparison are individually fail-closed. The closure is nevertheless not shippable: the HTTP contract exposes the ownership decision, a post-commit BFF dependency can still report failure after elevating the session without delivering the CSRF rotation, and the real Discord redirect cannot identify protected OAuth purposes. The browser tests pass because they inject `purpose` manually instead of following the configured provider redirect.
+The final closure fixes remove the three integration gaps identified below. Protected OTP requests now return an indistinguishable opaque handle for owner and foreign-email paths while only the owned path persists or delivers. A committed upstream step-up is always forwarded with its rotated cookies even when convenience-token reacquisition fails. Discord now uses a unified callback whose purpose and exact redirect URI are recovered from the one-shot server-side transaction rather than a browser query parameter.
 
-Focused verification performed during this review:
+Final verification after remediation:
 
-- API identity unit tests: 43/43 passed after rebuilding the workspace database package as required by the Turbo dependency graph.
-- Web identity/continuation unit tests: 43/43 passed.
-- The first direct API run exposed only a stale ignored `packages/database/dist` artifact; rebuilding the dependency made the supported test path green.
+- `pnpm ci:verify`: passed, including secrets, migrations, CI structure, lint, boundaries, typecheck, unit/component tests, and all 13 builds.
+- PostgreSQL/Redis integration: 60/60 passed; concurrency 4/4; dedicated Redis 6/6.
+- Chromium runtime: 7/7 passed in 3.4 minutes, following the provider's real `redirect_uri` without injecting `purpose`.
+- API focused: 41/41; web focused: 52/52; contracts: 19/19.
 
 ## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-CLOSURE-FINAL-01: Foreign-email rejection is observable through the OTP challenge header
+### [RESOLVED] CR-CLOSURE-FINAL-01: Foreign-email rejection is observable through the OTP challenge header
 
 **Classification:** BLOCKER
 
@@ -77,7 +78,9 @@ An authenticated session holder can therefore test arbitrary addresses and learn
 
 **Fix:** Decouple the externally returned correlation handle from persistence. Return an indistinguishable opaque challenge handle/header for every syntactically valid, bound accepted request, including non-owner and throttled paths, while persisting/delivering only the real owner challenge. A fake handle must be unresolvable during verification. Add an API+BFF contract test asserting identical status, body, and header shape for owner versus foreign emails, together with the existing zero-mutation assertions.
 
-### CR-CLOSURE-FINAL-02: CSRF reacquisition can still report failure after email step-up has committed
+**Resolution:** Implemented in `12dc4ad`. Owner and foreign requests now have the same HTTP shape and opaque UUID header; fake handles cannot resolve, and repository tests preserve zero challenge/delivery/outbox mutation for foreign addresses.
+
+### [RESOLVED] CR-CLOSURE-FINAL-02: CSRF reacquisition can still report failure after email step-up has committed
 
 **Classification:** BLOCKER
 
@@ -89,7 +92,9 @@ The client consequently sees "invalid or expired code" even though the OTP is co
 
 **Fix:** Do not replace a committed upstream success with 502. Prefer returning the rotated CSRF token and cookies in the same API response so the BFF only forwards them. If the secondary reacquisition remains, forward the successful upstream response and all rotated cookies when reacquisition fails, omit the convenience token header, and let the client explicitly acquire a token before its next mutation. Add fault injection where the upstream step-up succeeds and `/security/csrf` fails; assert the browser still receives success plus the committed cookie rotation and cannot continue under the old CSRF context.
 
-### CR-CLOSURE-FINAL-03: Real Discord redirects lose OAuth purpose, so protected callbacks cannot complete
+**Resolution:** Implemented in `c14c4ae`. The BFF forwards the committed status, body, and every `Set-Cookie` value when reacquisition fails, omits only the convenience header, and tests prove the old CSRF context is rejected.
+
+### [RESOLVED] CR-CLOSURE-FINAL-03: Real Discord redirects lose OAuth purpose, so protected callbacks cannot complete
 
 **Classification:** BLOCKER
 
@@ -100,6 +105,8 @@ The client consequently sees "invalid or expired code" even though the OTP is co
 The full-stack tests hide the defect: `finishDiscordCallback` bypasses Discord's configured redirect and manually navigates to a synthetic URL containing `&purpose=${purpose}`. Consequently, the reported green Discord step-up/continuation evidence does not exercise the production round-trip. PKCE itself remains one-shot, but any repair that varies the redirect URI must also use the exact same URI during token exchange.
 
 **Fix:** Correlate purpose to the server-side OAuth transaction rather than guessing it in the browser. A unified callback endpoint can consume state/browser binding and dispatch using the persisted purpose; alternatively use purpose-specific registered redirect URIs and persist the exact redirect URI with the PKCE verifier for exchange. Add browser coverage that starts from the authorization URL and derives the callback from its actual `redirect_uri`, without injecting purpose independently.
+
+**Resolution:** Implemented in `c3e690d`. The server persists purpose and exact redirect URI with the PKCE transaction, exposes one callback endpoint, and dispatches only after consuming the bound transaction. Chromium follows the authorization URL's real `redirect_uri`; the test no longer injects purpose.
 
 ## Verified Boundaries Without New Findings
 
