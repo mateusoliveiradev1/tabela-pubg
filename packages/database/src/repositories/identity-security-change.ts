@@ -246,10 +246,10 @@ export async function executeIdentitySecurityChange(
         now: input.now,
       });
       if (!currentSession) throw identitySecurityChangeRejected;
+      await lockAndValidateProof(transaction, input, expected);
       if (!isFreshIdentityReauthentication(currentSession.reauthenticatedAt, input.now)) {
         throw identityReauthenticationRequired;
       }
-      await lockAndValidateProof(transaction, input, expected);
       const consumed = await consumeIdentityLinkProof(
         transaction,
         {
