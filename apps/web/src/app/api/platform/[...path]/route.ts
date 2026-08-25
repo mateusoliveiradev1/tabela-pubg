@@ -191,7 +191,8 @@ function validateIdentityJsonPayload(
   rule: RouteRule,
   body: ArrayBuffer | null,
 ): ArrayBuffer | null | Response {
-  if (!rule.identityPurpose || !body) return body;
+  const resolvedOAuthCallback = path === "identity/oauth/discord/callback";
+  if ((!rule.identityPurpose && !resolvedOAuthCallback) || !body) return body;
   const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (contentType !== "application/json") return body;
 
@@ -202,6 +203,12 @@ function validateIdentityJsonPayload(
     return unavailable(400);
   }
   if (!isRecord(payload) || containsBrowserAuthority(payload)) return unavailable(400);
+  if (resolvedOAuthCallback) {
+    const keys = Object.keys(payload);
+    return keys.length === 2 && keys.includes("code") && keys.includes("state")
+      ? body
+      : unavailable(400);
+  }
   if ("purpose" in payload && payload.purpose !== rule.identityPurpose) return unavailable(400);
 
   if (path.startsWith("identity/oauth/")) {

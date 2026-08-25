@@ -23,6 +23,7 @@ export interface DiscordOAuthConfig {
 
 export interface DiscordOAuthVerifierRecord {
   mode: DiscordPkceMode;
+  redirectUri: string;
   codeVerifier?: string;
   expiresAt: Date;
 }
@@ -84,6 +85,7 @@ export class DiscordOAuthAdapter implements DiscordIdentityProvider {
 
     const record: DiscordOAuthVerifierRecord = {
       mode: this.config.pkceMode,
+      redirectUri: this.config.redirectUri,
       expiresAt: new Date(this.now().getTime() + OAUTH_VERIFIER_LIFETIME_MS),
     };
     if (this.config.pkceMode === "required") {
@@ -110,6 +112,7 @@ export class DiscordOAuthAdapter implements DiscordIdentityProvider {
       record === null ||
       record.expiresAt <= this.now() ||
       record.mode !== this.config.pkceMode ||
+      !isValidRedirectUri(record.redirectUri) ||
       (record.mode === "required" && record.codeVerifier === undefined)
     ) {
       throw new Error("oauth transaction unavailable");
@@ -127,7 +130,7 @@ export class DiscordOAuthAdapter implements DiscordIdentityProvider {
         this.client,
         this.clientAuthentication,
         callbackParameters,
-        this.config.redirectUri,
+        record.redirectUri,
         record.mode === "required" ? (record.codeVerifier as string) : oauth.nopkce,
         { [oauth.customFetch]: this.oauthFetch },
       );
@@ -207,6 +210,20 @@ function validateConfig(config: DiscordOAuthConfig): void {
   }
   if (config.pkceMode === "required" && config.pkceExceptionId !== undefined) {
     throw new Error("PKCE exception evidence is forbidden in required mode");
+  }
+}
+
+function isValidRedirectUri(value: string): boolean {
+  try {
+    const redirectUri = new URL(value);
+    return (
+      ["http:", "https:"].includes(redirectUri.protocol) &&
+      redirectUri.username.length === 0 &&
+      redirectUri.password.length === 0 &&
+      redirectUri.hash.length === 0
+    );
+  } catch {
+    return false;
   }
 }
 

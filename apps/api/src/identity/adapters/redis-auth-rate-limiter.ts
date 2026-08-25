@@ -146,6 +146,7 @@ export class RedisDiscordOAuthVerifierStore implements DiscordOAuthVerifierStore
       this.key(state),
       JSON.stringify({
         mode: record.mode,
+        redirectUri: record.redirectUri,
         codeVerifier: record.codeVerifier,
         expiresAt: record.expiresAt.toISOString(),
       }),
@@ -164,6 +165,7 @@ export class RedisDiscordOAuthVerifierStore implements DiscordOAuthVerifierStore
       const value = JSON.parse(encoded) as Record<string, unknown>;
       if (
         (value.mode !== "required" && value.mode !== "documented-exception") ||
+        typeof value.redirectUri !== "string" ||
         typeof value.expiresAt !== "string" ||
         (value.codeVerifier !== undefined && typeof value.codeVerifier !== "string")
       ) {
@@ -173,6 +175,7 @@ export class RedisDiscordOAuthVerifierStore implements DiscordOAuthVerifierStore
       if (!Number.isFinite(expiresAt.getTime())) return null;
       return {
         mode: value.mode,
+        redirectUri: value.redirectUri,
         ...(typeof value.codeVerifier === "string" ? { codeVerifier: value.codeVerifier } : {}),
         expiresAt,
       };

@@ -142,7 +142,12 @@ test.describe
       expect(originalEmail).toBeTruthy();
 
       await expireCurrentProof();
-      await page.goto("/conta/identidades");
+      await expect(async () => {
+        await page.goto("/conta/identidades", {
+          timeout: 15_000,
+          waitUntil: "domcontentloaded",
+        });
+      }).toPass({ timeout: 30_000 });
       await page.getByRole("button", { name: "Desvincular Discord" }).click();
       await page.getByRole("button", { name: "Remover forma de acesso" }).click();
       await completeEmailStepUpFromDialog(page, ownerEmail);
@@ -157,11 +162,9 @@ test.describe
       );
       await completeEmailStepUpFromDialog(page, ownerEmail);
       const candidateResponse = await candidateStart;
-      const candidateState = new URL(candidateResponse.headers().location ?? "").searchParams.get(
-        "state",
-      );
-      expect(candidateState).toBeTruthy();
-      await finishDiscordCallback(page, "link-identity", candidateState as string, "e2e-link-code");
+      const candidateAuthorization = candidateResponse.headers().location;
+      expect(candidateAuthorization).toBeTruthy();
+      await finishDiscordCallback(page, candidateAuthorization as string, "e2e-link-code");
       await page.getByRole("link", { name: "Continuar" }).click();
       await expect(page).toHaveURL(/\/conta\/identidades$/);
       await page.getByRole("button", { name: "Confirmar vínculo de Discord" }).click();
@@ -194,8 +197,15 @@ test.describe
           timeout: 15_000,
         })
         .toBeNull();
-      await page.reload();
-      await expect(page.getByRole("button", { name: "Vincular e-mail" })).toBeVisible();
+      await expect(async () => {
+        await page.goto("/conta/identidades", {
+          timeout: 15_000,
+          waitUntil: "domcontentloaded",
+        });
+      }).toPass({ timeout: 30_000 });
+      await expect(page.getByRole("button", { name: "Vincular e-mail" })).toBeVisible({
+        timeout: 15_000,
+      });
 
       await expireCurrentProof();
       await page.getByRole("button", { name: "Vincular e-mail" }).click({ timeout: 15_000 });
@@ -645,33 +655,16 @@ async function discordSignIn(page: Page, csrf: string, code = "e2e-code"): Promi
   const started = await startDiscordNavigation(page, "sign-in", csrf);
   const location = started.headers().location;
   expect(location).toBeTruthy();
-  const state = new URL(location).searchParams.get("state");
-  expect(state).toBeTruthy();
-  await page.goto("/entrar");
-  const callback = await browserJson(
-    page,
-    "POST",
-    "/api/platform/identity/oauth/discord/sign-in/callback",
-    csrf,
-    { purpose: "sign-in", code, state },
-  );
-  expect(callback.status).toBe(201);
+  await finishDiscordCallback(page, location as string, code);
   return sessionToken(page.context());
 }
 
 async function discordStepUp(page: Page): Promise<string> {
   const csrf = await acquireCsrf(page);
   const started = await startDiscordNavigation(page, "step-up", csrf);
-  const state = new URL(started.headers().location).searchParams.get("state");
-  await page.goto("/");
-  const callback = await browserJson(
-    page,
-    "POST",
-    "/api/platform/identity/oauth/discord/step-up/callback",
-    csrf,
-    { purpose: "step-up", code: "e2e-link-code", state },
-  );
-  expect(callback.status).toBe(201);
+  const location = started.headers().location;
+  expect(location).toBeTruthy();
+  await finishDiscordCallback(page, location as string, "e2e-link-code");
   const rejectedOldCsrf = await browserJson(
     page,
     "POST",
@@ -680,7 +673,7 @@ async function discordStepUp(page: Page): Promise<string> {
     { email: "csrf-rotation-probe@example.invalid" },
   );
   expect(rejectedOldCsrf.status).toBe(403);
-  return callback.headers["x-csrf-token"] ?? acquireCsrf(page);
+  return acquireCsrf(page);
 }
 
 async function completeEmailStepUpFromDialog(page: Page, email: string): Promise<void> {
@@ -711,23 +704,29 @@ async function completeDiscordStepUpFromDialog(page: Page, code = "e2e-code"): P
   );
   await page.getByRole("button", { name: "Confirmar com Discord" }).click({ timeout: 15_000 });
   const started = await responsePromise;
-  const state = new URL(started.headers().location ?? "").searchParams.get("state");
-  expect(state).toBeTruthy();
+  const authorizationLocation = started.headers().location;
+  expect(authorizationLocation).toBeTruthy();
   await page.unroute("https://discord.com/**");
-  await finishDiscordCallback(page, "step-up", state as string, code);
+  await finishDiscordCallback(page, authorizationLocation as string, code);
   await page.getByRole("link", { name: "Continuar" }).click({ timeout: 15_000 });
   await expect(page).toHaveURL(/\/conta\/identidades$/);
 }
 
 async function finishDiscordCallback(
   page: Page,
-  purpose: "link-identity" | "step-up",
-  state: string,
+  authorizationLocation: string,
   code = "e2e-code",
 ): Promise<void> {
-  await page.goto(
-    `/entrar/discord/retorno?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}&purpose=${purpose}`,
-  );
+  const authorization = new URL(authorizationLocation);
+  const state = authorization.searchParams.get("state");
+  const redirectUri = authorization.searchParams.get("redirect_uri");
+  expect(state).toBeTruthy();
+  expect(redirectUri).toBeTruthy();
+  const callback = new URL(redirectUri as string);
+  callback.searchParams.set("code", code);
+  callback.searchParams.set("state", state as string);
+  expect(callback.searchParams.has("purpose")).toBe(false);
+  await page.goto(callback.toString());
   await expect(page.getByRole("link", { name: "Continuar" })).toBeVisible();
 }
 

@@ -197,7 +197,7 @@ describe("callback OAuth seguro", () => {
     window.history.replaceState(
       {},
       "",
-      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length&purpose=sign-in",
+      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length",
     );
     vi.stubGlobal(
       "fetch",
@@ -205,10 +205,17 @@ describe("callback OAuth seguro", () => {
         .fn()
         .mockResolvedValueOnce(csrfResponse())
         .mockResolvedValueOnce(
-          new Response(JSON.stringify({ status: "authenticated", nextPath: "/primeiro-acesso" }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }),
+          new Response(
+            JSON.stringify({
+              status: "authenticated",
+              purpose: "sign-in",
+              nextPath: "/primeiro-acesso",
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          ),
         ),
     );
 
@@ -221,15 +228,44 @@ describe("callback OAuth seguro", () => {
     expect(document.documentElement.textContent).not.toContain("opaque-state");
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      "/api/platform/identity/oauth/discord/sign-in/callback",
+      "/api/platform/identity/oauth/discord/callback",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ "x-csrf-token": "csrf-token-with-safe-length" }),
       }),
     );
+    const callbackRequest = vi.mocked(fetch).mock.calls[1]?.[1];
+    expect(JSON.parse(String(callbackRequest?.body))).toEqual({
+      code: "provider-secret",
+      state: "opaque-state-with-safe-length",
+    });
     expect((await screen.findByRole("link", { name: "Continuar" })).getAttribute("href")).toBe(
       "/primeiro-acesso",
     );
+  });
+
+  it("accepts a server-confirmed step-up without requiring a local continuation", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(csrfResponse())
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ status: "authenticated", purpose: "step-up", nextPath: "/" }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        ),
+    );
+
+    render(<OAuthCallbackForm />);
+
+    expect((await screen.findByRole("link", { name: "Continuar" })).getAttribute("href")).toBe("/");
   });
 
   it("promotes one exact session continuation only after Discord step-up succeeds", async () => {
@@ -250,7 +286,7 @@ describe("callback OAuth seguro", () => {
     window.history.replaceState(
       {},
       "",
-      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length&purpose=step-up",
+      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length",
     );
     vi.stubGlobal(
       "fetch",
@@ -261,6 +297,7 @@ describe("callback OAuth seguro", () => {
           new Response(
             JSON.stringify({
               status: "authenticated",
+              purpose: "step-up",
               nextPath: `/o/${organizationId}/membros?__stepUpFlow=organization.${organizationNonce}`,
             }),
             {
@@ -291,7 +328,7 @@ describe("callback OAuth seguro", () => {
     window.history.replaceState(
       {},
       "",
-      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length&purpose=step-up",
+      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length",
     );
     vi.stubGlobal(
       "fetch",
@@ -302,6 +339,7 @@ describe("callback OAuth seguro", () => {
           new Response(
             JSON.stringify({
               status: "authenticated",
+              purpose: "step-up",
               nextPath: `/conta/identidades?__stepUpFlow=identity.${identityNonce}`,
             }),
             { status: 200, headers: { "content-type": "application/json" } },
@@ -323,7 +361,7 @@ describe("callback OAuth seguro", () => {
     window.history.replaceState(
       {},
       "",
-      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length&purpose=step-up",
+      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length",
     );
     vi.stubGlobal(
       "fetch",
@@ -344,11 +382,7 @@ describe("callback OAuth seguro", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     storeIdentityActionContinuation(sessionStorage, { kind: "link-email" });
-    window.history.replaceState(
-      {},
-      "",
-      "/entrar/discord/retorno?error=access_denied&purpose=step-up",
-    );
+    window.history.replaceState({}, "", "/entrar/discord/retorno?error=access_denied");
 
     render(<OAuthCallbackForm />);
 

@@ -179,7 +179,6 @@ export async function createOAuthTransaction(
 export interface ConsumeOAuthTransactionInput {
   state: string;
   browserBinding: string;
-  purpose: OAuthPurpose;
 }
 
 export async function consumeOAuthTransaction(
@@ -195,7 +194,6 @@ export async function consumeOAuthTransaction(
       and(
         eq(oauthTransactions.stateDigest, sha256(input.state)),
         eq(oauthTransactions.browserBindingDigest, sha256(input.browserBinding)),
-        eq(oauthTransactions.purpose, input.purpose),
         isNull(oauthTransactions.consumedAt),
         gt(oauthTransactions.expiresAt, now),
       ),

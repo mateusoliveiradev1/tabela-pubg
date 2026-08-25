@@ -28,16 +28,15 @@ export function OAuthCallbackForm() {
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
-    const purpose = safePurpose(url.searchParams.get("purpose"));
     window.history.replaceState({}, "", url.pathname);
 
     if (!code || code.length > 2048 || !state || state.length < 16 || state.length > 1024) {
-      if (purpose === "step-up") clearStepUpContinuations();
+      clearStepUpContinuations();
       setStatus({ state: "error" });
       return;
     }
 
-    void completeCallback(code, state, purpose).then(setStatus);
+    void completeCallback(code, state).then(setStatus);
   }, []);
 
   if (status.state === "error") {
@@ -68,14 +67,10 @@ export function OAuthCallbackForm() {
   );
 }
 
-async function completeCallback(
-  code: string,
-  state: string,
-  purpose: "sign-in" | "link-identity" | "step-up",
-): Promise<CallbackStatus> {
+async function completeCallback(code: string, state: string): Promise<CallbackStatus> {
   try {
     const csrf = await acquireCsrf();
-    const response = await fetch(`/api/platform/identity/oauth/discord/${purpose}/callback`, {
+    const response = await fetch("/api/platform/identity/oauth/discord/callback", {
       method: "POST",
       cache: "no-store",
       credentials: "same-origin",
@@ -84,19 +79,25 @@ async function completeCallback(
         "content-type": "application/json",
         "x-csrf-token": csrf,
       },
-      body: JSON.stringify({ code, state, purpose }),
+      body: JSON.stringify({ code, state }),
     });
     if (!response.ok) {
-      if (purpose === "step-up") clearStepUpContinuations();
+      clearStepUpContinuations();
       return { state: "error" };
     }
-    const payload = (await response.json()) as { nextPath?: unknown };
-    if (purpose === "step-up") {
-      const flow =
-        typeof payload.nextPath === "string" ? consumeOAuthStepUpFlow(payload.nextPath) : null;
+    const payload = (await response.json()) as { nextPath?: unknown; purpose?: unknown };
+    const nextPath =
+      typeof payload.nextPath === "string" && isSafeReturnPath(payload.nextPath)
+        ? payload.nextPath
+        : "/";
+    const flow = consumeOAuthStepUpFlow(nextPath);
+    if (payload.purpose === "step-up") {
       if (!flow) {
         clearStepUpContinuations();
-        return { state: "error" };
+        const returnUrl = new URL(nextPath, "https://pubg-camp.invalid");
+        return returnUrl.searchParams.has("__stepUpFlow")
+          ? { state: "error" }
+          : { state: "success", nextPath };
       }
       const promoted =
         flow.namespace === "identity"
@@ -110,15 +111,16 @@ async function completeCallback(
       }
       return { state: "success", nextPath: flow.nextPath };
     }
+    if (payload.purpose !== "sign-in" && payload.purpose !== "link-identity") {
+      clearStepUpContinuations();
+      return { state: "error" };
+    }
     return {
       state: "success",
-      nextPath:
-        typeof payload.nextPath === "string" && isSafeReturnPath(payload.nextPath)
-          ? payload.nextPath
-          : "/",
+      nextPath,
     };
   } catch {
-    if (purpose === "step-up") clearStepUpContinuations();
+    clearStepUpContinuations();
     return { state: "error" };
   }
 }
@@ -138,10 +140,6 @@ async function acquireCsrf(): Promise<string> {
   const token = response.headers.get("x-csrf-token");
   if (!response.ok || !token) throw new Error();
   return token;
-}
-
-function safePurpose(value: string | null): "sign-in" | "link-identity" | "step-up" {
-  return value === "link-identity" || value === "step-up" ? value : "sign-in";
 }
 
 function isSafeReturnPath(value: string): boolean {

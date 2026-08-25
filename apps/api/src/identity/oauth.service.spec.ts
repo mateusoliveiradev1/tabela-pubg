@@ -178,7 +178,7 @@ describe("OAuthService", () => {
     expect(transactions.create).not.toHaveBeenCalled();
   });
 
-  it("fails closed before provider exchange when state, purpose or browser binding cannot be consumed", async () => {
+  it("fails closed before provider exchange when state or browser binding cannot be consumed", async () => {
     const { service, provider } = setup(null);
 
     await expect(
@@ -186,7 +186,6 @@ describe("OAuthService", () => {
         code: "code-1",
         state: "missing",
         browserBinding: "browser-1",
-        purpose: "sign-in",
       }),
     ).rejects.toThrow("oauth transaction unavailable");
     expect(provider.exchange).not.toHaveBeenCalled();
@@ -199,7 +198,6 @@ describe("OAuthService", () => {
       code: "code-1",
       state: "state-1",
       browserBinding: "browser-1",
-      purpose: "sign-in",
     });
 
     expect(identity.signInWithDiscord).toHaveBeenCalledWith(
@@ -229,9 +227,6 @@ describe("OAuthService", () => {
       code: "code-1",
       state: "state-1",
       browserBinding: "browser-1",
-      purpose: "step-up",
-      actorId,
-      sessionId,
     });
 
     expect(sessions.confirmStepUp).toHaveBeenCalledWith({
@@ -248,6 +243,28 @@ describe("OAuthService", () => {
     });
   });
 
+  it("dispatches the callback from the persisted purpose without browser purpose input", async () => {
+    const { service, transactions, sessions } = setup({
+      purpose: "step-up",
+      actorId,
+      sessionId,
+    });
+
+    await expect(
+      service.callback({
+        code: "code-1",
+        state: "state-1",
+        browserBinding: "browser-1",
+      }),
+    ).resolves.toEqual({ status: "step-up-confirmed", nextPath: "/" });
+    expect(transactions.consume).toHaveBeenCalledWith({
+      state: "state-1",
+      browserBinding: "browser-1",
+      now,
+    });
+    expect(sessions.confirmStepUp).toHaveBeenCalledOnce();
+  });
+
   it("creates one pending link proof after revoke without linking or rotating sessions", async () => {
     const transaction: OAuthTransaction = {
       purpose: "link-identity",
@@ -262,9 +279,6 @@ describe("OAuthService", () => {
       code: "code-1",
       state: "state-1",
       browserBinding: "browser-1",
-      purpose: "link-identity",
-      actorId,
-      sessionId,
     });
 
     expect(transactions.createPendingLinkProof).toHaveBeenCalledWith({
@@ -285,11 +299,10 @@ describe("OAuthService", () => {
     });
   });
 
-  it("rejects callback actor/session mismatch before provider exchange", async () => {
+  it("rejects a protected transaction missing its persisted session binding before exchange", async () => {
     const { service, provider, sessions } = setup({
       purpose: "step-up",
       actorId,
-      sessionId,
     });
 
     await expect(
@@ -297,9 +310,6 @@ describe("OAuthService", () => {
         code: "code-1",
         state: "state-1",
         browserBinding: "browser-1",
-        purpose: "step-up",
-        actorId,
-        sessionId: "99999999-9999-4999-8999-999999999999",
       }),
     ).rejects.toThrow("oauth transaction unavailable");
     expect(provider.exchange).not.toHaveBeenCalled();
@@ -327,8 +337,6 @@ describe("OAuthService", () => {
           code: "code-1",
           state: "state-1",
           browserBinding: "browser-1",
-          purpose: transaction.purpose,
-          ...(transaction.purpose === "sign-in" ? {} : { actorId, sessionId }),
         }),
       ).rejects.toThrow("discord token revocation failed");
       expect(identity.signInWithDiscord).not.toHaveBeenCalled();
@@ -347,7 +355,6 @@ describe("OAuthService", () => {
         code: "code-1",
         state: "state-1",
         browserBinding: "browser-1",
-        purpose: "sign-in",
       }),
     ).rejects.toThrow("provider failed");
     expect(provider.revoke).toHaveBeenCalledWith("discord-secret");
@@ -362,7 +369,6 @@ describe("OAuthService", () => {
       code: "code-1",
       state: "state-1",
       browserBinding: "browser-1",
-      purpose: "sign-in",
     });
 
     await expect(
@@ -370,7 +376,6 @@ describe("OAuthService", () => {
         code: "code-1",
         state: "state-1",
         browserBinding: "browser-1",
-        purpose: "sign-in",
       }),
     ).rejects.toThrow("oauth transaction unavailable");
   });

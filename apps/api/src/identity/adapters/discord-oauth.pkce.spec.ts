@@ -91,6 +91,25 @@ describe("DiscordOAuthAdapter PKCE", () => {
     expect(captured.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the exact redirect URI persisted with the one-shot verifier during exchange", async () => {
+    const verifierStore = createVerifierStore();
+    const captured = createCapturedFetch();
+    const mutableConfig = { ...config };
+    const adapter = new DiscordOAuthAdapter(mutableConfig, verifierStore, {
+      fetch: captured.fetch,
+      now: () => new Date("2026-08-21T12:00:00.000Z"),
+    });
+
+    const started = await adapter.start({ state: "deployment-bound-state", purpose: "step-up" });
+    const exactRedirectUri = new URL(started.authorizationUrl).searchParams.get("redirect_uri");
+    mutableConfig.redirectUri = "https://new-deployment.test/identity/oauth/discord/callback";
+
+    await adapter.exchange({ code: "provider-code", state: "deployment-bound-state" });
+    const tokenRequest = captured.requests.find((request) => request.url.endsWith("/oauth2/token"));
+    const tokenBody = new URLSearchParams(await tokenRequest?.clone().text());
+    expect(tokenBody.get("redirect_uri")).toBe(exactRedirectUri);
+  });
+
   it("supports only an evidenced exception and repairs to required without changing the store", async () => {
     const verifierStore = createVerifierStore();
     const captured = createCapturedFetch();

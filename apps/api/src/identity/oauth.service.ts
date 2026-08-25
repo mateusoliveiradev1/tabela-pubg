@@ -29,7 +29,6 @@ export interface OAuthTransactionRepository {
   consume(input: {
     state: string;
     browserBinding: string;
-    purpose: OAuthPurpose;
     now: Date;
   }): Promise<OAuthTransaction | null>;
   createPendingLinkProof(input: {
@@ -105,9 +104,6 @@ export class OAuthService {
     code: string;
     state: string;
     browserBinding: string;
-    purpose: OAuthPurpose;
-    actorId?: string;
-    sessionId?: string;
   }): Promise<OAuthCallbackResult> {
     if (
       input.code.trim().length === 0 ||
@@ -116,26 +112,17 @@ export class OAuthService {
     ) {
       throw new Error("oauth transaction unavailable");
     }
-    const hasActor = input.actorId !== undefined;
-    const hasSession = input.sessionId !== undefined;
-    if (
-      (input.purpose === "sign-in" && (hasActor || hasSession)) ||
-      (input.purpose !== "sign-in" && (!hasActor || !hasSession))
-    ) {
-      throw new Error("oauth transaction unavailable");
-    }
-
     const transaction = await this.transactions.consume({
       state: input.state,
       browserBinding: input.browserBinding,
-      purpose: input.purpose,
       now: this.clock.now(),
     });
+    if (transaction === null) {
+      throw new Error("oauth transaction unavailable");
+    }
     if (
-      transaction === null ||
-      transaction.purpose !== input.purpose ||
-      (transaction.purpose !== "sign-in" &&
-        (transaction.actorId !== input.actorId || transaction.sessionId !== input.sessionId))
+      transaction.purpose !== "sign-in" &&
+      (transaction.actorId === undefined || transaction.sessionId === undefined)
     ) {
       throw new Error("oauth transaction unavailable");
     }

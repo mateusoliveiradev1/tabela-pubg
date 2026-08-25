@@ -151,21 +151,18 @@ describe("IdentityController", () => {
     ).toBeUndefined();
   });
 
-  it("keeps only Discord sign-in public and protects link/step-up routes", () => {
+  it("keeps the unified transaction-resolved Discord callback public while starts stay scoped", () => {
     expect(
       Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.startDiscordSignIn),
     ).toBe(true);
     expect(
-      Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.callbackDiscordSignIn),
+      Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.callbackDiscord),
     ).toBe(true);
     expect(
       Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.startDiscordStepUp),
     ).toBeUndefined();
     expect(
       Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.startDiscordIdentityLink),
-    ).toBeUndefined();
-    expect(
-      Reflect.getMetadata(PUBLIC_ROUTE_KEY, IdentityController.prototype.callbackDiscordStepUp),
     ).toBeUndefined();
   });
 
@@ -247,8 +244,8 @@ describe("IdentityController", () => {
     const { controller, oauth } = setup();
     vi.mocked(oauth.callback).mockRejectedValueOnce(new Error("provider secret response"));
     const thrown = await controller
-      .callbackDiscordSignIn(
-        { code: "provider-code", state: "oauth-state-long-enough", purpose: "sign-in" },
+      .callbackDiscord(
+        { code: "provider-code", state: "oauth-state-long-enough" },
         "browser-binding",
       )
       .catch((error: unknown) => error);
@@ -256,7 +253,7 @@ describe("IdentityController", () => {
     expect((thrown as BadRequestException).getResponse()).toEqual({ status: "cancelled" });
   });
 
-  it("passes request.auth only as protected callback constraint and rotates CSRF after step-up", async () => {
+  it("dispatches from the persisted step-up result and rotates CSRF", async () => {
     const { controller, oauth, csrf, events } = setup();
     vi.mocked(oauth.callback).mockImplementationOnce(async () => {
       events.push("oauth-step-up");
@@ -265,11 +262,10 @@ describe("IdentityController", () => {
     const req = request();
     const response = reply();
 
-    const result = await controller.callbackDiscordStepUp(
+    const result = await controller.callbackDiscord(
       {
         code: "provider-code",
         state: "oauth-state-long-enough",
-        purpose: "step-up",
       },
       "browser-binding",
       req,
@@ -279,15 +275,13 @@ describe("IdentityController", () => {
     expect(oauth.callback).toHaveBeenCalledWith({
       code: "provider-code",
       state: "oauth-state-long-enough",
-      purpose: "step-up",
       browserBinding: "browser-binding",
-      actorId: authenticated.actorId,
-      sessionId: authenticated.sessionId,
     });
     expect(csrf.rotateCurrent).toHaveBeenCalledWith(req, response);
     expect(events).toEqual(["oauth-step-up", "csrf-current"]);
     expect(result).toEqual({
       status: "authenticated",
+      purpose: "step-up",
       nextPath: "/organizations/one/members",
     });
   });
@@ -299,11 +293,10 @@ describe("IdentityController", () => {
       nextPath: "/account/identities",
     });
 
-    const result = await controller.callbackDiscordIdentityLink(
+    const result = await controller.callbackDiscord(
       {
         code: "provider-code",
         state: "oauth-state-long-enough",
-        purpose: "link-identity",
       },
       "browser-binding",
       request(),
@@ -314,8 +307,25 @@ describe("IdentityController", () => {
     expect(csrf.rotateCurrent).not.toHaveBeenCalled();
     expect(result).toEqual({
       status: "link-confirmation-required",
+      purpose: "link-identity",
       nextPath: "/account/identities",
     });
+  });
+
+  it("rejects browser-injected callback purpose before consuming server state", async () => {
+    const { controller, oauth } = setup();
+
+    await expect(
+      controller.callbackDiscord(
+        {
+          code: "provider-code",
+          state: "oauth-state-long-enough",
+          purpose: "step-up",
+        },
+        "browser-binding",
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(oauth.callback).not.toHaveBeenCalled();
   });
 
   it("accepts only sign-in on the public OTP contract", async () => {

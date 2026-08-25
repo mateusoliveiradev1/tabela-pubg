@@ -163,6 +163,7 @@ describe("RedisAuthRateLimiter integration", () => {
     const state = "raw-oauth-state-must-not-be-a-redis-key";
     const record = {
       mode: "required" as const,
+      redirectUri: "https://camp.test/entrar/discord/retorno",
       codeVerifier: "verifier-with-sufficient-entropy-for-pkce-1234567890",
       expiresAt: new Date(Date.now() + 5_000),
     };

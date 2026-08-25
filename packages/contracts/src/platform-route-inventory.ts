@@ -91,17 +91,16 @@ const otpPurposes = [
 
 export const PlatformRouteInventory: readonly PlatformRouteInventoryEntry[] = Object.freeze([
   rootRoute("GET", "security/csrf"),
-  ...oauthPurposes.flatMap((identityPurpose) => [
+  ...oauthPurposes.map((identityPurpose) =>
     rootRoute("POST", `identity/oauth/discord/${identityPurpose}/start`, {
       referrerPolicy: "no-referrer",
       identityPurpose,
     }),
-    rootRoute("POST", `identity/oauth/discord/${identityPurpose}/callback`, {
-      csrfRotation: "reacquire",
-      referrerPolicy: "no-referrer",
-      identityPurpose,
-    }),
-  ]),
+  ),
+  rootRoute("POST", "identity/oauth/discord/callback", {
+    csrfRotation: "reacquire",
+    referrerPolicy: "no-referrer",
+  }),
   ...otpPurposes.flatMap((identityPurpose) => [
     rootRoute("POST", `identity/email/otp/${identityPurpose}/request`, {
       referrerPolicy: "no-referrer",

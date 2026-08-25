@@ -105,24 +105,16 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     await expect(
       consumeOAuthTransaction(
         db,
-        { state, browserBinding: "wrong-browser", purpose: "sign-in" },
+        { state, browserBinding: "wrong-browser" },
         () => now,
       ),
     ).resolves.toBeNull();
 
-    await expect(
-      consumeOAuthTransaction(db, { state, browserBinding, purpose: "step-up" }, () => now),
-    ).resolves.toBeNull();
-
-    const consumed = await consumeOAuthTransaction(
-      db,
-      { state, browserBinding, purpose: "sign-in" },
-      () => now,
-    );
+    const consumed = await consumeOAuthTransaction(db, { state, browserBinding }, () => now);
     expect(consumed?.purpose).toBe("sign-in");
 
     await expect(
-      consumeOAuthTransaction(db, { state, browserBinding, purpose: "sign-in" }, () => now),
+      consumeOAuthTransaction(db, { state, browserBinding }, () => now),
     ).resolves.toBeNull();
 
     const [stored] =
@@ -145,7 +137,7 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     await expect(
       consumeOAuthTransaction(
         db,
-        { state: expiredState, browserBinding, purpose: "sign-in" },
+        { state: expiredState, browserBinding },
         () => new Date(now.getTime() + 2_000),
       ),
     ).resolves.toBeNull();
@@ -181,10 +173,7 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     );
 
     await expect(
-      consumeOAuthTransaction(db, { state, browserBinding, purpose: "link-identity" }, () => now),
-    ).resolves.toBeNull();
-    await expect(
-      consumeOAuthTransaction(db, { state, browserBinding, purpose: "step-up" }, () => now),
+      consumeOAuthTransaction(db, { state, browserBinding }, () => now),
     ).resolves.toMatchObject({
       purpose: "step-up",
       userId: actorId,
@@ -330,7 +319,7 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
       () => now,
     );
     await expect(
-      consumeOAuthTransaction(db, { state, browserBinding, purpose: "link-identity" }, () => now),
+      consumeOAuthTransaction(db, { state, browserBinding }, () => now),
     ).resolves.toMatchObject({
       purpose: "link-identity",
       userId: actorId,

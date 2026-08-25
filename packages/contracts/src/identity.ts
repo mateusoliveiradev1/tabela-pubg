@@ -25,12 +25,14 @@ export const OAuthCallbackResponseSchema = z.discriminatedUnion("status", [
   z
     .object({
       status: z.literal("authenticated"),
+      purpose: z.enum(["sign-in", "step-up"]),
       nextPath: z.string().startsWith("/").max(512),
     })
     .strict(),
   z
     .object({
       status: z.literal("link-confirmation-required"),
+      purpose: z.literal("link-identity"),
       nextPath: z.string().startsWith("/").max(512),
     })
     .strict(),
