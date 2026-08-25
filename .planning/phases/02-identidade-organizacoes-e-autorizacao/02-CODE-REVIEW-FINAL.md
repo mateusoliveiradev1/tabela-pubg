@@ -67,11 +67,12 @@ files_reviewed_list:
   - packages/queue/src/index.ts
   - scripts/run-phase2-e2e.mjs
 findings:
-  critical: 1
-  warning: 2
+  critical: 0
+  warning: 0
   info: 0
-  total: 3
-status: issues_found
+  total: 0
+status: clean
+resolved: 2026-08-25T06:23:41Z
 ---
 
 # Phase 02: Final Independent Code Review
@@ -80,19 +81,29 @@ status: issues_found
 **Depth:** deep  
 **Diff:** `3176a76..290e5a9`  
 **Files reviewed:** 62  
-**Status:** issues_found
+**Status:** clean
 
 ## Summary
 
-Esta revisão releu os artefatos de review/fix/validation, os 17 commits do intervalo solicitado, os 47 arquivos alterados fora de `.planning/` e os módulos adjacentes que executam as fronteiras de identidade, sessão, outbox, filas e providers E2E. Os fixes corrigem o núcleo de backend dos 11 findings originais, mas não entregam uma jornada utilizável de vínculo/remoção de identidade: a UI nunca obtém a prova do método atual que os repositórios agora exigem. Restam ainda uma combinação inválida de políticas de sessão aceita pela configuração e uma asserção de rollback que não consegue detectar o órfão que pretende impedir.
+Os três findings desta revisão final foram resolvidos. A tela de identidades agora executa reautenticação real antes de vínculo, confirmação e remoção, retoma uma continuação tipada, curta e one-shot, e diferencia freshness inválida de OTP candidato inválido. A configuração rejeita intervalos de touch maiores ou iguais ao idle TTL, e a prova PostgreSQL de rollback usa IDs determinísticos e contagens exatas de delivery/outbox.
 
-As evidências já registradas (`PG 58/58`, concorrência `4/4`, runtime `6/6`, smoke `2/2`, browser `26 pass + 6 condicionais`) foram consideradas, mas não cobrem o bloqueio de jornada descrito abaixo. Em reruns focados desta revisão, passaram 34 testes web, 10 testes unitários de database, 16 testes de worker e 52 testes de API; o conjunto de API exigiu primeiro o build de `@pubg-camp/contracts`, conforme a dependência `^build` do pipeline. Nenhum desses testes percorre o vínculo real partindo de uma sessão sem `reauthenticated_at` fresco.
+Evidência final: `pnpm ci:verify` passou; PostgreSQL real passou 58/58; Redis real passou 6/6; e o runtime Chromium passou 7/7, incluindo sessão Discord sem `reauthenticated_at`, sessão e-mail stale, vínculo Discord, vínculo e-mail, remoção e consumo sem replay. PKCE, CSRF, secrecy, default-deny e isolamento por sessão foram preservados.
+
+## Resolution status
+
+| Finding | Resultado | Commits |
+|---|---|---|
+| CR-FINAL-01 | Resolvido; jornada real completa e browser 7/7 | `6a32f46`, `468361b` |
+| WR-FINAL-01 | Resolvido; validação relacional e prova PG | `50bccdd` |
+| WR-FINAL-02 | Resolvido; IDs determinísticos e cardinalidade exata | `759a676` |
 
 ## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
 ### CR-FINAL-01: A conta não oferece a reautenticação exigida para vincular ou remover identidades
+
+**Resolution:** Fixed in `6a32f46` and browser-hardening follow-up `468361b`. Requires human verification as a security-sensitive state-flow change; automated browser and focused tests are green.
 
 **Files:** `apps/web/src/components/identity/identity-cards.tsx:28-96,198-306`; `packages/database/src/repositories/sessions.ts:155-168,270-282`; `packages/database/src/repositories/identity.ts:144-161`; `packages/database/src/repositories/identity-security-change.ts:232-244`; `apps/web/src/components/identity/account.spec.tsx:189-235`
 
@@ -113,6 +124,8 @@ O teste de componente é falso positivo para essa jornada: ele fabrica uma respo
 
 ### WR-FINAL-01: Configuração aceita intervalo de touch maior ou igual ao idle TTL
 
+**Resolution:** Fixed in `50bccdd`; equality and greater-than configurations are rejected and the repository test proves touch before idle expiry.
+
 **Files:** `packages/config/src/index.ts:75-94`; `packages/database/src/repositories/sessions.ts:493-515`
 
 **Issue:** `SESSION_IDLE_TTL_SECONDS` aceita a partir de 300 segundos e `SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS` aceita até 3600 segundos, sem uma validação relacional. Se o intervalo de escrita for igual ou maior que o idle TTL, `resolveAndTouchSession` só considera a sessão elegível para touch quando `lastSeenAt <= now - interval`; nesse instante `idleExpiresAt > now` já é falso (na igualdade também, pois a consulta usa `gt`). Uma configuração aceita e aparentemente válida transforma o idle deslizante em expiração fixa e encerra sessões ativas.
@@ -122,6 +135,8 @@ O teste de componente é falso positivo para essa jornada: ele fabrica uma respo
 **Fix:** Adicionar `superRefine` exigindo `SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS < SESSION_IDLE_TTL_SECONDS`. Cobrir igualdade e intervalo maior no teste de config, além de um teste de repositório que demonstre que uma sessão ativa é tocada antes do idle deadline.
 
 ### WR-FINAL-02: O teste de atomicidade new-device não consegue detectar outbox órfão
+
+**Resolution:** Fixed in `759a676`; rollback and retry assertions use deterministic IDs, direct outbox correlation, exact counts, and payload verification.
 
 **File:** `packages/database/test/session-alert-context.integration.spec.ts:424-483`
 

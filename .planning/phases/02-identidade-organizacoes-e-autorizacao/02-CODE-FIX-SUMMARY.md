@@ -41,3 +41,13 @@ All eight Critical/BLOCKER and three Warning findings were resolved without weak
 - Cleanup verification found zero owned Phase 2 test schemas after removing five schemas left by deliberately interrupted RED/diagnostic runs. E2E lifecycle cleanup completed for every browser run; the Neon branch and Redis service remain active for orchestrator cleanup.
 
 No migrations were added or changed, no secrets were persisted, and no external branch, compute, or Redis service was deleted.
+
+## Final independent review fixes
+
+Resolved at `2026-08-25T06:23:41Z`:
+
+- `6a32f46`, `468361b` — CR-FINAL-01: complete current-method reauthentication before every identity link, confirmation, or removal; typed short one-shot continuation; Discord null proof, email stale proof, both link paths, removal, and replay covered in the real browser journey.
+- `50bccdd` — WR-FINAL-01: reject `SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS >= SESSION_IDLE_TTL_SECONDS` and prove a valid configured session touches before its idle deadline.
+- `759a676` — WR-FINAL-02: deterministic new-device IDs and exact rollback/retry delivery/outbox cardinality and payload assertions.
+
+Final gates passed: `pnpm ci:verify`; direct Neon PostgreSQL integration 58/58; Redis integration 6/6; Chromium runtime 7/7. Docker Compose semantic validation remained explicitly unavailable because Docker CLI is not installed; its structural gate passed. The temporary Neon branch remains available for orchestrator cleanup, and the isolated Redis process is stopped during fixer cleanup.
