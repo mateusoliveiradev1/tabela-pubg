@@ -37,7 +37,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 
 **Meta:** usuários entram com segurança e colaboram sem compartilhar credenciais.
 
-**Progresso:** 40 planos executados; `02-39` fechou o runtime browser real e o contrato CI fail-closed; restam 2 planos de remediação antes da Fase 2.1.
+**Progresso:** 41/42 planos executados; `02-34` aprovou o único run push pós-remediação com 8/8 jobs em stack real; resta apenas `02-40` para promover o ledger final antes da Fase 2.1.
 
 ### Entregas
 
@@ -53,7 +53,7 @@ Arquitetura inicial: monólito modular para regras e transações, aplicações 
 - Tentativas entre organizações são negadas e registradas.
 - Revogação encerra acesso sem afetar outros membros.
 
-**Resultado atual:** `gaps_found` — 2/6 must-haves e 6/13 requisitos verificados. Ver `02-VERIFICATION.md`.
+**Resultado atual:** evidência pós-remediação em 6/6 must-haves e 13/13 requisitos; promoção fail-closed do ledger permanece reservada ao plano `02-40`.
 
 **Requisitos:** AUTH-001–006, ORG-001–005, AUD-001, NFR-005.
 

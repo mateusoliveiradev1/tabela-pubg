@@ -26,9 +26,9 @@
 | ORG-004 | Concluído | Matriz de menor privilégio sem wildcard e default-deny verificada por testes. |
 | ORG-005 | Concluído | Lock e testes concorrentes protegem o último proprietário e exigem transferência explícita. |
 | AUD-001 | Concluído | Auditoria transacional grava autor, data, motivo e valores anterior/novo sanitizados. |
-| NFR-005 | Bloqueado | Gestão de identidade/sessão, tenant no BFF, providers/seed run-scoped e runtime browser real foram fechados pelos planos 02-32/02-38/02-33/02-39; restam o push CI 02-34 e a revalidação final 02-40. |
+| NFR-005 | Concluído | O run push único do plano 02-34 executou 8/8 jobs, runtime Nest/PostgreSQL/Redis/publisher/worker/browser, secret scan e cleanup run-scoped; 02-40 apenas promove essa autoridade no ledger final. |
 
-**Fase 2:** 40/42 planos executados; verificação em `gaps_found` (12/13 requisitos). O plano 02-39 fechou a evidência real-stack; NFR-005 permanece bloqueado pelo push CI 02-34 e pela revalidação final 02-40.
+**Fase 2:** 41/42 planos executados; evidência pós-remediação em 13/13 requisitos. O plano 02-40 permanece pendente para promover o ledger final a partir de `02-34-SUMMARY.md`.
 
 ## 1. Contas, organizações e acesso
 

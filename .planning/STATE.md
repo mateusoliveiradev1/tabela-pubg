@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-08-24T16:50:07.638Z"
+last_updated: "2026-08-25T01:51:32.349Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 45
-  completed_plans: 43
+  completed_plans: 44
   percent: 33
 ---
 
@@ -18,9 +18,9 @@ progress:
 
 - Milestone: v1 completo
 - Fase: 2 — Identidade, organizações e autorização
-- Plano: 02-39 concluído; próximos planos pendentes 02-34 e 02-40
-- Status: remediação em execução, com runtime real browser e contrato CI fail-closed concluídos
-- Progresso: 43/45 planos do milestone concluídos; restam 2 planos de gap closure da Fase 2
+- Plano: 02-34 concluído; próximo plano pendente 02-40
+- Status: evidência CI pós-remediação aprovada em stack real; promoção final do ledger pendente
+- Progresso: 44/45 planos do milestone concluídos; resta 1 plano de gap closure da Fase 2
 
 ## Decisões acumuladas
 
@@ -108,7 +108,7 @@ progress:
 
 ## Tarefas pendentes
 
-- Executar os planos pendentes `02-34` e `02-40` para fechar os gaps de integração real registrados em `02-VERIFICATION.md`.
+- Executar o plano pendente `02-40` para consumir a autoridade estruturada de `02-34-SUMMARY.md` e promover o ledger final.
 - Após nova verificação verde, avançar para a Fase 2.1 e aplicar Impeccable em toda UI/UX.
 
 ## Bloqueadores
@@ -117,9 +117,9 @@ progress:
 
 ## Continuidade
 
-- Última ação: plano 02-39 publicou o runtime real browser e o contrato CI fail-closed com cleanup por run
-- Próxima ação: executar o plano 02-34, próximo gap de integração pendente
-- Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-34-PLAN.md
+- Última ação: plano 02-34 registrou o run push 32798458788 do SHA 5b1555d7693b0f5678eeaa131550cedc985345ad com 8/8 jobs e cleanup run-scoped
+- Próxima ação: executar o plano 02-40 e promover a validação final fail-closed
+- Arquivo de retomada: .planning/phases/02-identidade-organizacoes-e-autorizacao/02-40-PLAN.md
 
 ## Accumulated Context
 
@@ -141,6 +141,7 @@ progress:
 | Phase 02 P38 | 8min | 1 tasks | 6 files |
 | Phase 02 P33 | 41min | 1 tasks | 9 files |
 | Phase 02 P39 | 1h 16m | 2 tasks | 10 files |
+| Phase 02 P34 | 5h 10m | 1 checkpoint | 1 file |
 
 ## Decisions
 
@@ -175,3 +176,6 @@ progress:
 - [Phase 02]: Fastify 5 valida hasRoute pelo template registrado; amostras concretas validam matching e materializacao. — Segue a semantica oficial do router sem executar handlers protegidos.
 - [Phase 02]: Fake providers activate only under the complete validated test conjunction; partial activation fails before provider construction. — Prevents a production or shared namespace from receiving any part of the synthetic provider composition.
 - [Phase 02]: Phase 2 E2E database isolation uses an ephemeral per-run role with a server-side search_path and in-memory password. — Works through pooled PostgreSQL endpoints without persisting credentials or weakening exact cleanup.
+- [Phase 02]: O run push 32798458788 do SHA 5b1555d7693b0f5678eeaa131550cedc985345ad é a única autoridade final pós-remediação consumida por 02-40.
+- [Phase 02]: A cardinalidade obrigatória da CI é definida pelos oito pares key/matrix/name canônicos do workflow rastreado.
+- [Phase 02]: Runtime e cleanup compartilham byte-for-byte o E2E_RUN_ID run-ci-32798458788-1-phase2.
