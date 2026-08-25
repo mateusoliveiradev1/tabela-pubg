@@ -1,8 +1,8 @@
 ---
 phase: 02-identidade-organizacoes-e-autorizacao
-reviewed: 2026-08-25T06:40:00Z
+reviewed: 2026-08-25T07:33:00Z
 depth: deep
-diff: c7ed355..061fe1a
+diff: aff81da..5b63da3
 files_reviewed: 31
 files_reviewed_list:
   - apps/api/src/identity/identity.controller.spec.ts
@@ -37,21 +37,42 @@ files_reviewed_list:
   - scripts/run-phase2-e2e.mjs
   - scripts/validate-phase2-ci.mjs
 findings:
+  critical: 0
+  warning: 0
+  info: 0
+  total: 0
+resolved_findings:
   critical: 2
   warning: 2
-  info: 0
   total: 4
-status: issues_found
+status: clean
 ---
 
 # Phase 02: Closure Code Review
 
-**Reviewed:** 2026-08-25T06:40:00Z  
+**Reviewed:** 2026-08-25T07:33:00Z  
 **Depth:** deep  
-**Diff:** `c7ed355..061fe1a`  
-**Status:** issues_found
+**Diff:** `aff81da..5b63da3`  
+**Status:** clean
 
-## Summary
+## Closure summary
+
+All four findings are resolved. Email step-up now proves atomically that the normalized address belongs to an active, verified, non-revoked identity of the actor; foreign addresses receive the same non-enumerating response without challenge, delivery, outbox or session mutation. OTP consumption and `reauthenticated_at` commit exactly once in one transaction.
+
+Freshness expiry remains a typed HTTP 428 through the controller, runtime and PostgreSQL TOCTOU boundary only after actor/session/proof binding is validated. Discord continuations are correlated to the persisted OAuth transaction return path by namespace and UUID nonce, promote one exact flow, and clear failure, cancellation, synchronous submit failure and unrelated pending actions.
+
+Final gates passed: `pnpm ci:verify`; Neon PostgreSQL + real Redis integration 60/60; concurrency 4/4; full-stack Chromium runtime 7/7. No active finding remains.
+
+## Resolved findings
+
+| Finding | Resolution | Commits |
+|---|---|---|
+| CR-CLOSURE-01 | Actor-owned active verified email enforced atomically; foreign delivery and mutation denied. | `e1b0ed8`, `64c171c` |
+| CR-CLOSURE-02 | OTP consumption and session elevation commit once; second controller mutation removed. | `18d6fc6`, `5f5687d` |
+| WR-CLOSURE-01 | Transactional freshness maps to 428 without leaking that classification to invalid bindings. | `ff0a118`, `799085d`, `5b63da3` |
+| WR-CLOSURE-02 | OAuth continuation promotion requires the exact namespace/nonce and clears abandoned flows. | `1a89eae`, `c6031e5` |
+
+## Historical review summary (resolved)
 
 Os três findings do relatório anterior foram implementados no caminho feliz: a UI agora inicia step-up e retoma ações tipadas; a configuração exige `activityWriteInterval < idleTtl`; e o teste de rollback consulta delivery/outbox por IDs determinísticos, com cardinalidade e payload exatos. PKCE, state one-shot, browser binding, CSRF same-origin, rotação de sessão nas mutações e os limites relacionais de configuração permanecem presentes.
 
@@ -65,7 +86,7 @@ Testes focados executados nesta revisão:
 
 Esses testes verdes não cobrem os cenários adversariais abaixo.
 
-## Narrative Findings (AI reviewer)
+## Historical Narrative Findings (resolved)
 
 ## Critical Issues
 
@@ -126,6 +147,6 @@ Isso quebra a semântica de falha e o contrato de rotação: o cliente acredita 
 
 ---
 
-_Reviewed: 2026-08-25T06:40:00Z_  
+_Reviewed: 2026-08-25T07:33:00Z_  
 _Reviewer: independent closure gsd-code-reviewer_  
 _Depth: deep_
