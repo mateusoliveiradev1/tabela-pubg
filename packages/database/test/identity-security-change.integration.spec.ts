@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -191,8 +191,12 @@ describe("identity security change transaction", () => {
     return { identityId, verifiedEmailId };
   }
 
-  function replacementToken(byte: number): string {
-    return Buffer.alloc(32, byte).toString("base64url");
+  function replacementTokenBytes(actor: SeededActor, byte: number): Buffer {
+    return createHash("sha256").update(`${actor.currentSessionId}:${byte}`).digest();
+  }
+
+  function replacementToken(actor: SeededActor, byte: number): string {
+    return replacementTokenBytes(actor, byte).toString("base64url");
   }
 
   function commandInput(
@@ -212,7 +216,7 @@ describe("identity security change transaction", () => {
       now,
       generateId: randomUUID,
       generateCorrelationId: randomUUID,
-      generateOpaqueToken: () => Buffer.alloc(32, byte),
+      generateOpaqueToken: () => replacementTokenBytes(actor, byte),
       ...(afterMutation === undefined ? {} : { afterMutation }),
     };
   }
@@ -262,7 +266,7 @@ describe("identity security change transaction", () => {
       ] as const) {
         const actor = await seedActor(issuedAt, reauthenticatedAt);
         const email = `${purpose}-${label}-${randomUUID()}@example.test`;
-        const proofId = await seedEmailProof(actor, issuedAt, purpose, email);
+        const proofId = await seedEmailProof(actor, now, purpose, email);
         const current = purpose === "change-email" ? await seedCurrentEmail(actor.actorId, issuedAt, `old-${randomUUID()}@example.test`) : null;
         const before = await actorSnapshot(actor.actorId, proofId);
         await expect(
@@ -325,7 +329,7 @@ describe("identity security change transaction", () => {
 
       const freshActor = await seedActor(issuedAt, new Date(now.getTime() - 10 * 60_000 + 1));
       const freshEmail = `${purpose}-fresh-${randomUUID()}@example.test`;
-      const freshProofId = await seedEmailProof(freshActor, issuedAt, purpose, freshEmail);
+      const freshProofId = await seedEmailProof(freshActor, now, purpose, freshEmail);
       const freshCurrent =
         purpose === "change-email"
           ? await seedCurrentEmail(freshActor.actorId, issuedAt, `old-${randomUUID()}@example.test`)
@@ -373,7 +377,7 @@ describe("identity security change transaction", () => {
 
     expect(result).toEqual({
       sessionId: actor.currentSessionId,
-      newSessionToken: replacementToken(71),
+      newSessionToken: replacementToken(actor, 71),
       revokedOtherSessions: 1,
     });
     await expect(resolveSession(db, actor.oldCurrentToken, () => now)).resolves.toBeNull();
@@ -493,7 +497,7 @@ describe("identity security change transaction", () => {
       expect(await actorSnapshot(actor.actorId, proof.proofId)).toBe(before);
       await expect(resolveSession(db, actor.oldCurrentToken, () => now)).resolves.not.toBeNull();
       await expect(resolveSession(db, actor.otherToken, () => now)).resolves.not.toBeNull();
-      await expect(resolveSession(db, replacementToken(73), () => now)).resolves.toBeNull();
+      await expect(resolveSession(db, replacementToken(actor, 73), () => now)).resolves.toBeNull();
     },
     15_000,
   );
@@ -523,10 +527,11 @@ describe("identity security change transaction", () => {
     expect(await actorSnapshot(actor.actorId, proof.proofId)).toBe(before);
   });
 
-  it("rejects stale, purpose-mismatched and candidate-mismatched proofs before durable mutation", async () => {
-    const issuedAt = new Date("2026-08-24T16:00:00.000Z");
-    const now = new Date(issuedAt.getTime() + 60_000);
-    for (const mismatch of ["stale", "purpose", "candidate"] as const) {
+  it.each(["stale", "purpose", "candidate"] as const)(
+    "rejects a %s proof before durable mutation",
+    async (mismatch) => {
+      const issuedAt = new Date("2026-08-24T16:00:00.000Z");
+      const now = new Date(issuedAt.getTime() + 60_000);
       const actor = await seedActor(issuedAt);
       const proof = await seedDiscordProof(actor, issuedAt, {
         purpose: mismatch === "purpose" ? "change-email" : "link-identity",
@@ -551,9 +556,9 @@ describe("identity security change transaction", () => {
         ),
       ).rejects.toThrow("identity security change rejected");
       expect(await actorSnapshot(actor.actorId, proof.proofId)).toBe(before);
-      await expect(resolveSession(db, replacementToken(76), () => now)).resolves.toBeNull();
-    }
-  });
+      await expect(resolveSession(db, replacementToken(actor, 76), () => now)).resolves.toBeNull();
+    },
+  );
 
   it("rejects replay without a second identity, event or session mutation", async () => {
     const issuedAt = new Date("2026-08-24T17:00:00.000Z");
@@ -572,7 +577,7 @@ describe("identity security change transaction", () => {
       executeIdentitySecurityChange(commandInput(actor, proof.proofId, now, change, 78)),
     ).rejects.toThrow("identity security change rejected");
     expect(await actorSnapshot(actor.actorId, proof.proofId)).toBe(committed);
-    await expect(resolveSession(db, replacementToken(78), () => now)).resolves.toBeNull();
+    await expect(resolveSession(db, replacementToken(actor, 78), () => now)).resolves.toBeNull();
     const [counts] = await client`
       select
         (select count(*)::int from identities where user_id = ${actor.actorId}
@@ -620,9 +625,11 @@ describe("identity security change transaction", () => {
       expect(winners).toHaveLength(1);
       expect(settled.filter((result) => result.status === "rejected")).toHaveLength(1);
       const winningToken = winners[0]?.value.newSessionToken;
-      expect([replacementToken(79), replacementToken(80)]).toContain(winningToken);
+      expect([replacementToken(actor, 79), replacementToken(actor, 80)]).toContain(winningToken);
       const losingToken =
-        winningToken === replacementToken(79) ? replacementToken(80) : replacementToken(79);
+        winningToken === replacementToken(actor, 79)
+          ? replacementToken(actor, 80)
+          : replacementToken(actor, 79);
       if (!winningToken) throw new Error("concurrent command did not return a winning token");
       await expect(resolveSession(db, winningToken, () => now)).resolves.toMatchObject({
         session: { id: actor.currentSessionId, userId: actor.actorId },
