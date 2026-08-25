@@ -203,12 +203,12 @@ async function seedSecondarySession(): Promise<void> {
       `;
       await transaction`
         insert into sessions (
-          id, user_id, device_id, token_digest, issued_at, last_seen_at,
+          id, user_id, device_id, token_digest, trust, issued_at, last_seen_at,
           idle_expires_at, absolute_expires_at, reauthenticated_at
         ) values (
           ${sessionId}, ${user.user_id}, ${deviceId},
           ${createHash("sha256").update(`studio-session:${runId}`).digest("hex")},
-          now() - interval '1 day', now() - interval '1 hour',
+          'trusted', now() - interval '1 day', now() - interval '1 hour',
           now() + interval '29 days', now() + interval '89 days', now() - interval '1 hour'
         )
       `;
