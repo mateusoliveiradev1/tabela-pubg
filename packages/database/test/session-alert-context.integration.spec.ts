@@ -99,17 +99,17 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
     const issued = await issueSessionForDevice(
       db,
       {
-          userId,
-          trust: "trusted",
-          deviceFingerprint: "desktop-browser-profile-1",
-          device: {
-            label: "PC principal",
-            browser: "Chrome",
-            operatingSystem: "Windows",
-            approximateLocation: "Sao Paulo, BR",
-            summarizedUserAgent: "Chrome on Windows",
-          },
-          newDeviceNotification: notificationInput("new-device-primary"),
+        userId,
+        trust: "trusted",
+        deviceFingerprint: "desktop-browser-profile-1",
+        device: {
+          label: "PC principal",
+          browser: "Chrome",
+          operatingSystem: "Windows",
+          approximateLocation: "Sao Paulo, BR",
+          summarizedUserAgent: "Chrome on Windows",
+        },
+        newDeviceNotification: notificationInput("new-device-primary"),
       },
       deterministicDependencies(now),
     );
@@ -225,9 +225,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
     const touched = await resolveAndTouchSession(db, issued.token, () => touchedAt, policy);
     expect(touched).not.toBeNull();
     expect(touched?.session.lastSeenAt).toEqual(touchedAt);
-    expect(touched?.session.idleExpiresAt).toEqual(
-      new Date(touchedAt.getTime() + policy.idleMs),
-    );
+    expect(touched?.session.idleExpiresAt).toEqual(new Date(touchedAt.getTime() + policy.idleMs));
   });
 
   it("persists explicit trust for identity and device issue paths", async () => {
@@ -379,11 +377,11 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
     const issued = await issueSessionForDevice(
       db,
       {
-          userId,
-          trust: "trusted",
-          deviceFingerprint: "alert-context-device",
-          device: { label: "Unknown PC", browser: "Edge", operatingSystem: "Windows" },
-          newDeviceNotification: notificationInput("alert-context-device"),
+        userId,
+        trust: "trusted",
+        deviceFingerprint: "alert-context-device",
+        device: { label: "Unknown PC", browser: "Edge", operatingSystem: "Windows" },
+        newDeviceNotification: notificationInput("alert-context-device"),
       },
       deterministicDependencies(now),
     );
@@ -423,13 +421,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
     expect(JSON.stringify(outbox)).not.toContain(issued.alertToken);
   });
 
-  it.each([
-      "device",
-      "session",
-      "alert-context",
-      "delivery",
-      "outbox",
-    ] as const)(
+  it.each(["device", "session", "alert-context", "delivery", "outbox"] as const)(
     "rolls back the %s new-device mutation boundary and retries with exactly one alert",
     async (failureStage) => {
       const rollbackUserId = randomUUID();
@@ -438,6 +430,30 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
       `;
       const deviceFingerprint = `rollback-device-${failureStage}`;
       const idempotencyKey = `rollback-new-device-${failureStage}`;
+      const expectedIds = {
+        device: randomUUID(),
+        session: randomUUID(),
+        alertContext: randomUUID(),
+        delivery: randomUUID(),
+        outbox: randomUUID(),
+      };
+      const dependencies = (now: Date) => {
+        const generatedIds = [
+          expectedIds.device,
+          expectedIds.session,
+          expectedIds.alertContext,
+          expectedIds.delivery,
+          expectedIds.outbox,
+        ];
+        return {
+          ...deterministicDependencies(now),
+          generateId: () => {
+            const id = generatedIds.shift();
+            if (!id) throw new Error("deterministic new-device ID sequence exhausted");
+            return id;
+          },
+        };
+      };
       await expect(
         issueSessionForDevice(
           db,
@@ -449,7 +465,7 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
             newDeviceNotification: notificationInput(idempotencyKey),
           },
           {
-            ...deterministicDependencies(new Date("2026-08-21T12:00:00.000Z")),
+            ...dependencies(new Date("2026-08-21T12:00:00.000Z")),
             afterMutation: (stage) => {
               if (stage === failureStage) throw new Error(`fail after ${stage}`);
             },
@@ -462,12 +478,20 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
           (select count(*)::int from devices where user_id = ${rollbackUserId}) as devices,
           (select count(*)::int from sessions where user_id = ${rollbackUserId}) as sessions,
           (select count(*)::int from session_alert_contexts where user_id = ${rollbackUserId}) as alerts,
-          (select count(*)::int from notification_deliveries where idempotency_key = ${idempotencyKey}) as deliveries,
-          (select count(*)::int from outbox_events where aggregate_id in (
-            select id::text from notification_deliveries where idempotency_key = ${idempotencyKey}
-          )) as outbox
+          (select count(*)::int from notification_deliveries
+            where id = ${expectedIds.delivery} and idempotency_key = ${idempotencyKey}) as deliveries,
+          (select count(*)::int from outbox_events
+            where id = ${expectedIds.outbox}
+               or (aggregate_type = 'notification-delivery'
+                   and aggregate_id = ${expectedIds.delivery})) as outbox
       `;
-      expect(counts).toMatchObject({ devices: 0, sessions: 0, alerts: 0, deliveries: 0, outbox: 0 });
+      expect(counts).toMatchObject({
+        devices: 0,
+        sessions: 0,
+        alerts: 0,
+        deliveries: 0,
+        outbox: 0,
+      });
 
       const retry = await issueSessionForDevice(
         db,
@@ -478,10 +502,31 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
           device: { label: "Rollback PC", browser: "Chrome", operatingSystem: "Windows" },
           newDeviceNotification: notificationInput(idempotencyKey),
         },
-        deterministicDependencies(new Date("2026-08-21T12:01:00.000Z")),
+        dependencies(new Date("2026-08-21T12:01:00.000Z")),
       );
-      expect(retry).toMatchObject({ isNewDevice: true });
-      expect(retry.notificationDeliveryId).toBeDefined();
+      expect(retry).toMatchObject({
+        isNewDevice: true,
+        notificationDeliveryId: expectedIds.delivery,
+        session: { id: expectedIds.session },
+        device: { id: expectedIds.device },
+      });
+
+      const [retried] = await client`
+        select
+          (select count(*)::int from notification_deliveries
+            where id = ${expectedIds.delivery} and idempotency_key = ${idempotencyKey}) as deliveries,
+          (select count(*)::int from outbox_events
+            where id = ${expectedIds.outbox}
+              and event_type = 'notification.delivery.requested'
+              and aggregate_type = 'notification-delivery'
+              and aggregate_id = ${expectedIds.delivery}) as outbox,
+          (select payload from outbox_events where id = ${expectedIds.outbox}) as payload
+      `;
+      expect(retried).toEqual({
+        deliveries: 1,
+        outbox: 1,
+        payload: { deliveryId: expectedIds.delivery },
+      });
     },
   );
 });
