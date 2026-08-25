@@ -41,12 +41,8 @@ async function applyMigrationFiles(
   for (const migrationFile of migrationFiles) {
     const source = await readFile(path.join(migrationsFolder, migrationFile), "utf8");
     const isolated = source.replaceAll('"public".', `${quotedSchema}.`);
-    for (const statement of isolated
-      .split("--> statement-breakpoint")
-      .map((value) => value.trim())
-      .filter(Boolean)) {
-      await client.unsafe(statement);
-    }
+    const batch = isolated.replaceAll("--> statement-breakpoint", "\n").trim();
+    if (batch) await client.unsafe(batch);
   }
 }
 
