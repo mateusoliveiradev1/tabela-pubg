@@ -52,9 +52,12 @@ function cookieHeader(jar: CookieJar): string {
   return [...jar].map(([name, value]) => `${name}=${value}`).join("; ");
 }
 
-async function createServer(onUnsafe = vi.fn()): Promise<FastifyInstance> {
+async function createServer(
+  onUnsafe = vi.fn(),
+  csrfOptions: CsrfServiceOptions = options,
+): Promise<FastifyInstance> {
   const server = fastify();
-  const csrf = new CsrfService(options);
+  const csrf = new CsrfService(csrfOptions);
   await registerCsrfPlugins(server, csrf, { cookie, csrfProtection });
 
   server.get("/security/csrf", async (request, reply) => csrf.acquire(request, reply));
@@ -125,6 +128,44 @@ describe("CSRF lifecycle through Fastify inject", () => {
     expect(response.headers["set-cookie"]).toEqual(
       expect.arrayContaining([expect.stringMatching(/__Host-preauth=.*HttpOnly.*Secure/i)]),
     );
+  });
+
+  it("supports the documented local HTTP mode with non-prefixed, non-Secure cookies", async () => {
+    const localOptions = {
+      ...options,
+      appOrigin: "http://localhost:3000",
+      secureCookies: false,
+      sessionCookieName: "pubg-camp-session",
+    };
+    const server = await createServer(vi.fn(), localOptions);
+    servers.push(server);
+    const jar: CookieJar = new Map();
+
+    const acquired = await acquire(server, jar);
+    expect(acquired.response.headers["set-cookie"]).toEqual(
+      expect.arrayContaining([expect.stringMatching(/pubg-camp-preauth=.*HttpOnly/i)]),
+    );
+    expect(JSON.stringify(acquired.response.headers["set-cookie"])).not.toMatch(/;\s*Secure/i);
+    const login = await unsafe(
+      server,
+      jar,
+      acquired.token,
+      "/login",
+      localOptions.appOrigin,
+    );
+    expect(login.statusCode).toBe(200);
+  });
+
+  it("rejects every __Host cookie name when Secure is disabled", () => {
+    for (const names of [
+      { sessionCookieName: "__Host-session" },
+      { preauthCookieName: "__Host-preauth" },
+      { csrfSecretCookieName: "__Host-csrf" },
+    ]) {
+      expect(
+        () => new CsrfService({ ...options, secureCookies: false, ...names }),
+      ).toThrow("__Host- cookies require Secure");
+    }
   });
 
   it("rotates pre-auth to session-bound CSRF and rejects stale and cross-session tokens", async () => {

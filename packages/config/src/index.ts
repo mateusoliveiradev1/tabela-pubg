@@ -36,12 +36,31 @@ const OptionalExceptionIdSchema = z.preprocess(
 
 const StringBooleanSchema = z.enum(["true", "false"]).transform((value) => value === "true");
 
+const CanonicalOriginSchema = z.url().transform((value, context) => {
+  const parsed = new URL(value);
+  if (
+    value !== parsed.origin ||
+    parsed.username.length > 0 ||
+    parsed.password.length > 0 ||
+    parsed.pathname !== "/" ||
+    parsed.search.length > 0 ||
+    parsed.hash.length > 0
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "APP_ORIGIN must be a canonical origin without trailing slash or URL components",
+    });
+    return z.NEVER;
+  }
+  return parsed.origin;
+});
+
 export const DiscordPkceModeSchema = z
   .enum(["required", "documented-exception"])
   .default("required");
 
 export const Phase2EnvSchema = BaseEnvSchema.extend({
-  APP_ORIGIN: z.url(),
+  APP_ORIGIN: CanonicalOriginSchema,
   DISCORD_CLIENT_ID: z.string().regex(/^\d{17,20}$/),
   DISCORD_CLIENT_SECRET: strongSecret("DISCORD_CLIENT_SECRET"),
   DISCORD_REDIRECT_URI: z.url(),
@@ -49,8 +68,8 @@ export const Phase2EnvSchema = BaseEnvSchema.extend({
   DISCORD_PKCE_EXCEPTION_ID: OptionalExceptionIdSchema,
   SESSION_COOKIE_NAME: z
     .string()
-    .regex(/^__Host-[A-Za-z0-9_-]+$/)
-    .default("__Host-session"),
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .default("pubg-camp-session"),
   SESSION_COOKIE_SECRET: strongSecret("SESSION_COOKIE_SECRET"),
   SESSION_COOKIE_SECURE: StringBooleanSchema.default(false),
   SESSION_IDLE_TTL_SECONDS: z.coerce.number().int().min(300).max(2_592_000).default(2_592_000),
@@ -73,6 +92,14 @@ export const Phase2EnvSchema = BaseEnvSchema.extend({
   EMAIL_FROM: z.email().max(254),
   TRUSTED_PROXY: z.enum(["none", "loopback", "private"]).default("none"),
 }).superRefine((env, context) => {
+  if (!env.SESSION_COOKIE_SECURE && env.SESSION_COOKIE_NAME.startsWith("__Host-")) {
+    context.addIssue({
+      code: "custom",
+      path: ["SESSION_COOKIE_NAME"],
+      message: "__Host- cookies require SESSION_COOKIE_SECURE=true",
+    });
+  }
+
   if (env.DISCORD_PKCE_MODE === "documented-exception") {
     if (env.DISCORD_PKCE_EXCEPTION_ID === undefined) {
       context.addIssue({

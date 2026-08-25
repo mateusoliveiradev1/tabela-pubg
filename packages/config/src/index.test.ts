@@ -26,6 +26,40 @@ const validPhase2Env = {
 } as const;
 
 describe("configuration", () => {
+  it.each([
+    "http://localhost:3000/",
+    "http://localhost:3000/path",
+    "http://localhost:3000?mode=unsafe",
+    "http://localhost:3000#fragment",
+    "http://user:password@localhost:3000",
+  ])("rejects non-canonical APP_ORIGIN shape %s", (appOrigin) => {
+    expect(() =>
+      loadEnv(Phase2EnvSchema, { ...validPhase2Env, APP_ORIGIN: appOrigin }),
+    ).toThrow("APP_ORIGIN");
+  });
+
+  it("rejects __Host cookies without Secure and accepts the documented local cookie mode", () => {
+    expect(() =>
+      loadEnv(Phase2EnvSchema, {
+        ...validPhase2Env,
+        SESSION_COOKIE_NAME: "__Host-session",
+        SESSION_COOKIE_SECURE: "false",
+      }),
+    ).toThrow("SESSION_COOKIE_NAME");
+
+    expect(
+      loadEnv(Phase2EnvSchema, {
+        ...validPhase2Env,
+        SESSION_COOKIE_NAME: "pubg-camp-session",
+        SESSION_COOKIE_SECURE: "false",
+      }),
+    ).toMatchObject({
+      APP_ORIGIN: "http://localhost:3000",
+      SESSION_COOKIE_NAME: "pubg-camp-session",
+      SESSION_COOKIE_SECURE: false,
+    });
+  });
+
   it("applies safe defaults", () => {
     const env = loadEnv(BaseEnvSchema, { SERVICE_NAME: "worker" });
     expect(env.NODE_ENV).toBe("development");

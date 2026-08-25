@@ -46,9 +46,19 @@ export class CsrfService {
   readonly csrfSecretCookieName: string;
 
   constructor(readonly options: CsrfServiceOptions) {
-    this.preauthCookieName = options.preauthCookieName ?? "__Host-preauth";
-    this.sessionCookieName = options.sessionCookieName ?? "__Host-session";
-    this.csrfSecretCookieName = options.csrfSecretCookieName ?? "__Host-csrf";
+    const prefix = options.secureCookies ? "__Host-" : "pubg-camp-";
+    this.preauthCookieName = options.preauthCookieName ?? `${prefix}preauth`;
+    this.sessionCookieName = options.sessionCookieName ?? `${prefix}session`;
+    this.csrfSecretCookieName = options.csrfSecretCookieName ?? `${prefix}csrf`;
+    for (const name of [
+      this.preauthCookieName,
+      this.sessionCookieName,
+      this.csrfSecretCookieName,
+    ]) {
+      if (!options.secureCookies && name.startsWith("__Host-")) {
+        throw new Error("__Host- cookies require Secure");
+      }
+    }
   }
 
   acquire(request: FastifyRequest, reply: FastifyReply): { csrfToken: string } {
