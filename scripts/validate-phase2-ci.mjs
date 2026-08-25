@@ -18,6 +18,7 @@ const sourcePaths = {
   authSetup: path.join(repositoryRoot, "apps/web/e2e/global-setup.ts"),
   authState: path.join(repositoryRoot, "apps/web/e2e/auth-state.ts"),
   browserFixtures: path.join(repositoryRoot, "apps/web/e2e/fixtures.ts"),
+  secondarySession: path.join(repositoryRoot, "apps/web/e2e/secondary-session.ts"),
   accessibilitySpec: path.join(repositoryRoot, "apps/web/e2e/phase2-accessibility.spec.ts"),
   workerMain: path.join(repositoryRoot, "apps/worker/src/main.ts"),
   integrationConfig: path.join(repositoryRoot, "vitest.integration.config.ts"),
@@ -220,7 +221,6 @@ function validate(input) {
       /createInvitation\(page, csrf, organization\.organizationId, invitee\)/,
       "real smoke invitation fixture",
     ],
-    [/seedSecondarySession\(\)/, "real smoke secondary session fixture"],
     [/writeFile\(fixturePath,/, "persisted browser fixture metadata"],
   ]);
   rejectMatch(input.authSetup, /12345678/, "hardcoded browser OTP");
@@ -236,6 +236,12 @@ function validate(input) {
   requireAll(input.browserFixtures, [
     [/readFile\(phase2FixtureStatePath\(process\.env\)/, "real fixture state lookup"],
     [/parsePhase2FixtureState\(/, "validated real fixture metadata"],
+    [/replacePhase2SecondarySession\(/, "per-test secondary session fixture"],
+  ]);
+  requireAll(input.secondarySession, [
+    [/phase2SecondarySessionScope\(/, "run and test scoped session identity"],
+    [/update sessions set revoked_at = now\(\)/, "prior owned session retirement"],
+    [/insert into sessions/, "fresh per-test secondary session"],
   ]);
   requireAll(input.runtimeSpec, [
     [/select correlation_id from outbox_events/, "real PostgreSQL correlation assertion"],

@@ -29,6 +29,7 @@ test.describe("phase 2 responsive and accessible flows", () => {
     await page.keyboard.press("Enter");
     await expect(page.locator("#platform-content")).toBeFocused();
 
+    await phase2.ensureSecondarySession();
     await page.goto("/conta/sessoes");
     const trigger = page.getByRole("button", { name: "Encerrar sessão", exact: true });
     await trigger.focus();

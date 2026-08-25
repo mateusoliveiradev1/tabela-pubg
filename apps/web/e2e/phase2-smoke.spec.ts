@@ -34,6 +34,7 @@ test.describe("phase 2 browser smoke", () => {
     await page.goto(`/convites/aceitar?token=${phase2.invitationContext}`);
     await expect(page.getByRole("heading", { name: phase2.organizationName })).toBeVisible();
 
+    await phase2.ensureSecondarySession();
     await page.goto("/conta/sessoes");
     await expect(page.getByRole("heading", { name: "Sessões e dispositivos" })).toBeVisible();
     await page.getByRole("button", { name: "Encerrar sessão", exact: true }).click();

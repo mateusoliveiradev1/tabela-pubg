@@ -1,6 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
 import { chmod, readdir, readFile, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { chromium, type FullConfig, type Page } from "@playwright/test";
 import {
@@ -34,7 +32,6 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     const invitee = ORGANIZER_EMAIL;
     await createInvitation(page, csrf, organization.organizationId, invitee);
     const invitationContext = await waitForInvitationToken(mailRoot, invitee);
-    await seedSecondarySession();
     const fixture: Phase2FixtureState = { ...organization, invitationContext };
     await writeFile(fixturePath, `${JSON.stringify(fixture)}\n`, {
       encoding: "utf8",
@@ -171,65 +168,6 @@ async function browserJson(
     },
     { method, url, csrf, body },
   );
-}
-
-async function seedSecondarySession(): Promise<void> {
-  const repositoryRoot = path.resolve(process.cwd(), "../..");
-  const databaseRequire = createRequire(
-    path.join(repositoryRoot, "packages/database/package.json"),
-  );
-  const postgresModule = databaseRequire("postgres");
-  const postgres = postgresModule.default ?? postgresModule;
-  const sql = postgres(required("DATABASE_URL"), { max: 1, prepare: false });
-  try {
-    const [user] = await sql`
-      select user_id from verified_emails
-      where normalized_email = ${ORGANIZER_EMAIL} and revoked_at is null
-      limit 1
-    `;
-    if (!user?.user_id) throw new Error("phase 2 fixture could not resolve organizer user");
-    const deviceId = randomUUID();
-    const sessionId = randomUUID();
-    const runId = requiredRunId();
-    await sql.begin(async (transaction: typeof sql) => {
-      await transaction`
-        insert into devices (
-          id, user_id, device_digest, label, browser, operating_system,
-          first_seen_at, last_seen_at
-        ) values (
-          ${deviceId}, ${user.user_id}, ${`studio-${runId}`}, 'Chrome do estúdio',
-          'Chrome', 'Windows', now() - interval '1 day', now() - interval '1 hour'
-        )
-      `;
-      await transaction`
-        insert into sessions (
-          id, user_id, device_id, token_digest, trust, issued_at, last_seen_at,
-          idle_expires_at, absolute_expires_at, reauthenticated_at
-        ) values (
-          ${sessionId}, ${user.user_id}, ${deviceId},
-          ${createHash("sha256").update(`studio-session:${runId}`).digest("hex")},
-          'trusted', now() - interval '1 day', now() - interval '1 hour',
-          now() + interval '29 days', now() + interval '89 days', now() - interval '1 hour'
-        )
-      `;
-    });
-  } finally {
-    await sql.end({ timeout: 2 });
-  }
-}
-
-function requiredRunId(): string {
-  const runId = process.env.E2E_RUN_ID;
-  if (!runId || !/^run-[a-z0-9][a-z0-9-]{14,62}$/.test(runId)) {
-    throw new Error("phase 2 fixture requires a validated run scope");
-  }
-  return runId;
-}
-
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required by phase 2 fixture setup`);
-  return value;
 }
 
 function requiredRunMailRoot(statePath: string, candidate: string | undefined): string {

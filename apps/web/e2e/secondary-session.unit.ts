@@ -12,12 +12,9 @@ describe("phase 2 secondary session scope", () => {
     expect(first.deviceDigest).toMatch(/^studio-run-0123456789abcdef-[0-9a-f]{16}$/);
   });
 
-  it.each(["", "run-shared", "run-too-short"])(
-    "rejects an unowned run scope: %s",
-    (candidate) => {
-      expect(() => phase2SecondarySessionScope(candidate, "browser test")).toThrow(
-        "validated run scope",
-      );
-    },
-  );
+  it.each(["", "run-shared", "run-too-short"])("rejects an unowned run scope: %s", (candidate) => {
+    expect(() => phase2SecondarySessionScope(candidate, "browser test")).toThrow(
+      "validated run scope",
+    );
+  });
 });
