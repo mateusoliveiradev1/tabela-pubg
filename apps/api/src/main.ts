@@ -31,6 +31,7 @@ import {
   collectOrganizationMultipartBody,
   ORGANIZATION_LOGO_MULTIPART_MAX_BYTES,
 } from "./organizations/organizations.controller.js";
+import { registerCorrelationIdHook } from "./security/correlation-id.js";
 import { CsrfService, registerCsrfPlugins } from "./security/csrf.service.js";
 import { HttpExceptionFilter } from "./security/http-exception.filter.js";
 
@@ -273,6 +274,7 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
     bodyLimit: 1_048_576,
     trustProxy: trustedProxyConfiguration(env.TRUSTED_PROXY),
   });
+  registerCorrelationIdHook(adapter.getInstance());
   adapter
     .getInstance()
     .addContentTypeParser(

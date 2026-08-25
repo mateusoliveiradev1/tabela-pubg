@@ -48,9 +48,7 @@ describe("trusted API correlation boundary", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ correlationId: "a8e7d957-32cc-4b51-9a90-4d72ad0c51f2" });
-    expect(response.headers["x-correlation-id"]).toBe(
-      "a8e7d957-32cc-4b51-9a90-4d72ad0c51f2",
-    );
+    expect(response.headers["x-correlation-id"]).toBe("a8e7d957-32cc-4b51-9a90-4d72ad0c51f2");
     expect(generate).not.toHaveBeenCalled();
   });
 });
