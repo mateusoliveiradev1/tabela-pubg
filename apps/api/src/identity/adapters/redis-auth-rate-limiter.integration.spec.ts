@@ -95,6 +95,23 @@ describe("RedisAuthRateLimiter integration", () => {
     await expect(sameRun.consume(requestInput)).resolves.toEqual({ allowed: true });
   });
 
+  it("keeps the production OTP cooldown at sixty seconds on real Redis", async () => {
+    const client = createRedisConnection(redisUrl);
+    clients.push(client);
+    const adapter = new RedisAuthRateLimiter(client, { keyPrefix: firstPrefixes.authKeyPrefix });
+    const input = {
+      operation: "otp-request" as const,
+      now: new Date(),
+      keys: [{ dimension: "cooldown" as const, digest: "production-cooldown-digest" }],
+    };
+
+    await expect(adapter.consume(input)).resolves.toEqual({ allowed: true });
+    await expect(adapter.consume(input)).resolves.toEqual({
+      allowed: false,
+      retryAfterSeconds: 60,
+    });
+  });
+
   it("fails closed immediately when Redis is unavailable", async () => {
     const adapter = createAdapter(firstPrefixes.authKeyPrefix);
     const client = clients.at(-1);
