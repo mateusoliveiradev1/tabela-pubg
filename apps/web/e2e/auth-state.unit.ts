@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   otpCodeFromMailbox,
   phase2AuthStatePath,
+  phase2FixtureStatePath,
+  parsePhase2FixtureState,
   shouldBootstrapPhase2Auth,
 } from "./auth-state.js";
 
@@ -47,5 +49,27 @@ describe("phase 2 reusable browser authentication state", () => {
       otpCodeFromMailbox(message, "other@example.com", "018f1f3d-7b8c-4fb0-9d5a-7a77d7f4f4a1"),
     ).toBeNull();
     expect(otpCodeFromMailbox(message, "organizer@example.com", "missing-challenge")).toBeNull();
+  });
+
+  it("keeps real organization and invitation fixture metadata in the same run-owned root", () => {
+    expect(phase2FixtureStatePath({ E2E_RUN_ID: runId, E2E_OBJECT_ROOT: root })).toBe(
+      path.join(root, runId, "playwright-fixture-state.json"),
+    );
+    expect(
+      parsePhase2FixtureState(
+        JSON.stringify({
+          organizationId: "018f1f3d-7b8c-4fb0-9d5a-7a77d7f4f4a1",
+          organizationSlug: "arena-alpha-7d7f4f4a",
+          organizationName: "Arena Alpha",
+          invitationContext: "opaque-invitation-context-1234567890",
+        }),
+      ),
+    ).toEqual({
+      organizationId: "018f1f3d-7b8c-4fb0-9d5a-7a77d7f4f4a1",
+      organizationSlug: "arena-alpha-7d7f4f4a",
+      organizationName: "Arena Alpha",
+      invitationContext: "opaque-invitation-context-1234567890",
+    });
+    expect(() => parsePhase2FixtureState("{}")).toThrow("fixture state");
   });
 });
