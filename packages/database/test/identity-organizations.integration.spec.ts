@@ -1045,6 +1045,135 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     `;
   }
 
+  async function seedVerifiedEmailIdentity(input: {
+    userId: string;
+    email: string;
+    now: Date;
+  }): Promise<void> {
+    const identityId = randomUUID();
+    await client`
+      insert into identities
+        (id, user_id, provider, provider_subject, status, linked_at, verified_at)
+      values
+        (${identityId}, ${input.userId}, 'email', ${identityDigests.email(input.email)},
+         'verified', ${input.now.toISOString()}, ${input.now.toISOString()})
+    `;
+    await client`
+      insert into verified_emails
+        (id, user_id, identity_id, normalized_email, verified_at, created_at)
+      values
+        (${randomUUID()}, ${input.userId}, ${identityId}, ${input.email.trim().toLowerCase()},
+         ${input.now.toISOString()}, ${input.now.toISOString()})
+    `;
+  }
+
+  it("never issues or consumes email step-up for an address owned by another actor", async () => {
+    const issuedAt = new Date("2026-08-25T03:00:00.000Z");
+    const now = new Date(issuedAt.getTime() + 60_000);
+    const victimId = randomUUID();
+    const victimSessionId = randomUUID();
+    const attackerId = randomUUID();
+    const attackerSessionId = randomUUID();
+    const attackerEmail = `attacker-${randomUUID()}@example.test`;
+    const requestChallengeId = randomUUID();
+    const deliveryId = randomUUID();
+    const outboxEventId = randomUUID();
+    await seedSession({
+      userId: victimId,
+      sessionId: victimSessionId,
+      token: `victim-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await seedSession({
+      userId: attackerId,
+      sessionId: attackerSessionId,
+      token: `attacker-${randomUUID()}`,
+      trust: "trusted",
+      now: issuedAt,
+    });
+    await seedVerifiedEmailIdentity({ userId: attackerId, email: attackerEmail, now: issuedAt });
+
+    await expect(
+      replaceAuthChallengeWithNotification(db, {
+        challenge: {
+          id: requestChallengeId,
+          emailDigest: identityDigests.email(attackerEmail),
+          purpose: "step-up",
+          codeDigest: "attacker-controlled-valid-digest",
+          attemptsRemaining: 5,
+          expiresAt: new Date(now.getTime() + 10 * 60_000),
+          now,
+          actorId: victimId,
+          sessionId: victimSessionId,
+        },
+        delivery: {
+          id: deliveryId,
+          template: "otp",
+          recipient: attackerEmail,
+          idempotencyKey: `otp:${requestChallengeId}`,
+          encryptionKey: { version: "v1", key: Buffer.alloc(32, 19) },
+          payload: { recipient: attackerEmail, code: "12345678" },
+          payloadExpiresAt: new Date(now.getTime() + 10 * 60_000),
+          availableAt: now,
+          outboxEventId,
+          occurredAt: now,
+        },
+      }),
+    ).resolves.toBe(false);
+
+    const historicalChallengeId = randomUUID();
+    const hmacKey = Buffer.alloc(32, 23);
+    await replaceAuthChallenge(
+      db,
+      {
+        id: historicalChallengeId,
+        email: attackerEmail,
+        purpose: "step-up",
+        code: "12345678",
+        expiresAt: new Date(now.getTime() + 10 * 60_000),
+        actorId: victimId,
+        sessionId: victimSessionId,
+      },
+      hmacKey,
+      () => issuedAt,
+    );
+    await expect(
+      completeOtpChallenge(db, {
+        challengeId: historicalChallengeId,
+        email: attackerEmail,
+        purpose: "step-up",
+        code: "12345678",
+        hmacKey,
+        actorId: victimId,
+        sessionId: victimSessionId,
+        now,
+        ids: {
+          userId: randomUUID(),
+          identityId: randomUUID(),
+          verifiedEmailId: randomUUID(),
+          proofId: randomUUID(),
+        },
+      }),
+    ).resolves.toEqual({ status: "rejected" });
+
+    const [snapshot] = await client`
+      select
+        (select count(*)::int from auth_challenges where id = ${requestChallengeId}) as requested_challenges,
+        (select count(*)::int from notification_deliveries where id = ${deliveryId}) as deliveries,
+        (select count(*)::int from outbox_events where id = ${outboxEventId}) as outbox,
+        (select consumed_at from auth_challenges where id = ${historicalChallengeId}) as historical_consumed_at,
+        (select reauthenticated_at from sessions where id = ${victimSessionId}) as reauthenticated_at
+    `;
+    expect(snapshot).toEqual({
+      requested_challenges: 0,
+      deliveries: 0,
+      outbox: 0,
+      historical_consumed_at: null,
+      reauthenticated_at: null,
+    });
+  });
+
   it("binds protected OTP consume to actor, session and purpose without mismatch mutation", async () => {
     const issuedAt = new Date("2026-08-21T10:00:00.000Z");
     const now = new Date(issuedAt.getTime() + 60_000);
@@ -1058,6 +1187,11 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
       sessionId,
       token: "bound-old-token",
       trust: "trusted",
+      now: issuedAt,
+    });
+    await seedVerifiedEmailIdentity({
+      userId: actorId,
+      email: "bound@example.test",
       now: issuedAt,
     });
     await seedSession({
