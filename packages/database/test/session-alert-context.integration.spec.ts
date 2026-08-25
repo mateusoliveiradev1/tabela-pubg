@@ -221,7 +221,9 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
     );
     expect(coalesced?.session.lastSeenAt).toEqual(issuedAt);
     const touchedAt = new Date(issuedAt.getTime() + 46_000);
+    expect(touchedAt.getTime()).toBeLessThan(issued.session.idleExpiresAt.getTime());
     const touched = await resolveAndTouchSession(db, issued.token, () => touchedAt, policy);
+    expect(touched).not.toBeNull();
     expect(touched?.session.lastSeenAt).toEqual(touchedAt);
     expect(touched?.session.idleExpiresAt).toEqual(
       new Date(touchedAt.getTime() + policy.idleMs),

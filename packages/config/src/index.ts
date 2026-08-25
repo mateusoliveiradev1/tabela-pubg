@@ -92,6 +92,15 @@ export const Phase2EnvSchema = BaseEnvSchema.extend({
   EMAIL_FROM: z.email().max(254),
   TRUSTED_PROXY: z.enum(["none", "loopback", "private"]).default("none"),
 }).superRefine((env, context) => {
+  if (env.SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS >= env.SESSION_IDLE_TTL_SECONDS) {
+    context.addIssue({
+      code: "custom",
+      path: ["SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS"],
+      message:
+        "SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS must be lower than SESSION_IDLE_TTL_SECONDS",
+    });
+  }
+
   if (!env.SESSION_COOKIE_SECURE && env.SESSION_COOKIE_NAME.startsWith("__Host-")) {
     context.addIssue({
       code: "custom",

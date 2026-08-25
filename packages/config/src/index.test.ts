@@ -66,6 +66,19 @@ describe("configuration", () => {
     expect(env.LOG_LEVEL).toBe("info");
   });
 
+  it.each([
+    { idle: "300", interval: "300" },
+    { idle: "300", interval: "301" },
+  ])("rejects session activity interval $interval when idle TTL is $idle", ({ idle, interval }) => {
+    expect(() =>
+      loadEnv(Phase2EnvSchema, {
+        ...validPhase2Env,
+        SESSION_IDLE_TTL_SECONDS: idle,
+        SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS: interval,
+      }),
+    ).toThrow("SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS");
+  });
+
   it("reports invalid field names without leaking values", () => {
     expect(() => loadEnv(BaseEnvSchema, { SERVICE_NAME: "", API_TOKEN: "super-secret" })).toThrow(
       "SERVICE_NAME",
