@@ -78,8 +78,6 @@ export class IdentityController {
     private readonly otp: OtpService,
     @Inject(IDENTITY_SERVICE)
     private readonly identity: IdentityService,
-    @Inject(IDENTITY_SESSION_SERVICE)
-    private readonly sessions: SessionService,
     @Optional()
     @Inject(IDENTITY_CSRF_SERVICE)
     private readonly csrf?: CsrfService,
@@ -375,21 +373,11 @@ export class IdentityController {
     ) {
       throw stableCancelled();
     }
-    try {
-      await this.sessions.confirmStepUp({
-        userId: request.auth.actorId,
-        sessionId: request.auth.sessionId,
-        method: "email",
-        confirmedAt: result.confirmedAt,
-      });
-      this.csrf?.rotateCurrent(request, reply);
-      return VerifyEmailOtpResponseSchema.parse({
-        status: "step-up-confirmed",
-        validUntil: result.validUntil.toISOString(),
-      });
-    } catch {
-      throw stableCancelled();
-    }
+    this.csrf?.rotateCurrent(request, reply);
+    return VerifyEmailOtpResponseSchema.parse({
+      status: "step-up-confirmed",
+      validUntil: result.validUntil.toISOString(),
+    });
   }
 
   @Post("email/otp/verify-provisional-email/verify")

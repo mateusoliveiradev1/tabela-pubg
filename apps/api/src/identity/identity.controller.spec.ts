@@ -74,7 +74,7 @@ function setup() {
     }),
   } as unknown as CsrfService;
   return {
-    controller: new IdentityController(oauth, otp, identity, sessions, csrf),
+    controller: new IdentityController(oauth, otp, identity, csrf),
     oauth,
     otp,
     identity,

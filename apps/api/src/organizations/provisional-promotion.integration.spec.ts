@@ -107,7 +107,6 @@ describe.runIf(Boolean(databaseUrl && redisUrl))(
         runtime.services.oauth,
         runtime.services.otp,
         runtime.services.identity,
-        runtime.services.session,
         csrf,
       );
     }
