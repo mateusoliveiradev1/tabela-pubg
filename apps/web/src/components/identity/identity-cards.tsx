@@ -9,10 +9,12 @@ import { InlineAlert, StatusBadge } from "../ui/feedback";
 import { Input } from "../ui/input";
 import { submitDiscordNavigation } from "./discord-navigation";
 import {
+  clearIdentityActionContinuation,
   consumeIdentityActionContinuation,
   type IdentityActionDescriptor,
   storeIdentityActionContinuation,
 } from "./identity-action-continuation";
+import { attachOAuthStepUpFlow } from "./oauth-step-up-flow";
 import { OtpInput } from "./otp-input";
 
 interface IdentityCardsProps {
@@ -303,15 +305,17 @@ function IdentityReauthenticationDialog({
     if (busy) return;
     setBusy(true);
     setError(undefined);
+    let nonce: string | undefined;
     try {
       const csrf = await acquireCsrf();
-      storeIdentityActionContinuation(sessionStorage, action);
+      nonce = storeIdentityActionContinuation(sessionStorage, action);
       submitDiscordNavigation({
         csrfToken: csrf,
         purpose: "step-up",
-        returnPath: "/conta/identidades",
+        returnPath: attachOAuthStepUpFlow("/conta/identidades", "identity", nonce),
       });
     } catch {
+      if (nonce) clearIdentityActionContinuation(sessionStorage, nonce);
       setError("Não foi possível abrir o Discord.");
       setBusy(false);
     }

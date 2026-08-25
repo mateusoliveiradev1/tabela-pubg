@@ -1,9 +1,16 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
-import { promoteSensitiveActionContinuation } from "../authorization/sensitive-action-continuation";
+import {
+  clearSensitiveActionContinuation,
+  promoteSensitiveActionContinuation,
+} from "../authorization/sensitive-action-continuation";
 import { InlineAlert } from "../ui/feedback";
-import { promoteIdentityActionContinuation } from "./identity-action-continuation";
+import {
+  clearIdentityActionContinuation,
+  promoteIdentityActionContinuation,
+} from "./identity-action-continuation";
+import { consumeOAuthStepUpFlow } from "./oauth-step-up-flow";
 
 type CallbackStatus =
   | { state: "processing" }
@@ -25,6 +32,7 @@ export function OAuthCallbackForm() {
     window.history.replaceState({}, "", url.pathname);
 
     if (!code || code.length > 2048 || !state || state.length < 16 || state.length > 1024) {
+      if (purpose === "step-up") clearStepUpContinuations();
       setStatus({ state: "error" });
       return;
     }
@@ -78,12 +86,29 @@ async function completeCallback(
       },
       body: JSON.stringify({ code, state, purpose }),
     });
-    if (!response.ok) return { state: "error" };
+    if (!response.ok) {
+      if (purpose === "step-up") clearStepUpContinuations();
+      return { state: "error" };
+    }
     const payload = (await response.json()) as { nextPath?: unknown };
     if (purpose === "step-up") {
-      const promotedSensitive = promoteSensitiveActionContinuation(sessionStorage);
-      const promotedIdentity = promoteIdentityActionContinuation(sessionStorage);
-      if (!promotedSensitive && !promotedIdentity) return { state: "error" };
+      const flow =
+        typeof payload.nextPath === "string" ? consumeOAuthStepUpFlow(payload.nextPath) : null;
+      if (!flow) {
+        clearStepUpContinuations();
+        return { state: "error" };
+      }
+      const promoted =
+        flow.namespace === "identity"
+          ? promoteIdentityActionContinuation(sessionStorage, flow.nonce)
+          : promoteSensitiveActionContinuation(sessionStorage, flow.nonce);
+      if (flow.namespace === "identity") clearSensitiveActionContinuation(sessionStorage);
+      else clearIdentityActionContinuation(sessionStorage);
+      if (!promoted) {
+        clearStepUpContinuations();
+        return { state: "error" };
+      }
+      return { state: "success", nextPath: flow.nextPath };
     }
     return {
       state: "success",
@@ -93,8 +118,14 @@ async function completeCallback(
           : "/",
     };
   } catch {
+    if (purpose === "step-up") clearStepUpContinuations();
     return { state: "error" };
   }
+}
+
+function clearStepUpContinuations(): void {
+  clearSensitiveActionContinuation(sessionStorage);
+  clearIdentityActionContinuation(sessionStorage);
 }
 
 async function acquireCsrf(): Promise<string> {

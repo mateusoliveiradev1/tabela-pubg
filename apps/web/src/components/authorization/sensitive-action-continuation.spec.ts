@@ -45,11 +45,7 @@ describe("sensitive action continuation", () => {
     expect(nonce).toMatch(/^[0-9a-f-]{36}$/i);
     expect(consumeSensitiveActionContinuation(storage, organizationId, now)).toBeNull();
     expect(
-      promoteSensitiveActionContinuation(
-        storage,
-        "00000000-0000-4000-8000-000000000099",
-        now,
-      ),
+      promoteSensitiveActionContinuation(storage, "00000000-0000-4000-8000-000000000099", now),
     ).toBe(false);
     expect(promoteSensitiveActionContinuation(storage, nonce, now)).toBe(true);
     expect(consumeSensitiveActionContinuation(storage, organizationId, now)).toMatchObject({
@@ -69,9 +65,9 @@ describe("sensitive action continuation", () => {
       "Motivo auditável",
       now,
     );
-    expect(
-      promoteSensitiveActionContinuation(storage, expiredNonce, now + 10 * 60_000),
-    ).toBe(false);
+    expect(promoteSensitiveActionContinuation(storage, expiredNonce, now + 10 * 60_000)).toBe(
+      false,
+    );
 
     const tenantNonce = storeSensitiveActionContinuation(
       storage,

@@ -40,25 +40,40 @@ export function storeSensitiveActionContinuation(
   descriptor: SensitiveActionDescriptor,
   reason: string,
   now = Date.now(),
-): void {
+): string {
+  const nonce = crypto.randomUUID();
   const continuation = parseContinuation({
     ...descriptor,
     reason: reason.trim(),
-    nonce: crypto.randomUUID(),
+    nonce,
     expiresAt: now + CONTINUATION_TTL_MS,
   });
   if (!continuation) throw new Error("sensitive action continuation is invalid");
   storage.removeItem(READY_KEY);
   storage.setItem(PENDING_KEY, JSON.stringify(continuation));
+  return nonce;
 }
 
-export function promoteSensitiveActionContinuation(storage: Storage, now = Date.now()): boolean {
+export function promoteSensitiveActionContinuation(
+  storage: Storage,
+  nonce: string,
+  now = Date.now(),
+): boolean {
   const raw = storage.getItem(PENDING_KEY);
-  storage.removeItem(PENDING_KEY);
   const continuation = parseStored(raw, now);
-  if (!continuation) return false;
+  if (!continuation) {
+    storage.removeItem(PENDING_KEY);
+    return false;
+  }
+  if (continuation.nonce !== nonce) return false;
+  storage.removeItem(PENDING_KEY);
   storage.setItem(READY_KEY, JSON.stringify(continuation));
   return true;
+}
+
+export function clearSensitiveActionContinuation(storage: Storage, nonce?: string): void {
+  clearStoredContinuation(storage, PENDING_KEY, nonce);
+  clearStoredContinuation(storage, READY_KEY, nonce);
 }
 
 export function consumeSensitiveActionContinuation(
@@ -79,6 +94,21 @@ function parseStored(raw: string | null, now: number): SensitiveActionContinuati
     return continuation && continuation.expiresAt > now ? continuation : null;
   } catch {
     return null;
+  }
+}
+
+function clearStoredContinuation(storage: Storage, key: string, nonce?: string): void {
+  if (nonce === undefined) {
+    storage.removeItem(key);
+    return;
+  }
+  const raw = storage.getItem(key);
+  if (!raw) return;
+  try {
+    const candidate = JSON.parse(raw) as { nonce?: unknown };
+    if (candidate.nonce === nonce) storage.removeItem(key);
+  } catch {
+    storage.removeItem(key);
   }
 }
 

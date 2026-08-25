@@ -209,7 +209,7 @@ describe("membros e permissões autoritativas", () => {
       .mockResolvedValueOnce(csrfResponse())
       .mockResolvedValueOnce(new Response(JSON.stringify({ status: "updated" }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    storeSensitiveActionContinuation(
+    const nonce = storeSensitiveActionContinuation(
       sessionStorage,
       {
         kind: "membership-role-change",
@@ -219,7 +219,7 @@ describe("membros e permissões autoritativas", () => {
       },
       "Continuação Discord auditável",
     );
-    expect(promoteSensitiveActionContinuation(sessionStorage)).toBe(true);
+    expect(promoteSensitiveActionContinuation(sessionStorage, nonce)).toBe(true);
 
     render(
       <MemberList

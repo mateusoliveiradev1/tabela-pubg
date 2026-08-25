@@ -37,11 +37,7 @@ describe("identity action continuation", () => {
     expect(nonce).toMatch(/^[0-9a-f-]{36}$/i);
     expect(consumeIdentityActionContinuation(storage, now)).toBeNull();
     expect(
-      promoteIdentityActionContinuation(
-        storage,
-        "00000000-0000-4000-8000-000000000099",
-        now + 500,
-      ),
+      promoteIdentityActionContinuation(storage, "00000000-0000-4000-8000-000000000099", now + 500),
     ).toBe(false);
     expect(promoteIdentityActionContinuation(storage, nonce, now + 1_000)).toBe(true);
     expect(consumeIdentityActionContinuation(storage, now + 2_000)).toEqual({
@@ -66,11 +62,7 @@ describe("identity action continuation", () => {
       JSON.stringify({ kind: "link-email", email: "secret@example.test", expiresAt: now + 1_000 }),
     );
     expect(
-      promoteIdentityActionContinuation(
-        storage,
-        "00000000-0000-4000-8000-000000000003",
-        now,
-      ),
+      promoteIdentityActionContinuation(storage, "00000000-0000-4000-8000-000000000003", now),
     ).toBe(false);
 
     storage.setItem(
@@ -78,11 +70,7 @@ describe("identity action continuation", () => {
       JSON.stringify({ kind: "remove-identity", identityId: "not-a-uuid", expiresAt: now + 1_000 }),
     );
     expect(
-      promoteIdentityActionContinuation(
-        storage,
-        "00000000-0000-4000-8000-000000000004",
-        now,
-      ),
+      promoteIdentityActionContinuation(storage, "00000000-0000-4000-8000-000000000004", now),
     ).toBe(false);
   });
 

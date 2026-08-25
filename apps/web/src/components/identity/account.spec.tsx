@@ -10,6 +10,14 @@ import { SessionsPanel } from "./device-session-card";
 import { promoteIdentityActionContinuation } from "./identity-action-continuation";
 import { IdentityCards } from "./identity-cards";
 
+function promotePendingIdentityContinuation(): boolean {
+  const raw = sessionStorage.getItem("pubg-camp:identity-action:pending");
+  const nonce = raw ? (JSON.parse(raw) as { nonce?: unknown }).nonce : undefined;
+  return typeof nonce === "string"
+    ? promoteIdentityActionContinuation(sessionStorage, nonce)
+    : false;
+}
+
 const organizations: ShellOrganization[] = [
   {
     id: "00000000-0000-4000-8000-000000000001",
@@ -183,6 +191,36 @@ describe("criação de organização", () => {
 });
 
 describe("formas de acesso", () => {
+  it("limpa a continuação se o submit Discord falhar antes da navegação", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(() => {
+      throw new Error("navigation blocked");
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(csrfResponse()));
+    render(
+      <IdentityCards
+        identities={[
+          {
+            id: "00000000-0000-4000-8000-000000000010",
+            provider: "discord",
+            status: "verified",
+            displayIdentifier: "li•••a",
+            linkedAt: "2026-08-20T10:00:00.000Z",
+          },
+        ]}
+        onRefresh={() => undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Vincular e-mail" }));
+    await user.click(screen.getByRole("button", { name: "Confirmar identidade" }));
+    await user.click(screen.getByRole("button", { name: "Confirmar com Discord" }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(sessionStorage.getItem("pubg-camp:identity-action:pending")).toBeNull();
+    expect(sessionStorage.getItem("pubg-camp:identity-action:ready")).toBeNull();
+  });
+
   it("reautentica a sessão Discord nula antes de iniciar e concluir o vínculo por e-mail", async () => {
     const user = userEvent.setup();
     const challengeId = "00000000-0000-4000-8000-000000000099";
@@ -236,13 +274,15 @@ describe("formas de acesso", () => {
       fields: {
         csrfToken: "csrf-token-with-safe-length",
         purpose: "step-up",
-        returnPath: "/conta/identidades",
+        returnPath: expect.stringMatching(
+          /^\/conta\/identidades\?__stepUpFlow=identity\.[0-9a-f-]{36}$/i,
+        ),
       },
     });
     expect(JSON.stringify(sessionStorage)).not.toMatch(/@|otp|code/i);
 
     cleanup();
-    expect(promoteIdentityActionContinuation(sessionStorage)).toBe(true);
+    expect(promotePendingIdentityContinuation()).toBe(true);
     render(
       <IdentityCards
         identities={[
@@ -482,7 +522,7 @@ describe("formas de acesso", () => {
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
 
     cleanup();
-    expect(promoteIdentityActionContinuation(sessionStorage)).toBe(true);
+    expect(promotePendingIdentityContinuation()).toBe(true);
     renderPending();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     expect(document.body.textContent).not.toContain("Vínculo concluído");
@@ -545,7 +585,7 @@ describe("formas de acesso", () => {
     await user.click(screen.getByRole("button", { name: "Confirmar com Discord" }));
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
     cleanup();
-    expect(promoteIdentityActionContinuation(sessionStorage)).toBe(true);
+    expect(promotePendingIdentityContinuation()).toBe(true);
     renderPending();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
 

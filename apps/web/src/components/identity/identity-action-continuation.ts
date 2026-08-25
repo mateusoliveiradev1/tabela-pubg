@@ -11,6 +11,7 @@ export type IdentityActionDescriptor =
   | { kind: "remove-identity"; identityId: string };
 
 type StoredIdentityActionContinuation = IdentityActionDescriptor & {
+  nonce: string;
   expiresAt: number;
 };
 
@@ -18,23 +19,39 @@ export function storeIdentityActionContinuation(
   storage: Storage,
   descriptor: IdentityActionDescriptor,
   now = Date.now(),
-): void {
+): string {
+  const nonce = crypto.randomUUID();
   const continuation = parseContinuation({
     ...descriptor,
+    nonce,
     expiresAt: now + CONTINUATION_TTL_MS,
   });
   if (!continuation) throw new Error("identity action continuation is invalid");
   storage.removeItem(READY_KEY);
   storage.setItem(PENDING_KEY, JSON.stringify(continuation));
+  return nonce;
 }
 
-export function promoteIdentityActionContinuation(storage: Storage, now = Date.now()): boolean {
+export function promoteIdentityActionContinuation(
+  storage: Storage,
+  nonce: string,
+  now = Date.now(),
+): boolean {
   const raw = storage.getItem(PENDING_KEY);
-  storage.removeItem(PENDING_KEY);
   const continuation = parseStored(raw, now);
-  if (!continuation) return false;
+  if (!continuation) {
+    storage.removeItem(PENDING_KEY);
+    return false;
+  }
+  if (continuation.nonce !== nonce) return false;
+  storage.removeItem(PENDING_KEY);
   storage.setItem(READY_KEY, JSON.stringify(continuation));
   return true;
+}
+
+export function clearIdentityActionContinuation(storage: Storage, nonce?: string): void {
+  clearStoredContinuation(storage, PENDING_KEY, nonce);
+  clearStoredContinuation(storage, READY_KEY, nonce);
 }
 
 export function consumeIdentityActionContinuation(
@@ -45,8 +62,23 @@ export function consumeIdentityActionContinuation(
   storage.removeItem(READY_KEY);
   const continuation = parseStored(raw, now);
   if (!continuation) return null;
-  const { expiresAt: _, ...descriptor } = continuation;
+  const { expiresAt: _, nonce: __, ...descriptor } = continuation;
   return descriptor;
+}
+
+function clearStoredContinuation(storage: Storage, key: string, nonce?: string): void {
+  if (nonce === undefined) {
+    storage.removeItem(key);
+    return;
+  }
+  const raw = storage.getItem(key);
+  if (!raw) return;
+  try {
+    const candidate = JSON.parse(raw) as { nonce?: unknown };
+    if (candidate.nonce === nonce) storage.removeItem(key);
+  } catch {
+    storage.removeItem(key);
+  }
 }
 
 function parseStored(raw: string | null, now: number): StoredIdentityActionContinuation | null {
@@ -66,27 +98,28 @@ function parseContinuation(value: unknown): StoredIdentityActionContinuation | n
     typeof candidate.expiresAt !== "number" ||
     !Number.isSafeInteger(candidate.expiresAt) ||
     Object.keys(candidate).some(
-      (key) => !["kind", "expiresAt", "candidateIdentityId", "identityId"].includes(key),
+      (key) => !["kind", "nonce", "expiresAt", "candidateIdentityId", "identityId"].includes(key),
     )
   ) {
     return null;
   }
+  if (!isUuid(candidate.nonce)) return null;
   if (candidate.kind === "link-discord" || candidate.kind === "link-email") {
-    return Object.keys(candidate).length === 2
+    return Object.keys(candidate).length === 3
       ? (candidate as StoredIdentityActionContinuation)
       : null;
   }
   if (
     candidate.kind === "confirm-link" &&
     isUuid(candidate.candidateIdentityId) &&
-    Object.keys(candidate).length === 3
+    Object.keys(candidate).length === 4
   ) {
     return candidate as StoredIdentityActionContinuation;
   }
   if (
     candidate.kind === "remove-identity" &&
     isUuid(candidate.identityId) &&
-    Object.keys(candidate).length === 3
+    Object.keys(candidate).length === 4
   ) {
     return candidate as StoredIdentityActionContinuation;
   }

@@ -273,9 +273,9 @@ describe("callback OAuth seguro", () => {
 
     render(<OAuthCallbackForm />);
 
-    expect(
-      (await screen.findByRole("link", { name: "Continuar" })).getAttribute("href"),
-    ).toBe(`/o/${organizationId}/membros`);
+    expect((await screen.findByRole("link", { name: "Continuar" })).getAttribute("href")).toBe(
+      `/o/${organizationId}/membros`,
+    );
     expect(consumeSensitiveActionContinuation(sessionStorage, organizationId)).toMatchObject({
       kind: "membership-revocation",
       reason: "Revogação confirmada",
@@ -311,9 +311,9 @@ describe("callback OAuth seguro", () => {
 
     render(<OAuthCallbackForm />);
 
-    expect(
-      (await screen.findByRole("link", { name: "Continuar" })).getAttribute("href"),
-    ).toBe("/conta/identidades");
+    expect((await screen.findByRole("link", { name: "Continuar" })).getAttribute("href")).toBe(
+      "/conta/identidades",
+    );
     expect(consumeIdentityActionContinuation(sessionStorage)).toEqual({ kind: "link-email" });
     expect(consumeIdentityActionContinuation(sessionStorage)).toBeNull();
   });
@@ -336,6 +336,24 @@ describe("callback OAuth seguro", () => {
     render(<OAuthCallbackForm />);
 
     expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(sessionStorage.getItem("pubg-camp:identity-action:pending")).toBeNull();
+    expect(consumeIdentityActionContinuation(sessionStorage)).toBeNull();
+  });
+
+  it("clears a pending continuation when Discord returns a cancelled step-up", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    storeIdentityActionContinuation(sessionStorage, { kind: "link-email" });
+    window.history.replaceState(
+      {},
+      "",
+      "/entrar/discord/retorno?error=access_denied&purpose=step-up",
+    );
+
+    render(<OAuthCallbackForm />);
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(sessionStorage.getItem("pubg-camp:identity-action:pending")).toBeNull();
     expect(consumeIdentityActionContinuation(sessionStorage)).toBeNull();
   });

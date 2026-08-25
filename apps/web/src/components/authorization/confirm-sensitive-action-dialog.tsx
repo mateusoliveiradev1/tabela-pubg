@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { submitDiscordNavigation } from "../identity/discord-navigation";
+import { attachOAuthStepUpFlow } from "../identity/oauth-step-up-flow";
 import { Button } from "../ui/button";
 import { InlineAlert } from "../ui/feedback";
 import { Input } from "../ui/input";
 import {
+  clearSensitiveActionContinuation,
   type SensitiveActionDescriptor,
   storeSensitiveActionContinuation,
 } from "./sensitive-action-continuation";
@@ -109,15 +111,17 @@ export function ConfirmSensitiveActionDialog({
     if (busy) return;
     setBusy(true);
     setError(undefined);
+    let nonce: string | undefined;
     try {
       const csrf = await acquireCsrf();
-      storeSensitiveActionContinuation(sessionStorage, continuation, reason);
+      nonce = storeSensitiveActionContinuation(sessionStorage, continuation, reason);
       submitDiscordNavigation({
         csrfToken: csrf,
         purpose: "step-up",
-        returnPath: window.location.pathname,
+        returnPath: attachOAuthStepUpFlow(window.location.pathname, "organization", nonce),
       });
     } catch {
+      if (nonce) clearSensitiveActionContinuation(sessionStorage, nonce);
       setError("Não foi possível abrir o Discord. Use o código por e-mail.");
       setBusy(false);
     }
