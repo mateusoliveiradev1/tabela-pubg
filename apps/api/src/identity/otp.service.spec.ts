@@ -2,9 +2,9 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   type OtpChallengeRecord,
+  type OtpDeliveryRequest,
   type OtpRepository,
   OtpService,
-  type SecureOtpDeliveryPort,
 } from "./otp.service.js";
 import type { AuthRateLimiter } from "./ports/auth-rate-limiter.js";
 import type { TokenGenerator } from "./ports/token-generator.js";
@@ -20,8 +20,9 @@ function hmac(email: string, purpose: string, code: string): string {
 
 function setup(options?: { limiterBlocked?: boolean; limiterUnavailable?: boolean }) {
   const challenges = new Map<string, OtpChallengeRecord & { consumed?: boolean }>();
+  const delivery = { enqueue: vi.fn(async (_input: OtpDeliveryRequest) => undefined) };
   const repository: OtpRepository = {
-    replace: vi.fn(async (challenge) => {
+    replaceAndEnqueue: vi.fn(async ({ challenge, delivery: request }) => {
       for (const stored of challenges.values()) {
         if (
           stored.emailDigest === challenge.emailDigest &&
@@ -34,6 +35,7 @@ function setup(options?: { limiterBlocked?: boolean; limiterUnavailable?: boolea
         }
       }
       challenges.set(challenge.id, { ...challenge });
+      await delivery.enqueue(request);
     }),
     findActive: vi.fn(async (input) => {
       const found = challenges.get(input.challengeId);
@@ -116,7 +118,6 @@ function setup(options?: { limiterBlocked?: boolean; limiterUnavailable?: boolea
         : { allowed: true as const };
     }),
   };
-  const delivery: SecureOtpDeliveryPort = { enqueue: vi.fn(async () => undefined) };
   const securityLog = { record: vi.fn() };
   let sequence = 0;
   const tokens: TokenGenerator = {
@@ -129,7 +130,6 @@ function setup(options?: { limiterBlocked?: boolean; limiterUnavailable?: boolea
     service: new OtpService(
       repository,
       limiter,
-      delivery,
       securityLog,
       tokens,
       { now: () => now },
@@ -159,17 +159,22 @@ describe("OtpService", () => {
     await service.request(publicRequest);
     await service.request({ ...publicRequest, purpose: "step-up", ...binding });
 
-    expect(repository.replace).toHaveBeenNthCalledWith(1, {
-      id: "id-1",
-      emailDigest: "digest:player@example.com",
-      purpose: "sign-in",
-      codeDigest: hmac("player@example.com", "sign-in", "12345678"),
-      attemptsRemaining: 5,
-      expiresAt: new Date("2026-08-21T12:10:00.000Z"),
+    expect(repository.replaceAndEnqueue).toHaveBeenNthCalledWith(1, {
+      challenge: {
+        id: "id-1",
+        emailDigest: "digest:player@example.com",
+        purpose: "sign-in",
+        codeDigest: hmac("player@example.com", "sign-in", "12345678"),
+        attemptsRemaining: 5,
+        expiresAt: new Date("2026-08-21T12:10:00.000Z"),
+      },
+      delivery: expect.objectContaining({ challengeId: "id-1", deliveryId: "id-2" }),
     });
-    expect(repository.replace).toHaveBeenNthCalledWith(
+    expect(repository.replaceAndEnqueue).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ purpose: "step-up", ...binding }),
+      expect.objectContaining({
+        challenge: expect.objectContaining({ purpose: "step-up", ...binding }),
+      }),
     );
   });
 
@@ -179,7 +184,7 @@ describe("OtpService", () => {
     await expect(service.request({ ...publicRequest, purpose: "link-email" })).resolves.toEqual({
       response: { status: "accepted", retryAfterSeconds: 60 },
     });
-    expect(repository.replace).not.toHaveBeenCalled();
+    expect(repository.replaceAndEnqueue).not.toHaveBeenCalled();
     expect(delivery.enqueue).not.toHaveBeenCalled();
   });
 
@@ -308,8 +313,8 @@ describe("OtpService", () => {
         { dimension: "cooldown", digest: "digest:player@example.com" },
       ],
     });
-    expect(blocked.repository.replace).not.toHaveBeenCalled();
-    expect(unavailable.repository.replace).not.toHaveBeenCalled();
+    expect(blocked.repository.replaceAndEnqueue).not.toHaveBeenCalled();
+    expect(unavailable.repository.replaceAndEnqueue).not.toHaveBeenCalled();
     expect(JSON.stringify(unavailable.securityLog.record.mock.calls)).not.toContain("example.com");
   });
 

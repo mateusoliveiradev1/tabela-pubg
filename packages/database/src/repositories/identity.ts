@@ -19,6 +19,10 @@ import {
   revokeOtherSessions,
   rotateIdentitySession,
 } from "./sessions.js";
+import {
+  createEncryptedNotificationDelivery,
+  type CreateEncryptedNotificationDeliveryInput,
+} from "./notifications.js";
 
 export type Clock = () => Date;
 
@@ -375,6 +379,7 @@ export async function replaceAuthChallengeDigest(
     now: Date;
     actorId?: string;
     sessionId?: string;
+    afterMutation?: (stage: "supersession" | "challenge") => void | Promise<void>;
   },
 ): Promise<void> {
   assertChallengeBinding(input.purpose, input.actorId, input.sessionId);
@@ -390,6 +395,7 @@ export async function replaceAuthChallengeDigest(
         isNull(authChallenges.consumedAt),
       ),
     );
+  await input.afterMutation?.("supersession");
   await executor.insert(authChallenges).values({
     id: input.id,
     emailDigest: input.emailDigest,
@@ -400,6 +406,33 @@ export async function replaceAuthChallengeDigest(
     createdAt: input.now,
     ...(input.actorId === undefined ? {} : { userId: input.actorId }),
     ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+  });
+  await input.afterMutation?.("challenge");
+}
+
+export type OtpRequestMutationStage =
+  | "supersession"
+  | "challenge"
+  | "delivery"
+  | "outbox";
+
+export async function replaceAuthChallengeWithNotification(
+  database: Pick<PostgresJsDatabase<typeof databaseSchema>, "transaction">,
+  input: {
+    challenge: Parameters<typeof replaceAuthChallengeDigest>[1];
+    delivery: CreateEncryptedNotificationDeliveryInput;
+    afterMutation?: (stage: OtpRequestMutationStage) => void | Promise<void>;
+  },
+): Promise<void> {
+  await database.transaction(async (transaction) => {
+    await replaceAuthChallengeDigest(transaction, {
+      ...input.challenge,
+      ...(input.afterMutation === undefined ? {} : { afterMutation: input.afterMutation }),
+    });
+    await createEncryptedNotificationDelivery(transaction, {
+      ...input.delivery,
+      ...(input.afterMutation === undefined ? {} : { afterMutation: input.afterMutation }),
+    });
   });
 }
 

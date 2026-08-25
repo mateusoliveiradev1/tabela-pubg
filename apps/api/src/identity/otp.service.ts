@@ -61,7 +61,10 @@ export type OtpCompletionResult =
   | { status: "rejected" };
 
 export interface OtpRepository {
-  replace(challenge: OtpChallengeRecord): Promise<void>;
+  replaceAndEnqueue(input: {
+    challenge: OtpChallengeRecord;
+    delivery: OtpDeliveryRequest;
+  }): Promise<void>;
   findActive(input: {
     challengeId: string;
     purpose: OtpPurpose;
@@ -78,15 +81,13 @@ export interface OtpRepository {
   complete(input: CompleteOtpInput): Promise<OtpCompletionResult>;
 }
 
-export interface SecureOtpDeliveryPort {
-  enqueue(input: {
-    deliveryId: string;
-    challengeId: string;
-    recipient: string;
-    code: string;
-    expiresAt: Date;
-    correlationId: string;
-  }): Promise<void>;
+export interface OtpDeliveryRequest {
+  deliveryId: string;
+  challengeId: string;
+  recipient: string;
+  code: string;
+  expiresAt: Date;
+  correlationId: string;
 }
 
 export interface AuthSecurityLog {
@@ -131,7 +132,6 @@ export class OtpService {
   constructor(
     private readonly repository: OtpRepository,
     private readonly limiter: AuthRateLimiter,
-    private readonly delivery: SecureOtpDeliveryPort,
     private readonly securityLog: AuthSecurityLog,
     private readonly tokens: TokenGenerator,
     private readonly clock: OtpClock,
@@ -167,23 +167,25 @@ export class OtpService {
     }
     const challengeId = this.tokens.id();
     const expiresAt = new Date(this.clock.now().getTime() + OTP_LIFETIME_MS);
-    await this.repository.replace({
-      id: challengeId,
-      emailDigest,
-      purpose: input.purpose,
-      codeDigest: this.codeDigest(normalizedEmail, input.purpose, code),
-      attemptsRemaining: OTP_ATTEMPTS,
-      expiresAt,
-      ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
-      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
-    });
-    await this.delivery.enqueue({
-      deliveryId: this.tokens.id(),
-      challengeId,
-      recipient: normalizedEmail,
-      code,
-      expiresAt,
-      correlationId: input.correlationId,
+    await this.repository.replaceAndEnqueue({
+      challenge: {
+        id: challengeId,
+        emailDigest,
+        purpose: input.purpose,
+        codeDigest: this.codeDigest(normalizedEmail, input.purpose, code),
+        attemptsRemaining: OTP_ATTEMPTS,
+        expiresAt,
+        ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
+        ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+      },
+      delivery: {
+        deliveryId: this.tokens.id(),
+        challengeId,
+        recipient: normalizedEmail,
+        code,
+        expiresAt,
+        correlationId: input.correlationId,
+      },
     });
     return { response: ACCEPTED_RESPONSE, challengeId };
   }

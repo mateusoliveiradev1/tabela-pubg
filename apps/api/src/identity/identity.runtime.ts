@@ -2,7 +2,6 @@ import {
   completeOtpChallenge,
   consumeOAuthTransaction,
   createDiscordAccount,
-  createEncryptedNotificationDelivery,
   createIdentityLinkProof,
   createOAuthTransaction,
   type DatabaseConnection,
@@ -21,7 +20,7 @@ import {
   markSessionStepUp,
   recordAuthChallengeFailure,
   removeOwnedIdentity,
-  replaceAuthChallengeDigest,
+  replaceAuthChallengeWithNotification,
   resolveAlertContextByDigest,
   revokeOtherSessions,
   revokeSession,
@@ -39,7 +38,7 @@ import type { IdentityModuleServices } from "./identity.module.js";
 import type { IdentitySecurityChangeApplicationPort } from "./identity.service.js";
 import { type IdentityRepository, IdentityService } from "./identity.service.js";
 import { OAuthService, type OAuthTransactionRepository } from "./oauth.service.js";
-import { type OtpRepository, OtpService, type SecureOtpDeliveryPort } from "./otp.service.js";
+import { type OtpDeliveryRequest, type OtpRepository, OtpService } from "./otp.service.js";
 import type { TokenGenerator } from "./ports/token-generator.js";
 import { type SessionRepositoryPort, SessionService } from "./session.service.js";
 
@@ -98,7 +97,7 @@ export function resolveIdentityRedisPrefixes(
 }
 
 export function buildOtpNotificationDelivery(
-  input: Parameters<SecureOtpDeliveryPort["enqueue"]>[0],
+  input: OtpDeliveryRequest,
   now = new Date(),
 ) {
   return {
@@ -159,18 +158,8 @@ export async function createIdentityRuntime(
     clock,
   );
   const otp = new OtpService(
-    otpRepository(options.database, clock),
+    otpRepository(options.database, clock, options.encryptionKey, options.tokens),
     new RedisAuthRateLimiter(redis, { keyPrefix: redisPrefixes.authKeyPrefix }),
-    {
-      enqueue: async (input) => {
-        const now = clock.now();
-        await createEncryptedNotificationDelivery(options.database, {
-          ...buildOtpNotificationDelivery(input, now),
-          encryptionKey: options.encryptionKey,
-          outboxEventId: options.tokens.id(),
-        });
-      },
-    },
     options.securityLog ?? { record: () => undefined },
     options.tokens,
     clock,
@@ -292,10 +281,24 @@ function identityRepository(
   };
 }
 
-function otpRepository(database: DatabaseConnection["db"], clock: { now(): Date }): OtpRepository {
+function otpRepository(
+  database: DatabaseConnection["db"],
+  clock: { now(): Date },
+  encryptionKey: EncryptionKey,
+  tokens: TokenGenerator,
+): OtpRepository {
   return {
-    replace: (challenge) =>
-      replaceAuthChallengeDigest(database, { ...challenge, now: clock.now() }),
+    replaceAndEnqueue: ({ challenge, delivery }) => {
+      const now = clock.now();
+      return replaceAuthChallengeWithNotification(database, {
+        challenge: { ...challenge, now },
+        delivery: {
+          ...buildOtpNotificationDelivery(delivery, now),
+          encryptionKey,
+          outboxEventId: tokens.id(),
+        },
+      });
+    },
     findActive: async (input) => {
       const challenge = await findActiveAuthChallenge(database, input);
       return challenge

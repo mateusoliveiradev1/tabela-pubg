@@ -19,6 +19,8 @@ import {
   identityDigests,
   linkIdentity,
   replaceAuthChallenge,
+  replaceAuthChallengeDigest,
+  replaceAuthChallengeWithNotification,
   resolveOrCreateEmailAccount,
 } from "../src/repositories/identity.js";
 import {
@@ -681,6 +683,82 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
     `;
     expect(delivery?.count).toBe(0);
     expect(outbox?.count).toBe(0);
+  });
+
+  it("atomically replaces an OTP challenge and schedules its encrypted delivery", async () => {
+    const now = new Date("2026-08-21T07:30:00.000Z");
+    for (const failureStage of ["supersession", "challenge", "delivery", "outbox"] as const) {
+      const emailDigest = `digest-${failureStage}-${randomUUID()}`;
+      const originalId = randomUUID();
+      await replaceAuthChallengeDigest(db, {
+        id: originalId,
+        emailDigest,
+        purpose: "sign-in",
+        codeDigest: `original-${failureStage}`,
+        attemptsRemaining: 5,
+        expiresAt: new Date(now.getTime() + 10 * 60_000),
+        now,
+      });
+
+      const replacementId = randomUUID();
+      const deliveryId = randomUUID();
+      const outboxEventId = randomUUID();
+      const request = {
+        challenge: {
+          id: replacementId,
+          emailDigest,
+          purpose: "sign-in" as const,
+          codeDigest: `replacement-${failureStage}`,
+          attemptsRemaining: 5,
+          expiresAt: new Date(now.getTime() + 10 * 60_000),
+          now,
+        },
+        delivery: {
+          id: deliveryId,
+          template: "otp",
+          recipient: "otp-rollback@example.test",
+          idempotencyKey: `otp:${replacementId}`,
+          encryptionKey: { version: "v1", key: Buffer.alloc(32, 17) },
+          payload: { code: "12345678" },
+          payloadExpiresAt: new Date(now.getTime() + 10 * 60_000),
+          availableAt: now,
+          outboxEventId,
+          occurredAt: now,
+        },
+      };
+
+      await expect(
+        replaceAuthChallengeWithNotification(db, {
+          ...request,
+          afterMutation: (stage) => {
+            if (stage === failureStage) throw new Error(`fail after ${stage}`);
+          },
+        }),
+      ).rejects.toThrow(`fail after ${failureStage}`);
+
+      const [rolledBack] = await client`
+        select
+          (select count(*)::int from auth_challenges where id = ${originalId} and superseded_at is null) as original_active,
+          (select count(*)::int from auth_challenges where id = ${replacementId}) as replacements,
+          (select count(*)::int from notification_deliveries where id = ${deliveryId}) as deliveries,
+          (select count(*)::int from outbox_events where id = ${outboxEventId}) as outbox
+      `;
+      expect(rolledBack).toMatchObject({
+        original_active: 1,
+        replacements: 0,
+        deliveries: 0,
+        outbox: 0,
+      });
+
+      await replaceAuthChallengeWithNotification(db, request);
+      const [committed] = await client`
+        select
+          (select count(*)::int from auth_challenges where email_digest = ${emailDigest} and superseded_at is null) as active,
+          (select count(*)::int from notification_deliveries where id = ${deliveryId}) as deliveries,
+          (select count(*)::int from outbox_events where id = ${outboxEventId}) as outbox
+      `;
+      expect(committed).toMatchObject({ active: 1, deliveries: 1, outbox: 1 });
+    }
   });
 
   it("creates independent organizations with owner, audit and outbox in one transaction", async () => {
