@@ -5,141 +5,239 @@ status: validated-automated
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-08-20
-validated: 2026-08-23
+validated: 2026-08-24
 ---
 
-# Fase 02 — Estratégia de validação
+# Phase 02 — Final validation ledger
 
-> Matriz fail-closed da cobertura automatizada. A disponibilidade inicial real e o gate CI final são evidências distintas; integrações externas e experiência assistiva continuam reservadas ao plano 02-15.
+> Fail-closed ledger. Final authority originates exclusively in the single structured object under `Phase 2 Post-Remediation Evidence` in `02-34-SUMMARY.md`; this document only mirrors it.
 
-## Estado dos planos
+## Plan and implementation-summary coverage
 
-| Plano | Evidência | Estado |
+| Plan | Evidence | Status |
 |---|---|---|
-| 02-01 | `02-01-SUMMARY.md` | concluído |
-| 02-02 | `02-02-SUMMARY.md` | concluído |
-| 02-03 | `02-03-SUMMARY.md` | concluído |
-| 02-04 | `02-04-SUMMARY.md` | concluído |
-| 02-05 | `02-05-SUMMARY.md` | concluído |
-| 02-06 | `02-06-SUMMARY.md` | concluído |
-| 02-07 | `02-07-SUMMARY.md` | concluído |
-| 02-08 | `02-08-SUMMARY.md` | concluído |
-| 02-09 | `02-09-SUMMARY.md` | concluído |
-| 02-10 | `02-10-SUMMARY.md` | concluído |
-| 02-11 | `02-11-SUMMARY.md` | concluído |
-| 02-12 | `02-12-SUMMARY.md` | concluído |
-| 02-13 | `02-13-SUMMARY.md` | concluído |
-| 02-14 | `02-14-SUMMARY.md` | concluído |
-| 02-15 | `02-15-PLAN.md` | manual pendente; não possui SUMMARY |
-| 02-16 | `02-16-SUMMARY.md` | concluído |
-| 02-17 | `02-17-SUMMARY.md` | concluído; gate inicial real |
-| 02-18 | `02-18-SUMMARY.md` | concluído; harness E2E |
-| 02-19 | `02-19-SUMMARY.md` | concluído |
-| 02-20 | `02-20-PLAN.md` | validador atual; flags só após promoção |
-| 02-21 | `02-21-SUMMARY.md` | concluído |
-| 02-22 | `02-22-SUMMARY.md` | concluído |
-| 02-23 | `02-23-SUMMARY.md` | concluído |
-| 02-24 | `02-24-SUMMARY.md` | concluído; gate CI final |
+| 02-01 | `02-01-SUMMARY.md` | implementation verified |
+| 02-02 | `02-02-SUMMARY.md` | implementation verified |
+| 02-03 | `02-03-SUMMARY.md` | implementation verified |
+| 02-04 | `02-04-SUMMARY.md` | implementation verified |
+| 02-05 | `02-05-SUMMARY.md` | implementation verified |
+| 02-06 | `02-06-SUMMARY.md` | implementation verified |
+| 02-07 | `02-07-SUMMARY.md` | implementation verified |
+| 02-08 | `02-08-SUMMARY.md` | implementation verified |
+| 02-09 | `02-09-SUMMARY.md` | implementation verified |
+| 02-10 | `02-10-SUMMARY.md` | implementation verified |
+| 02-11 | `02-11-SUMMARY.md` | implementation verified |
+| 02-12 | `02-12-SUMMARY.md` | implementation verified |
+| 02-13 | `02-13-SUMMARY.md` | implementation verified |
+| 02-14 | `02-14-SUMMARY.md` | implementation verified |
+| 02-15 | `02-15-PLAN.md` | established no-SUMMARY exception |
+| 02-16 | `02-16-SUMMARY.md` | implementation verified |
+| 02-17 | `02-17-SUMMARY.md` | implementation verified; initial real-infrastructure history |
+| 02-18 | `02-18-SUMMARY.md` | implementation verified |
+| 02-19 | `02-19-SUMMARY.md` | implementation verified |
+| 02-20 | `02-20-PLAN.md` | established no-SUMMARY exception |
+| 02-21 | `02-21-SUMMARY.md` | implementation verified |
+| 02-22 | `02-22-SUMMARY.md` | implementation verified |
+| 02-23 | `02-23-SUMMARY.md` | implementation verified |
+| 02-24 | `02-24-SUMMARY.md` | implementation verified; superseded final-run history |
+| 02-25 | `02-25-SUMMARY.md` | implementation verified |
+| 02-26 | `02-26-SUMMARY.md` | implementation verified |
+| 02-27 | `02-27-SUMMARY.md` | implementation verified |
+| 02-28 | `02-28-SUMMARY.md` | implementation verified |
+| 02-29 | `02-29-SUMMARY.md` | implementation verified |
+| 02-30 | `02-30-SUMMARY.md` | implementation verified |
+| 02-31 | `02-31-SUMMARY.md` | implementation verified |
+| 02-32 | `02-32-SUMMARY.md` | implementation verified |
+| 02-33 | `02-33-SUMMARY.md` | implementation verified |
+| 02-34 | `02-34-SUMMARY.md` | evidence checkpoint; excluded from implementation prerequisites |
+| 02-35 | `02-35-SUMMARY.md` | implementation verified |
+| 02-36 | `02-36-SUMMARY.md` | implementation verified |
+| 02-37 | `02-37-SUMMARY.md` | implementation verified |
+| 02-38 | `02-38-SUMMARY.md` | implementation verified |
+| 02-39 | `02-39-SUMMARY.md` | implementation verified |
+| 02-40 | `02-40-PLAN.md` | ledger closure; excluded from implementation prerequisites |
+| 02-41 | `02-41-SUMMARY.md` | implementation verified |
+| 02-42 | `02-42-SUMMARY.md` | implementation verified |
 
-## Cobertura por requisito
+Only plan 02-40 parses `02-34-SUMMARY.md`. Its exact prerequisite set is 02-25..02-33, 02-35..02-39 and 02-41..02-42; checkpoint 02-34 and ledger 02-40 are deliberately excluded.
 
-| Requisito | Cobertura automatizada principal |
-|---|---|
-| AUTH-001 | OAuth state/PKCE, adapter HTTP, BFF e smoke Chromium |
-| AUTH-002 | OTP HMAC, limiter Redis, worker e fluxo Chromium |
-| AUTH-003 | sessão opaca, rotação, revogação e CSRF |
-| AUTH-004 | onboarding e seleção explícita de organização |
-| AUTH-005 | RBAC default-deny com contexto explícito |
-| AUTH-006 | redaction, BFF e secret scan |
-| ORG-001 | criação transacional e múltiplas organizações |
-| ORG-002 | convite one-use e concorrência real |
-| ORG-003 | roles globais owner/admin/member |
-| ORG-004 | união estrita de cargos operacionais |
-| ORG-005 | lock/recheck do último proprietário |
-| AUD-001 | auditoria transacional e visibilidade filtrada |
-| NFR-005 | CSRF, limits, validação, redaction, PostgreSQL/Redis e browser |
+## Requirements
 
-## Decisões D-01–D-17
-
-| Decisão | Planos que provam o contrato |
-|---|---|
-| D-01 | 02-06, 02-07, 02-12 |
-| D-02 | 02-02, 02-06, 02-12 |
-| D-03 | 02-04, 02-06, 02-13 |
-| D-04 | 02-09, 02-13 |
-| D-05 | 02-03, 02-04, 02-06, 02-13 |
-| D-06 | 02-03, 02-04, 02-06 |
-| D-07 | 02-04, 02-06, 02-08, 02-13, 02-16 |
-| D-08 | 02-04, 02-06, 02-09, 02-13, 02-14 |
-| D-09 | 02-03, 02-05, 02-09 |
-| D-10 | 02-05, 02-08, 02-09, 02-14 |
-| D-11 | 02-05, 02-09, 02-12 |
-| D-12 | 02-01, 02-05, 02-09, 02-14 |
-| D-13 | 02-01, 02-09, 02-14 |
-| D-14 | 02-01, 02-09, 02-14 |
-| D-15 | 02-01, 02-09, 02-16 |
-| D-16 | 02-06, 02-09, 02-14 |
-| D-17 | 02-05, 02-09, 02-14 |
-
-## Matriz de comandos e arquivos
-
-Todos os comandos são one-shot, começam por RTK e resolvem scripts/arquivos existentes.
-
-| Grupo | Comando automatizado | Arquivo principal |
+| Requirement | Evidence | Status |
 |---|---|---|
-| Autorização | `rtk pnpm --filter @pubg-camp/authorization test` | `packages/authorization/src/authorization.spec.ts` |
-| OAuth | `rtk pnpm --filter @pubg-camp/api test -- identity/oauth` | `apps/api/src/identity/identity.service.spec.ts` |
-| OTP | `rtk pnpm --filter @pubg-camp/api test -- identity/otp` | `apps/api/src/identity/identity.service.spec.ts` |
-| Sessões | `rtk pnpm --filter @pubg-camp/api test -- identity/session` | `apps/api/src/identity/identity.service.spec.ts` |
-| Organizações | `rtk pnpm --filter @pubg-camp/api test -- organizations` | `packages/database/test/identity-organizations.integration.spec.ts` |
-| Auditoria | `rtk pnpm --filter @pubg-camp/api test -- audit` | `apps/api/test/security.integration.spec.ts` |
-| Segurança | `rtk pnpm --filter @pubg-camp/api test -- security` | `apps/api/test/security.integration.spec.ts` |
-| Último owner | `rtk pnpm --filter @pubg-camp/database test -- last-owner.concurrent` | `packages/database/test/last-owner.concurrent.spec.ts` |
-| Convite concorrente | `rtk pnpm --filter @pubg-camp/database test -- invitation.concurrent` | `packages/database/test/invitation.concurrent.spec.ts` |
-| Preflight real | `rtk pnpm phase2:integration:preflight` | `scripts/run-phase2-integration.mjs` |
-| Integração real | `rtk pnpm phase2:integration` | `scripts/run-phase2-integration.mjs` |
-| Concorrência real | `rtk pnpm phase2:concurrent` | `scripts/run-phase2-integration.mjs` |
-| Smoke Chromium | `rtk pnpm --filter @pubg-camp/web test:e2e:smoke` | `scripts/run-phase2-e2e.mjs` |
-| E2E completo | `rtk pnpm --filter @pubg-camp/web test:e2e` | `apps/web/e2e/phase2-accessibility.spec.ts` |
-| Segredos | `rtk pnpm verify:secrets` | `scripts/validate-phase2-validation.mjs` |
-| Boundaries | `rtk pnpm lint:boundaries` | `.github/workflows/ci.yml` |
-| Testes globais | `rtk pnpm test` | `.github/workflows/ci.yml` |
-| Build global | `rtk pnpm build` | `.github/workflows/ci.yml` |
-| Validador final | `rtk node scripts/validate-phase2-validation.mjs --check .planning/phases/02-identidade-organizacoes-e-autorizacao/02-VALIDATION.md` | `scripts/validate-phase2-validation.mjs` |
+| AUTH-001 | 02-31, 02-37, 02-39, 02-41 | verified |
+| AUTH-002 | 02-25, 02-26, 02-30, 02-36, 02-39, 02-42 | verified |
+| AUTH-003 | 02-27, 02-30, 02-32, 02-35, 02-39, 02-41, 02-42 | verified |
+| AUTH-004 | 02-29, 02-39 | verified |
+| AUTH-005 | 02-29, 02-32, 02-35, 02-38, 02-39 | verified |
+| AUTH-006 | 02-31, 02-37, 02-39, 02-42 | verified |
+| ORG-001 | 02-28, 02-39 | verified |
+| ORG-002 | 02-26, 02-29, 02-32, 02-38, 02-39 | verified |
+| ORG-003 | 02-29, 02-38, 02-39 | verified |
+| ORG-004 | 02-29, 02-39 | verified |
+| ORG-005 | 02-33, 02-39 | verified |
+| AUD-001 | 02-29, 02-39 | verified |
+| NFR-005 | 02-25 through 02-42 | verified |
 
-## Evidências automatizadas distintas
+## Decisions D-01–D-17
 
-| Gate | Fonte imutável | Resultado |
-|---|---|---|
-| Disponibilidade inicial 02-17 | `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-17-SUMMARY.md` | PostgreSQL Neon isolado + Redis loopback + migrations desde schema vazio; preflight exit code 0 |
-| CI final 02-24 | `.planning/phases/02-identidade-organizacoes-e-autorizacao/02-24-SUMMARY.md` | run `32676449341`, event push, HEAD autorizado, 8/8 jobs success |
+The plus sign is conjunctive: every producer/proof shown is mandatory. Comma-free rows are validated as exact sets.
 
-O gate inicial 02-17 comprova disponibilidade real local e não substitui a CI. O gate 02-24 comprova separadamente o run https://github.com/mateusoliveiradev1/tabela-pubg/actions/runs/32676449341, com integration + concurrent + smoke + E2E completo e nenhuma suíte obrigatória skipped. Falha, conclusão ausente, job obrigatório skipped ou evidência ambígua bloqueia as flags.
-
-## Runtimes medidos
-
-| Execução | Resultado registrado |
+| Decision | Canonical implementing authority |
 |---|---|
-| Preflight 02-17 | 8 min para provisionamento/validação; runner concluiu com exit code 0 |
-| Harness E2E 02-18 | 34 min de implementação e gates locais; smoke 2/2 |
-| CI final 02-24 | run `32676449341` attempt 1, 8/8 jobs success; 2 smoke e 32 cenários completos (26 passados, 6 condicionais não obrigatórios) |
-| Gate global local 02-24 | testes 22/22, build 13/13, secret scan 313 arquivos e boundaries 237 módulos/539 dependências |
+| D-01 | 02-37 |
+| D-02 | 02-30 + 02-36 |
+| D-03 | 02-30 + 02-32 + 02-36 + 02-37 + 02-42 |
+| D-04 | 02-30 + 02-36 + 02-39 |
+| D-05 | 02-27 + 02-32 |
+| D-06 | 02-27 |
+| D-07 | 02-26 + 02-27 + 02-36 |
+| D-08 | 02-30 + 02-32 + 02-36 + 02-37 + 02-42 |
+| D-09 | 02-29 |
+| D-10 | 02-01 + 02-05 + 02-09 + 02-39 |
+| D-11 | 02-09 + 02-39 |
+| D-12 | 02-01 + 02-05 + 02-09 + 02-39 |
+| D-13 | 02-01 + 02-05 + 02-09 + 02-39 |
+| D-14 | 02-01 + 02-05 + 02-09 + 02-39 |
+| D-15 | 02-29 + 02-35 |
+| D-16 | 02-01 + 02-05 + 02-09 + 02-39 |
+| D-17 | 02-03 + 02-05 + 02-09 + 02-39 |
 
-## Checkpoints exclusivamente manuais
+D-10 requires the immutable domain invitation policy, transactional repository, protected API and exact runtime seven-day/one-use/exact-email/initial-role/all-assignment proof. D-16 requires the immutable role/owner policy, transactional member/ownership repository, protected API and runtime fresh-reauthentication plus transactional-audit proof for role change, revocation and ownership transfer. D-17 requires audit schema, visibility repository, audit API and runtime owner/admin-full versus member-self-only proof. D-08 additionally requires the ordinary identity security transaction in 02-42.
 
-| ID | Plano/tarefa | Escopo | Estado |
-|---|---|---|---|
-| MANUAL-01 | 02-15 / Task 1 | Discord/PKCE sandbox | pendente |
-| MANUAL-02 | 02-15 / Task 2 | acessibilidade assistiva | pendente |
-| MANUAL-03 | 02-15 / Task 3 | Resend/TLS | pendente |
+## Final Post-Remediation Authority Mirror
 
-Nyquist automatizado não aprova os checkpoints manuais do plano 02-15.
+```json
+{
+  "schemaVersion": 1,
+  "planCoverage": {
+    "prerequisiteSummaries": [
+      "02-25-SUMMARY.md",
+      "02-26-SUMMARY.md",
+      "02-27-SUMMARY.md",
+      "02-28-SUMMARY.md",
+      "02-29-SUMMARY.md",
+      "02-30-SUMMARY.md",
+      "02-31-SUMMARY.md",
+      "02-32-SUMMARY.md",
+      "02-33-SUMMARY.md",
+      "02-35-SUMMARY.md",
+      "02-36-SUMMARY.md",
+      "02-37-SUMMARY.md",
+      "02-38-SUMMARY.md",
+      "02-39-SUMMARY.md",
+      "02-41-SUMMARY.md",
+      "02-42-SUMMARY.md"
+    ],
+    "closurePlan": "02-40"
+  },
+  "branch": "main",
+  "headSha": "5b1555d7693b0f5678eeaa131550cedc985345ad",
+  "workflow": {
+    "event": "push",
+    "cardinality": 1,
+    "runId": 32798458788,
+    "runUrl": "https://github.com/mateusoliveiradev1/tabela-pubg/actions/runs/32798458788",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "mandatoryJobCount": 8,
+  "mandatoryJobs": [
+    { "key": "quality", "name": "Quality and affected build", "conclusion": "success" },
+    { "key": "phase2-integration", "matrix": { "suite": "integration" }, "name": "Phase 2 integration", "conclusion": "success" },
+    { "key": "phase2-integration", "matrix": { "suite": "concurrent" }, "name": "Phase 2 concurrent", "conclusion": "success" },
+    { "key": "phase2-e2e", "name": "Phase 2 browser E2E", "conclusion": "success" },
+    { "key": "images", "matrix": { "app": "web" }, "name": "Image web", "conclusion": "success" },
+    { "key": "images", "matrix": { "app": "api" }, "name": "Image api", "conclusion": "success" },
+    { "key": "images", "matrix": { "app": "worker" }, "name": "Image worker", "conclusion": "success" },
+    { "key": "images", "matrix": { "app": "discord-bot" }, "name": "Image discord-bot", "conclusion": "success" }
+  ],
+  "runtime": {
+    "jobName": "Phase 2 browser E2E",
+    "command": "rtk pnpm test:e2e:runtime",
+    "runScopeId": "run-ci-32798458788-1-phase2",
+    "runScopeSource": ".github/workflows/ci.yml#jobs.phase2-e2e.env.E2E_RUN_ID",
+    "components": ["Next+BFF", "Nest", "PostgreSQL", "Redis", "outbox publisher", "BullMQ consumers", "worker", "browser"],
+    "syntheticApi": false
+  },
+  "cleanup": {
+    "schema": { "identifier": "phase2_e2e_cfdd0297a9d66ef2281be1ce", "scopeId": "run-ci-32798458788-1-phase2", "removed": true },
+    "redisBullmqPrefix": { "identifier": "pubg-camp:run-ci-32798458788-1-phase2", "scopeId": "run-ci-32798458788-1-phase2", "removed": true },
+    "objectMailRoot": { "identifier": "pubg-camp-phase2-e2e-owned-root/run-ci-32798458788-1-phase2", "scopeId": "run-ci-32798458788-1-phase2", "removed": true }
+  },
+  "reverification": { "truthsPassed": 6, "truthsTotal": 6, "requirementsPassed": 13, "requirementsTotal": 13 }
+}
+```
 
-## Assinatura automatizada
+## Runtime and cleanup evidence
 
-- Todos os IDs 02-01–02-24, requirements, decisões, arquivos e comandos foram resolvidos.
-- A cópia candidata deve passar com as duas flags falsas.
-- Somente o modo de promoção do validador pode aplicar as duas flags; ele valida o conteúdo promovido antes do rename atômico e revalida o arquivo final.
-- Checkpoints Discord, acessibilidade assistiva e Resend/TLS permanecem pendentes para o plano 02-15.
+The authoritative runtime is `rtk pnpm test:e2e:runtime` in `Phase 2 browser E2E`, composed exactly of Next+BFF, Nest, PostgreSQL, Redis, outbox publisher, BullMQ consumers, worker and browser, with `syntheticApi=false`. Runtime and all cleanup entries use `run-ci-32798458788-1-phase2` byte-for-byte; schema, Redis/BullMQ prefix and object/mail root all report `removed=true`. Re-verification is 6/6 truths and 13/13 requirements.
 
-**Aprovação automatizada:** candidata pronta para promoção fail-closed.
+## Superseded history
+
+`02-17-SUMMARY.md` remains the initial real PostgreSQL/Redis availability evidence. `02-24-SUMMARY.md` remains the pre-remediation CI record.
+
+Run `32676449341` and SHA `a41f87c539435ed00dd848571699e5ebede8f97c` — superseded for final Phase 2 closure - synthetic-only/pre-remediation.
+
+These values are readable history only and cannot originate, override or promote either final flag.
+
+## Command and artifact matrix
+
+| Group | Command |
+|---|---|
+| Authorization | `rtk pnpm --filter @pubg-camp/authorization test` |
+| OAuth | `rtk pnpm --filter @pubg-camp/api test -- identity/oauth` |
+| OTP | `rtk pnpm --filter @pubg-camp/api test -- identity/otp` |
+| Sessions | `rtk pnpm --filter @pubg-camp/api test -- identity/session` |
+| Organizations | `rtk pnpm --filter @pubg-camp/api test -- organizations` |
+| Audit | `rtk pnpm --filter @pubg-camp/api test -- audit` |
+| Security | `rtk pnpm --filter @pubg-camp/api test -- security` |
+| Last owner | `rtk pnpm --filter @pubg-camp/database test -- last-owner.concurrent` |
+| Invitation concurrency | `rtk pnpm --filter @pubg-camp/database test -- invitation.concurrent` |
+| Preflight | `rtk pnpm phase2:integration:preflight` |
+| Integration | `rtk pnpm phase2:integration` |
+| Concurrent | `rtk pnpm phase2:concurrent` |
+| Real runtime | `rtk pnpm test:e2e:runtime` |
+| Browser smoke | `rtk pnpm --filter @pubg-camp/web test:e2e:smoke` |
+| Browser full | `rtk pnpm --filter @pubg-camp/web test:e2e` |
+| Secrets | `rtk pnpm verify:secrets` |
+| Boundaries | `rtk pnpm lint:boundaries` |
+| Tests | `rtk pnpm test` |
+| Build | `rtk pnpm build` |
+| Final validator | `rtk node scripts/validate-phase2-validation.mjs --check .planning/phases/02-identidade-organizacoes-e-autorizacao/02-VALIDATION.md` |
+
+Referenced executable evidence:
+
+- `packages/domain/src/identity.ts`
+- `packages/domain/src/organizations.ts`
+- `packages/authorization/src/index.ts`
+- `packages/authorization/src/authorization.spec.ts`
+- `packages/database/src/schema/audit.ts`
+- `packages/database/src/repositories/organizations.ts`
+- `packages/database/src/repositories/audit.ts`
+- `packages/database/test/invitation.concurrent.spec.ts`
+- `packages/database/test/last-owner.concurrent.spec.ts`
+- `apps/api/src/organizations/invitations.service.ts`
+- `apps/api/src/organizations/invitations.controller.ts`
+- `apps/api/src/organizations/members.service.ts`
+- `apps/api/src/organizations/members.controller.ts`
+- `apps/api/src/audit/audit.service.ts`
+- `apps/api/src/audit/audit.controller.ts`
+- `apps/api/src/organizations/invitation-delivery.integration.spec.ts`
+- `apps/api/src/audit/audit.integration.spec.ts`
+- `apps/api/src/identity/identity.service.spec.ts`
+- `apps/api/test/security.integration.spec.ts`
+- `packages/database/test/identity-organizations.integration.spec.ts`
+- `packages/database/test/identity-security-change.integration.spec.ts`
+- `apps/web/e2e/phase2-accessibility.spec.ts`
+- `apps/web/e2e/phase2-runtime.spec.ts`
+- `scripts/run-phase2-integration.mjs`
+- `scripts/run-phase2-e2e.mjs`
+- `scripts/validate-phase2-ci.mjs`
+- `scripts/validate-phase2-validation.mjs`
+- `.github/workflows/ci.yml`
+
+## Promotion contract
+
+This candidate deliberately keeps both flags false. Only `--promote` may set them true after candidate validation, validation of the promoted temporary file, atomic rename and final revalidation.
