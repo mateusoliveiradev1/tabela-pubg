@@ -12,6 +12,18 @@ const PROVISIONAL_TTL_MS = 15 * 60_000;
 const ALERT_TTL_MS = 24 * 60 * 60_000;
 const TOUCH_COALESCE_MS = 5 * 60_000;
 
+export interface SessionSecurityPolicy {
+  idleMs: number;
+  absoluteMs: number;
+  activityWriteIntervalMs: number;
+}
+
+export const defaultSessionSecurityPolicy: SessionSecurityPolicy = {
+  idleMs: IDLE_TTL_MS,
+  absoluteMs: ABSOLUTE_TTL_MS,
+  activityWriteIntervalMs: TOUCH_COALESCE_MS,
+};
+
 type DeviceRow = typeof devices.$inferSelect;
 
 function digest(value: string): string {
@@ -32,6 +44,7 @@ export interface SessionRepositoryDependencies {
   afterMutation?: (
     stage: "device" | "session" | "alert-context" | "delivery" | "outbox",
   ) => void | Promise<void>;
+  policy?: SessionSecurityPolicy;
 }
 
 export interface DeviceMetadata {
@@ -82,6 +95,7 @@ async function issueSessionForDeviceTransaction(
   dependencies: SessionRepositoryDependencies,
 ): Promise<IssuedSession> {
   const now = dependencies.clock();
+  const policy = dependencies.policy ?? defaultSessionSecurityPolicy;
   const deviceDigest = digest(input.deviceFingerprint);
   const [createdDevice] = await executor
     .insert(devices)
@@ -135,8 +149,8 @@ async function issueSessionForDeviceTransaction(
   await dependencies.afterMutation?.("device");
 
   const token = encodeOpaqueToken(dependencies.randomBytes(32));
-  const lifetimeMs = input.trust === "trusted" ? ABSOLUTE_TTL_MS : PROVISIONAL_TTL_MS;
-  const idleTtlMs = input.trust === "trusted" ? IDLE_TTL_MS : PROVISIONAL_TTL_MS;
+  const lifetimeMs = input.trust === "trusted" ? policy.absoluteMs : PROVISIONAL_TTL_MS;
+  const idleTtlMs = input.trust === "trusted" ? policy.idleMs : PROVISIONAL_TTL_MS;
   const absoluteExpiresAt = new Date(now.getTime() + lifetimeMs);
   const [session] = await executor
     .insert(sessions)
@@ -220,6 +234,7 @@ export async function issueIdentitySession(
     issuedAt: Date;
     absoluteExpiresAt: Date;
     deviceId: string;
+    policy?: SessionSecurityPolicy;
   },
 ): Promise<{ sessionId: string }> {
   const deviceDigest = digest(`identity:${input.userId}`);
@@ -242,8 +257,9 @@ export async function issueIdentitySession(
     .where(and(eq(devices.userId, input.userId), eq(devices.deviceDigest, deviceDigest)))
     .limit(1);
   if (!device) throw new Error("identity device unavailable");
-  const maximumLifetimeMs = input.trust === "trusted" ? ABSOLUTE_TTL_MS : PROVISIONAL_TTL_MS;
-  const idleTtlMs = input.trust === "trusted" ? IDLE_TTL_MS : PROVISIONAL_TTL_MS;
+  const policy = input.policy ?? defaultSessionSecurityPolicy;
+  const maximumLifetimeMs = input.trust === "trusted" ? policy.absoluteMs : PROVISIONAL_TTL_MS;
+  const idleTtlMs = input.trust === "trusted" ? policy.idleMs : PROVISIONAL_TTL_MS;
   const absoluteExpiresAt = new Date(
     Math.min(input.absoluteExpiresAt.getTime(), input.issuedAt.getTime() + maximumLifetimeMs),
   );
@@ -272,9 +288,16 @@ export async function issueIdentitySession(
 
 export async function rotateIdentitySession(
   executor: RepositoryExecutor,
-  input: { userId: string; sessionId: string; token: string; reauthenticatedAt: Date },
+  input: {
+    userId: string;
+    sessionId: string;
+    token: string;
+    reauthenticatedAt: Date;
+    policy?: SessionSecurityPolicy;
+  },
 ): Promise<{ sessionId: string } | null> {
-  const idleCandidate = new Date(input.reauthenticatedAt.getTime() + IDLE_TTL_MS);
+  const policy = input.policy ?? defaultSessionSecurityPolicy;
+  const idleCandidate = new Date(input.reauthenticatedAt.getTime() + policy.idleMs);
   const [session] = await executor
     .update(sessions)
     .set({
@@ -320,16 +343,17 @@ export async function lockActiveSessionForOtp(
 
 export async function promoteProvisionalSessionTrust(
   executor: RepositoryExecutor,
-  input: { userId: string; sessionId: string; now: Date },
+  input: { userId: string; sessionId: string; now: Date; policy?: SessionSecurityPolicy },
 ): Promise<boolean> {
-  const idleExpiresAt = new Date(input.now.getTime() + IDLE_TTL_MS);
+  const policy = input.policy ?? defaultSessionSecurityPolicy;
+  const idleExpiresAt = new Date(input.now.getTime() + policy.idleMs);
   const [promoted] = await executor
     .update(sessions)
     .set({
       trust: "trusted",
       lastSeenAt: input.now,
       idleExpiresAt,
-      absoluteExpiresAt: sql`${sessions.issuedAt} + interval '90 days'`,
+      absoluteExpiresAt: sql`${sessions.issuedAt} + (${policy.absoluteMs} * interval '1 millisecond')`,
       reauthenticatedAt: input.now,
       updatedAt: input.now,
     })
@@ -470,10 +494,11 @@ export async function resolveAndTouchSession(
   executor: RepositoryExecutor,
   token: string,
   clock: Clock,
+  policy: SessionSecurityPolicy = defaultSessionSecurityPolicy,
 ) {
   const now = clock();
-  const coalescingCutoff = new Date(now.getTime() - TOUCH_COALESCE_MS);
-  const idleCandidate = new Date(now.getTime() + IDLE_TTL_MS);
+  const coalescingCutoff = new Date(now.getTime() - policy.activityWriteIntervalMs);
+  const idleCandidate = new Date(now.getTime() + policy.idleMs);
   const [touched] = await executor
     .update(sessions)
     .set({
@@ -514,8 +539,9 @@ export async function touchSession(
   executor: RepositoryExecutor,
   token: string,
   clock: Clock,
+  policy: SessionSecurityPolicy = defaultSessionSecurityPolicy,
 ): Promise<SessionRow | null> {
-  const resolved = await resolveAndTouchSession(executor, token, clock);
+  const resolved = await resolveAndTouchSession(executor, token, clock, policy);
   return resolved?.session ?? null;
 }
 
@@ -525,8 +551,9 @@ export async function rotateSession(
   dependencies: SessionRepositoryDependencies,
 ): Promise<{ token: string; session: SessionRow } | null> {
   const now = dependencies.clock();
+  const policy = dependencies.policy ?? defaultSessionSecurityPolicy;
   const token = encodeOpaqueToken(dependencies.randomBytes(32));
-  const idleCandidate = new Date(now.getTime() + IDLE_TTL_MS);
+  const idleCandidate = new Date(now.getTime() + policy.idleMs);
   const [rotated] = await executor
     .update(sessions)
     .set({

@@ -84,6 +84,14 @@ describe.runIf(Boolean(databaseUrl && redisUrl))(
         tokens: tokens(),
         otpPepper,
         encryptionKey,
+        policies: {
+          session: {
+            idleMs: 30 * 24 * 60 * 60_000,
+            absoluteMs: 90 * 24 * 60 * 60_000,
+            activityWriteIntervalMs: 5 * 60_000,
+          },
+          otp: { lifetimeMs: 10 * 60_000, maxAttempts: 5, cooldownSeconds: 60 },
+        },
         clock: { now: () => now },
       });
     }, 30_000);

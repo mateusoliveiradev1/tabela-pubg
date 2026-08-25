@@ -5,7 +5,12 @@ import { appendOutboxEvent } from "../outbox.js";
 import type * as databaseSchema from "../schema.js";
 import { identities, identityLinkProofs, verifiedEmails } from "../schema.js";
 import { consumeIdentityLinkProof, identityDigests } from "./identity.js";
-import { lockActiveSessionForOtp, revokeOtherSessions, rotateIdentitySession } from "./sessions.js";
+import {
+  lockActiveSessionForOtp,
+  revokeOtherSessions,
+  rotateIdentitySession,
+  type SessionSecurityPolicy,
+} from "./sessions.js";
 
 type Database = PostgresJsDatabase<typeof databaseSchema>;
 type IdentityProvider = "discord" | "email";
@@ -37,6 +42,7 @@ export interface IdentitySecurityChangeInput {
   generateId: () => string;
   generateCorrelationId: () => string;
   generateOpaqueToken: () => Uint8Array;
+  sessionPolicy?: SessionSecurityPolicy;
   afterMutation?: (boundary: IdentitySecurityChangeBoundary) => void | Promise<void>;
 }
 
@@ -265,6 +271,7 @@ export async function executeIdentitySecurityChange(
         sessionId: input.currentSessionId,
         token: newSessionToken,
         reauthenticatedAt: input.now,
+        ...(input.sessionPolicy === undefined ? {} : { policy: input.sessionPolicy }),
       });
       if (!rotated) throw identitySecurityChangeRejected;
       await input.afterMutation?.("current-session-rotated");

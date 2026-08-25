@@ -194,6 +194,44 @@ describe.runIf(Boolean(databaseUrl))("session repositories", () => {
     expect(touched?.session.absoluteExpiresAt).toEqual(issued.session.absoluteExpiresAt);
   });
 
+  it("persists and touches sessions with injected non-default security policy", async () => {
+    const issuedAt = new Date("2026-08-21T09:20:00.000Z");
+    const policy = {
+      idleMs: 7 * 60_000,
+      absoluteMs: 20 * 60_000,
+      activityWriteIntervalMs: 45_000,
+    };
+    const issued = await issueSessionForDevice(
+      db,
+      {
+        userId,
+        trust: "trusted",
+        deviceFingerprint: "configured-policy-device",
+        device: { label: "Policy", browser: "Firefox", operatingSystem: "Linux" },
+        newDeviceNotification: notificationInput("configured-policy-device"),
+      },
+      { ...deterministicDependencies(issuedAt), policy },
+    );
+    expect(issued.session.idleExpiresAt).toEqual(new Date(issuedAt.getTime() + policy.idleMs));
+    expect(issued.session.absoluteExpiresAt).toEqual(
+      new Date(issuedAt.getTime() + policy.absoluteMs),
+    );
+
+    const coalesced = await resolveAndTouchSession(
+      db,
+      issued.token,
+      () => new Date(issuedAt.getTime() + 44_000),
+      policy,
+    );
+    expect(coalesced?.session.lastSeenAt).toEqual(issuedAt);
+    const touchedAt = new Date(issuedAt.getTime() + 46_000);
+    const touched = await resolveAndTouchSession(db, issued.token, () => touchedAt, policy);
+    expect(touched?.session.lastSeenAt).toEqual(touchedAt);
+    expect(touched?.session.idleExpiresAt).toEqual(
+      new Date(touchedAt.getTime() + policy.idleMs),
+    );
+  });
+
   it("persists explicit trust for identity and device issue paths", async () => {
     const issuedAt = new Date("2026-08-21T09:30:00.000Z");
     const provisionalToken = Buffer.alloc(32, 71).toString("base64url");

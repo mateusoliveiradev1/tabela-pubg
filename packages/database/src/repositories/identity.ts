@@ -18,6 +18,7 @@ import {
   replaceActiveSessionToken,
   revokeOtherSessions,
   rotateIdentitySession,
+  type SessionSecurityPolicy,
 } from "./sessions.js";
 import {
   createEncryptedNotificationDelivery,
@@ -768,6 +769,7 @@ export interface CompleteOtpChallengeInput {
     proofId: string;
   };
   replacementSessionToken?: string;
+  sessionPolicy?: SessionSecurityPolicy;
   afterMutation?: (boundary: OtpMutationBoundary) => void | Promise<void>;
 }
 
@@ -984,6 +986,7 @@ export async function completeOtpChallenge(
           userId: actorId,
           sessionId,
           now: input.now,
+          ...(input.sessionPolicy === undefined ? {} : { policy: input.sessionPolicy }),
         }))
       ) {
         throw otpCompletionRejected;
@@ -1182,6 +1185,7 @@ export async function removeOwnedIdentity(
     identityId: string;
     replacementSessionToken: string;
     now: Date;
+    sessionPolicy?: SessionSecurityPolicy;
   },
 ): Promise<
   | { status: "removed"; sessionId: string; otherSessionsRevoked: number }
@@ -1255,6 +1259,7 @@ export async function removeOwnedIdentity(
       sessionId: input.currentSessionId,
       token: input.replacementSessionToken,
       reauthenticatedAt: input.now,
+      ...(input.sessionPolicy === undefined ? {} : { policy: input.sessionPolicy }),
     });
     if (!rotated) throw new Error("identity removal session unavailable");
     const otherSessionsRevoked = await revokeOtherSessions(

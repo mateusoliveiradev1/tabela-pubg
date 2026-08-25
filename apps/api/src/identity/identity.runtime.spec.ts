@@ -66,6 +66,10 @@ function runtimeOptions() {
     },
     otpPepper: new Uint8Array(32),
     encryptionKey: {} as never,
+    policies: {
+      session: { idleMs: 300_000, absoluteMs: 3_600_000, activityWriteIntervalMs: 30_000 },
+      otp: { lifetimeMs: 120_000, maxAttempts: 2, cooldownSeconds: 17 },
+    },
   };
 }
 
@@ -89,6 +93,7 @@ describe("identity runtime Redis scope contract", () => {
 
     expect(runtimeSpies.authConstructor).toHaveBeenCalledWith(redis, {
       keyPrefix: "pubg-camp:auth",
+      policies: { "otp-request": { cooldown: { points: 1, durationSeconds: 17 } } },
     });
     expect(runtimeSpies.pkceConstructor).toHaveBeenCalledWith(redis, "pubg-camp:oauth:pkce");
     await runtime.close();
@@ -108,6 +113,7 @@ describe("identity runtime Redis scope contract", () => {
 
     expect(runtimeSpies.authConstructor).toHaveBeenCalledWith(redis, {
       keyPrefix: `pubg-camp:${validRunScopeId}:auth`,
+      policies: { "otp-request": { cooldown: { points: 1, durationSeconds: 17 } } },
     });
     expect(runtimeSpies.pkceConstructor).toHaveBeenCalledWith(
       redis,

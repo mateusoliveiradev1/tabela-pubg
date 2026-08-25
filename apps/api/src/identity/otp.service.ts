@@ -106,7 +106,7 @@ export interface OtpClock {
 }
 
 export interface OtpRequestResult {
-  response: { status: "accepted"; retryAfterSeconds: 60 };
+  response: { status: "accepted"; retryAfterSeconds: number };
   challengeId?: string;
 }
 
@@ -122,10 +122,13 @@ export type OtpVerifyResult =
   | { status: "rejected" };
 
 const OTP_CODE_LENGTH = 8;
-const OTP_ATTEMPTS = 5;
-const OTP_LIFETIME_MS = 10 * 60_000;
 const STEP_UP_LIFETIME_MS = 10 * 60_000;
-const ACCEPTED_RESPONSE = { status: "accepted", retryAfterSeconds: 60 } as const;
+
+export interface OtpSecurityPolicy {
+  lifetimeMs: number;
+  maxAttempts: number;
+  cooldownSeconds: number;
+}
 
 @Injectable()
 export class OtpService {
@@ -136,6 +139,7 @@ export class OtpService {
     private readonly tokens: TokenGenerator,
     private readonly clock: OtpClock,
     private readonly hmacPepper: Uint8Array,
+    private readonly policy: OtpSecurityPolicy,
   ) {}
 
   async request(input: {
@@ -147,7 +151,7 @@ export class OtpService {
     sessionId?: string;
   }): Promise<OtpRequestResult> {
     if (!hasValidPurposeBinding(input)) {
-      return { response: ACCEPTED_RESPONSE };
+      return { response: this.acceptedResponse() };
     }
     const normalizedEmail = normalizeEmail(input.email);
     const emailDigest = this.tokens.digest(normalizedEmail);
@@ -158,7 +162,7 @@ export class OtpService {
       input.correlationId,
     );
     if (!decision) {
-      return { response: ACCEPTED_RESPONSE };
+      return { response: this.acceptedResponse() };
     }
 
     const code = this.tokens.numericCode(OTP_CODE_LENGTH);
@@ -166,14 +170,14 @@ export class OtpService {
       throw new Error("token generator returned an invalid OTP");
     }
     const challengeId = this.tokens.id();
-    const expiresAt = new Date(this.clock.now().getTime() + OTP_LIFETIME_MS);
+    const expiresAt = new Date(this.clock.now().getTime() + this.policy.lifetimeMs);
     await this.repository.replaceAndEnqueue({
       challenge: {
         id: challengeId,
         emailDigest,
         purpose: input.purpose,
         codeDigest: this.codeDigest(normalizedEmail, input.purpose, code),
-        attemptsRemaining: OTP_ATTEMPTS,
+        attemptsRemaining: this.policy.maxAttempts,
         expiresAt,
         ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
         ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
@@ -187,7 +191,7 @@ export class OtpService {
         correlationId: input.correlationId,
       },
     });
-    return { response: ACCEPTED_RESPONSE, challengeId };
+    return { response: this.acceptedResponse(), challengeId };
   }
 
   async verify(input: {
@@ -314,6 +318,10 @@ export class OtpService {
     return createHmac("sha256", this.hmacPepper)
       .update(`${purpose}\0${email}\0${code}`, "utf8")
       .digest("hex");
+  }
+
+  private acceptedResponse(): { status: "accepted"; retryAfterSeconds: number } {
+    return { status: "accepted", retryAfterSeconds: this.policy.cooldownSeconds };
   }
 
   private invalid(correlationId: string): void {

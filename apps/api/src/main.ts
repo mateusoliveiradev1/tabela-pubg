@@ -237,6 +237,18 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
       Array.from({ length: digits }, () => randomInt(0, 10).toString()).join(""),
     digest: (value: string) => createHash("sha256").update(value, "utf8").digest("hex"),
   };
+  const identitySecurityPolicies = {
+    session: {
+      idleMs: env.SESSION_IDLE_TTL_SECONDS * 1_000,
+      absoluteMs: env.SESSION_ABSOLUTE_TTL_SECONDS * 1_000,
+      activityWriteIntervalMs: env.SESSION_ACTIVITY_WRITE_INTERVAL_SECONDS * 1_000,
+    },
+    otp: {
+      lifetimeMs: env.OTP_TTL_SECONDS * 1_000,
+      maxAttempts: env.OTP_MAX_ATTEMPTS,
+      cooldownSeconds: env.OTP_COOLDOWN_SECONDS,
+    },
+  };
 
   const csrf = new CsrfService({
     appOrigin: env.APP_ORIGIN,
@@ -266,6 +278,7 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
       version: env.ENCRYPTION_KEY_VERSION,
       key: Buffer.from(env.AES_GCM_KEY_V1, "hex"),
     },
+    policies: identitySecurityPolicies,
     securityLog: {
       record: (event) => logger.warn(event, "identity security event"),
     },
@@ -289,7 +302,12 @@ export async function bootstrap(): Promise<NestFastifyApplication> {
       authorization: {
         sessionCookieName: env.SESSION_COOKIE_NAME,
         authenticate: async (opaqueToken) => {
-          const resolved = await resolveAndTouchSession(database.db, opaqueToken, () => new Date());
+          const resolved = await resolveAndTouchSession(
+            database.db,
+            opaqueToken,
+            () => new Date(),
+            identitySecurityPolicies.session,
+          );
           return resolved
             ? {
                 actorId: resolved.session.userId,

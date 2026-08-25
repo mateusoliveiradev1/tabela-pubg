@@ -18,7 +18,11 @@ function hmac(email: string, purpose: string, code: string): string {
     .digest("hex");
 }
 
-function setup(options?: { limiterBlocked?: boolean; limiterUnavailable?: boolean }) {
+function setup(options?: {
+  limiterBlocked?: boolean;
+  limiterUnavailable?: boolean;
+  policy?: { lifetimeMs: number; maxAttempts: number; cooldownSeconds: number };
+}) {
   const challenges = new Map<string, OtpChallengeRecord & { consumed?: boolean }>();
   const delivery = { enqueue: vi.fn(async (_input: OtpDeliveryRequest) => undefined) };
   const repository: OtpRepository = {
@@ -134,6 +138,7 @@ function setup(options?: { limiterBlocked?: boolean; limiterUnavailable?: boolea
       tokens,
       { now: () => now },
       pepper,
+      options?.policy ?? { lifetimeMs: 10 * 60_000, maxAttempts: 5, cooldownSeconds: 60 },
     ),
     repository,
     limiter,
@@ -153,6 +158,24 @@ const publicRequest = {
 const binding = { actorId: "actor-1", sessionId: "session-1" };
 
 describe("OtpService", () => {
+  it("persists non-default expiry and attempt policies and reports the configured cooldown", async () => {
+    const { service, repository } = setup({
+      policy: { lifetimeMs: 90_000, maxAttempts: 2, cooldownSeconds: 17 },
+    });
+
+    await expect(service.request(publicRequest)).resolves.toMatchObject({
+      response: { status: "accepted", retryAfterSeconds: 17 },
+    });
+    expect(repository.replaceAndEnqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        challenge: expect.objectContaining({
+          attemptsRemaining: 2,
+          expiresAt: new Date("2026-08-21T12:01:30.000Z"),
+        }),
+      }),
+    );
+  });
+
   it("keeps sign-in unbound and persists server-derived binding for protected purposes", async () => {
     const { service, repository } = setup();
 

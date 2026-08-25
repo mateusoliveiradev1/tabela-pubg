@@ -25,7 +25,7 @@ import {
   revokeOtherSessions,
   revokeSession,
   rotateIdentitySession,
-  sessionDurations,
+  type SessionSecurityPolicy,
 } from "@pubg-camp/database";
 import { createRedisConnection, pingRedis } from "@pubg-camp/queue";
 import type { CsrfService } from "../security/csrf.service.js";
@@ -38,7 +38,12 @@ import type { IdentityModuleServices } from "./identity.module.js";
 import type { IdentitySecurityChangeApplicationPort } from "./identity.service.js";
 import { type IdentityRepository, IdentityService } from "./identity.service.js";
 import { OAuthService, type OAuthTransactionRepository } from "./oauth.service.js";
-import { type OtpDeliveryRequest, type OtpRepository, OtpService } from "./otp.service.js";
+import {
+  type OtpDeliveryRequest,
+  type OtpRepository,
+  type OtpSecurityPolicy,
+  OtpService,
+} from "./otp.service.js";
 import type { TokenGenerator } from "./ports/token-generator.js";
 import { type SessionRepositoryPort, SessionService } from "./session.service.js";
 
@@ -52,8 +57,14 @@ export interface IdentityRuntimeOptions {
   tokens: TokenGenerator;
   otpPepper: Uint8Array;
   encryptionKey: EncryptionKey;
+  policies: IdentitySecurityPolicies;
   clock?: { now(): Date };
   securityLog?: { record(event: { correlationId: string; category: string }): void };
+}
+
+export interface IdentitySecurityPolicies {
+  session: SessionSecurityPolicy;
+  otp: OtpSecurityPolicy;
 }
 
 export interface IdentityRuntime {
@@ -126,7 +137,13 @@ export async function createIdentityRuntime(
   await pingRedis(redis);
 
   const sessions = new SessionService(
-    sessionRepository(options.database, options.tokens, options.encryptionKey, clock),
+    sessionRepository(
+      options.database,
+      options.tokens,
+      options.encryptionKey,
+      clock,
+      options.policies.session,
+    ),
     options.tokens,
     clock,
   );
@@ -134,9 +151,10 @@ export async function createIdentityRuntime(
     database: options.database,
     tokens: options.tokens,
     clock,
+    sessionPolicy: options.policies.session,
   });
   const identity = new IdentityService(
-    identityRepository(options.database, options.tokens, clock),
+    identityRepository(options.database, options.tokens, clock, options.policies.session),
     sessions,
     options.tokens,
     clock,
@@ -158,12 +176,26 @@ export async function createIdentityRuntime(
     clock,
   );
   const otp = new OtpService(
-    otpRepository(options.database, clock, options.encryptionKey, options.tokens),
-    new RedisAuthRateLimiter(redis, { keyPrefix: redisPrefixes.authKeyPrefix }),
+    otpRepository(
+      options.database,
+      clock,
+      options.encryptionKey,
+      options.tokens,
+      options.policies.session,
+    ),
+    new RedisAuthRateLimiter(redis, {
+      keyPrefix: redisPrefixes.authKeyPrefix,
+      policies: {
+        "otp-request": {
+          cooldown: { points: 1, durationSeconds: options.policies.otp.cooldownSeconds },
+        },
+      },
+    }),
     options.securityLog ?? { record: () => undefined },
     options.tokens,
     clock,
     options.otpPepper,
+    options.policies.otp,
   );
 
   return {
@@ -186,6 +218,7 @@ export function buildIdentitySecurityChangeApplication(input: {
   tokens: TokenGenerator;
   clock: { now(): Date };
   execute?: typeof executeIdentitySecurityChange;
+  sessionPolicy?: SessionSecurityPolicy;
 }): IdentitySecurityChangeApplicationPort {
   const execute = input.execute ?? executeIdentitySecurityChange;
   return {
@@ -200,6 +233,7 @@ export function buildIdentitySecurityChangeApplication(input: {
         generateId: () => input.tokens.id(),
         generateCorrelationId: () => command.correlationId,
         generateOpaqueToken: () => Buffer.from(input.tokens.opaque(32), "base64url"),
+        ...(input.sessionPolicy === undefined ? {} : { sessionPolicy: input.sessionPolicy }),
       });
       return {
         sessionId: committed.sessionId,
@@ -254,6 +288,7 @@ function identityRepository(
   database: DatabaseConnection["db"],
   tokens: TokenGenerator,
   clock: { now(): Date },
+  sessionPolicy: SessionSecurityPolicy,
 ): IdentityRepository {
   return {
     findDiscordIdentity: (subject) => findDiscordIdentity(database, subject),
@@ -277,7 +312,7 @@ function identityRepository(
     listForUser: (userId) => listIdentitiesForUser(database, userId),
     findPendingLinkForSession: (input) => findPendingIdentityLinkForSession(database, input),
     findPendingLink: (input) => findPendingIdentityLink(database, input),
-    removeOwned: (input) => removeOwnedIdentity(database, input),
+    removeOwned: (input) => removeOwnedIdentity(database, { ...input, sessionPolicy }),
   };
 }
 
@@ -286,6 +321,7 @@ function otpRepository(
   clock: { now(): Date },
   encryptionKey: EncryptionKey,
   tokens: TokenGenerator,
+  sessionPolicy: SessionSecurityPolicy,
 ): OtpRepository {
   return {
     replaceAndEnqueue: ({ challenge, delivery }) => {
@@ -315,7 +351,7 @@ function otpRepository(
         : null;
     },
     recordFailure: (input) => recordAuthChallengeFailure(database, input),
-    complete: (input) => completeOtpChallenge(database, input),
+    complete: (input) => completeOtpChallenge(database, { ...input, sessionPolicy }),
   };
 }
 
@@ -324,6 +360,7 @@ function sessionRepository(
   tokens: TokenGenerator,
   encryptionKey: EncryptionKey,
   clock: { now(): Date },
+  policy: SessionSecurityPolicy,
 ): SessionRepositoryPort {
   return {
     issue: (input) =>
@@ -334,8 +371,9 @@ function sessionRepository(
         trust: input.trust,
         issuedAt: input.issuedAt,
         absoluteExpiresAt:
-          input.expiresAt ?? new Date(input.issuedAt.getTime() + sessionDurations.absoluteMs),
+          input.expiresAt ?? new Date(input.issuedAt.getTime() + policy.absoluteMs),
         deviceId: tokens.id(),
+        policy,
       }),
     issueForDevice: async (input) => {
       const issued = await issueSessionForDevice(
@@ -356,6 +394,7 @@ function sessionRepository(
           clock: () => clock.now(),
           generateId: () => tokens.id(),
           randomBytes: (size) => Buffer.from(tokens.opaque(size), "base64url"),
+          policy,
         },
       );
       return {
@@ -396,7 +435,7 @@ function sessionRepository(
         input.reason,
         () => input.now,
       ),
-    rotate: (input) => rotateIdentitySession(database, input),
+    rotate: (input) => rotateIdentitySession(database, { ...input, policy }),
     findForStepUp: async (userId, sessionId) => {
       const resolved = await findSessionForStepUp(database, userId, sessionId);
       return resolved
