@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IdentitySecurityChangeReauthenticationRequiredError } from "@pubg-camp/database";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReauthenticationRequiredException } from "./identity.service.js";
 
 const runtimeSpies = vi.hoisted(() => ({
