@@ -21,12 +21,14 @@ function hmac(email: string, purpose: string, code: string): string {
 function setup(options?: {
   limiterBlocked?: boolean;
   limiterUnavailable?: boolean;
+  issued?: boolean;
   policy?: { lifetimeMs: number; maxAttempts: number; cooldownSeconds: number };
 }) {
   const challenges = new Map<string, OtpChallengeRecord & { consumed?: boolean }>();
   const delivery = { enqueue: vi.fn(async (_input: OtpDeliveryRequest) => undefined) };
   const repository: OtpRepository = {
     replaceAndEnqueue: vi.fn(async ({ challenge, delivery: request }) => {
+      if (options?.issued === false) return false;
       for (const stored of challenges.values()) {
         if (
           stored.emailDigest === challenge.emailDigest &&
@@ -340,6 +342,31 @@ describe("OtpService", () => {
     expect(blocked.repository.replaceAndEnqueue).not.toHaveBeenCalled();
     expect(unavailable.repository.replaceAndEnqueue).not.toHaveBeenCalled();
     expect(JSON.stringify(unavailable.securityLog.record.mock.calls)).not.toContain("example.com");
+  });
+
+  it("returns an opaque unresolvable handle when no protected challenge is issued", async () => {
+    const { service, repository, delivery } = setup({ issued: false });
+
+    const accepted = await service.request({ ...publicRequest, purpose: "step-up", ...binding });
+
+    expect(accepted).toEqual({
+      response: { status: "accepted", retryAfterSeconds: 60 },
+      challengeId: "id-1",
+    });
+    expect(repository.replaceAndEnqueue).toHaveBeenCalledTimes(1);
+    expect(delivery.enqueue).not.toHaveBeenCalled();
+    await expect(
+      service.verify({
+        challengeId: accepted.challengeId ?? "",
+        email: publicRequest.email,
+        purpose: "step-up",
+        code: "12345678",
+        trustedIp: publicRequest.trustedIp,
+        correlationId: "corr-fake-handle",
+        ...binding,
+      }),
+    ).resolves.toEqual({ status: "rejected" });
+    expect(repository.complete).not.toHaveBeenCalled();
   });
 
   it("expires and locks a challenge after five wrong attempts", async () => {

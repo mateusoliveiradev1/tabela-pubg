@@ -165,6 +165,53 @@ describe("same-origin platform BFF", () => {
     expect(response.headers.get("x-otp-challenge-id")).toBe("66323e38-bb3e-4c19-b23a-821b355c06e3");
   });
 
+  it("preserves indistinguishable owner and foreign protected OTP response shapes", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { status: "accepted", retryAfterSeconds: 60 },
+          {
+            headers: {
+              "x-otp-challenge-id": "33333333-3333-4333-8333-333333333333",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { status: "accepted", retryAfterSeconds: 60 },
+          {
+            headers: {
+              "x-otp-challenge-id": "44444444-4444-4444-8444-444444444444",
+            },
+          },
+        ),
+      );
+
+    const invoke = (email: string) =>
+      POST(
+        request("identity/email/otp/step-up/request", {
+          method: "POST",
+          headers: {
+            cookie: "__Host-session=opaque-session",
+            "content-type": "application/json",
+            "x-csrf-token": "authenticated-csrf-token",
+          },
+          body: JSON.stringify({ email }),
+        }),
+        context("identity", "email", "otp", "step-up", "request"),
+      );
+    const owner = await invoke("owner@example.test");
+    const foreign = await invoke("foreign@example.test");
+
+    expect(foreign.status).toBe(owner.status);
+    expect(await foreign.clone().json()).toEqual(await owner.clone().json());
+    expect([...foreign.headers.keys()]).toEqual([...owner.headers.keys()]);
+    expect(owner.headers.get("x-otp-challenge-id")).not.toBe(
+      foreign.headers.get("x-otp-challenge-id"),
+    );
+  });
+
   it.each([
     {
       name: "members",

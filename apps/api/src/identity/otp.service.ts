@@ -155,6 +155,7 @@ export class OtpService {
     }
     const normalizedEmail = normalizeEmail(input.email);
     const emailDigest = this.tokens.digest(normalizedEmail);
+    const challengeId = this.tokens.id();
     const decision = await this.consumeLimit(
       "otp-request",
       emailDigest,
@@ -162,16 +163,15 @@ export class OtpService {
       input.correlationId,
     );
     if (!decision) {
-      return { response: this.acceptedResponse() };
+      return { response: this.acceptedResponse(), challengeId };
     }
 
     const code = this.tokens.numericCode(OTP_CODE_LENGTH);
     if (!/^\d{8}$/.test(code)) {
       throw new Error("token generator returned an invalid OTP");
     }
-    const challengeId = this.tokens.id();
     const expiresAt = new Date(this.clock.now().getTime() + this.policy.lifetimeMs);
-    const issued = await this.repository.replaceAndEnqueue({
+    await this.repository.replaceAndEnqueue({
       challenge: {
         id: challengeId,
         emailDigest,
@@ -191,7 +191,7 @@ export class OtpService {
         correlationId: input.correlationId,
       },
     });
-    return { response: this.acceptedResponse(), ...(issued ? { challengeId } : {}) };
+    return { response: this.acceptedResponse(), challengeId };
   }
 
   async verify(input: {

@@ -406,6 +406,49 @@ describe("IdentityController", () => {
     ).rejects.toThrow();
   });
 
+  it("keeps owner and foreign protected OTP HTTP contracts indistinguishable", async () => {
+    const { controller, otp } = setup();
+    vi.mocked(otp.request)
+      .mockResolvedValueOnce({
+        response: { status: "accepted", retryAfterSeconds: 60 },
+        challengeId: "33333333-3333-4333-8333-333333333333",
+      })
+      .mockResolvedValueOnce({
+        response: { status: "accepted", retryAfterSeconds: 60 },
+        challengeId: "44444444-4444-4444-8444-444444444444",
+      });
+    const ownerReply = reply();
+    const foreignReply = reply();
+
+    const owner = await controller.requestEmailStepUpOtp(
+      { email: "owner@example.com" },
+      "203.0.113.8",
+      "corr-owner",
+      request(),
+      ownerReply,
+    );
+    const foreign = await controller.requestEmailStepUpOtp(
+      { email: "foreign@example.com" },
+      "203.0.113.8",
+      "corr-foreign",
+      request(),
+      foreignReply,
+    );
+
+    expect(owner).toEqual(foreign);
+    expect(ownerReply.header.mock.calls.map(([name]) => name)).toEqual(
+      foreignReply.header.mock.calls.map(([name]) => name),
+    );
+    expect(ownerReply.header).toHaveBeenCalledWith(
+      "x-otp-challenge-id",
+      "33333333-3333-4333-8333-333333333333",
+    );
+    expect(foreignReply.header).toHaveBeenCalledWith(
+      "x-otp-challenge-id",
+      "44444444-4444-4444-8444-444444444444",
+    );
+  });
+
   it("trusts the committed OTP step-up without a second session mutation", async () => {
     const { controller, otp, sessions, csrf, events } = setup();
     const confirmedAt = new Date("2026-08-24T12:00:00.000Z");
