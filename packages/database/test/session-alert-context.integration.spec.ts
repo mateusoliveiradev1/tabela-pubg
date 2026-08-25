@@ -37,12 +37,8 @@ async function applyMigrations(client: Sql, schemaName: string): Promise<void> {
   for (const migration of migrations) {
     const source = await readFile(path.join(migrationsFolder, migration), "utf8");
     const isolated = source.replaceAll('"public".', `${quotedSchema}.`);
-    for (const statement of isolated
-      .split("--> statement-breakpoint")
-      .map((value) => value.trim())
-      .filter(Boolean)) {
-      await client.unsafe(statement);
-    }
+    const batch = isolated.replaceAll("--> statement-breakpoint", "\n").trim();
+    if (batch) await client.unsafe(batch);
   }
 }
 
