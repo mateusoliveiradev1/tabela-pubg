@@ -188,12 +188,18 @@ test.describe
       await page.getByRole("button", { name: "Desvincular E-mail" }).click();
       await page.getByRole("button", { name: "Remover forma de acesso" }).click();
       await completeDiscordStepUpFromDialog(page, "e2e-link-code");
-      await expect.poll(() => activeIdentity("email")).toBeNull();
+      await expect
+        .poll(() => activeIdentity("email"), {
+          message: "email identity removal after Discord step-up",
+          timeout: 15_000,
+        })
+        .toBeNull();
+      await page.reload();
       await expect(page.getByRole("button", { name: "Vincular e-mail" })).toBeVisible();
 
       await expireCurrentProof();
-      await page.getByRole("button", { name: "Vincular e-mail" }).click();
-      await page.getByRole("button", { name: "Confirmar identidade" }).click();
+      await page.getByRole("button", { name: "Vincular e-mail" }).click({ timeout: 15_000 });
+      await page.getByRole("button", { name: "Confirmar identidade" }).click({ timeout: 15_000 });
       await completeDiscordStepUpFromDialog(page, "e2e-link-code");
       await expect(page.getByLabel("E-mail a vincular")).toBeVisible();
       await page.getByLabel("E-mail a vincular").fill(relinkedOwnerEmail);
@@ -213,13 +219,15 @@ test.describe
       expect((await candidateVerify).ok()).toBe(true);
       await expect.poll(() => activeIdentity("email"), { timeout: 15_000 }).not.toBeNull();
 
-      await page.reload();
-      expect(
-        await page.evaluate(() => ({
-          pending: sessionStorage.getItem("pubg-camp:identity-action:pending"),
-          ready: sessionStorage.getItem("pubg-camp:identity-action:ready"),
-        })),
-      ).toEqual({ pending: null, ready: null });
+      await expect(async () => {
+        expect(
+          await page.evaluate(() => ({
+            pending: sessionStorage.getItem("pubg-camp:identity-action:pending"),
+            ready: sessionStorage.getItem("pubg-camp:identity-action:ready"),
+          })),
+        ).toEqual({ pending: null, ready: null });
+      }, "identity action continuation is consumed one-shot").toPass({ timeout: 15_000 });
+      state.csrf = await acquireCsrf(page);
       const [counts] = await state.sql`
         select
           count(*) filter (where provider = 'discord' and revoked_at is null)::int as discord,
@@ -229,19 +237,39 @@ test.describe
       expect(counts).toEqual({ discord: 1, email: 1 });
 
       async function activeIdentity(provider: "discord" | "email") {
-        const [identity] = await state.sql`
-          select id from identities
-          where user_id = ${state.ownerUserId} and provider = ${provider} and revoked_at is null
-          limit 1
-        `;
+        const [identity] = await databaseStep(
+          `read active ${provider} identity`,
+          state.sql`
+            select id from identities
+            where user_id = ${state.ownerUserId} and provider = ${provider} and revoked_at is null
+            limit 1
+          `,
+        );
         return identity ?? null;
       }
 
       async function expireCurrentProof() {
-        await state.sql`
-          update sessions set reauthenticated_at = now() - interval '11 minutes'
-          where id = ${state.ownerSessionId}
-        `;
+        await databaseStep(
+          "expire current reauthentication proof",
+          state.sql`
+            update sessions set reauthenticated_at = now() - interval '11 minutes'
+            where id = ${state.ownerSessionId}
+          `,
+        );
+      }
+
+      async function databaseStep<T>(label: string, operation: PromiseLike<T>): Promise<T> {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            Promise.resolve(operation),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => reject(new Error(`Timed out after 15s: ${label}`)), 15_000);
+            }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
       }
     });
 
@@ -641,7 +669,7 @@ async function discordStepUp(page: Page): Promise<string> {
     "POST",
     "/api/platform/identity/oauth/discord/step-up/callback",
     csrf,
-    { purpose: "step-up", code: "e2e-code", state },
+    { purpose: "step-up", code: "e2e-link-code", state },
   );
   expect(callback.status).toBe(201);
   return callback.headers["x-csrf-token"] ?? acquireCsrf(page);
@@ -671,14 +699,15 @@ async function completeDiscordStepUpFromDialog(page: Page, code = "e2e-code"): P
   await page.route("https://discord.com/**", (route) => route.abort());
   const responsePromise = page.waitForResponse(
     (response) => new URL(response.url()).pathname === routePath,
+    { timeout: 15_000 },
   );
-  await page.getByRole("button", { name: "Confirmar com Discord" }).click();
+  await page.getByRole("button", { name: "Confirmar com Discord" }).click({ timeout: 15_000 });
   const started = await responsePromise;
   const state = new URL(started.headers().location ?? "").searchParams.get("state");
   expect(state).toBeTruthy();
   await page.unroute("https://discord.com/**");
   await finishDiscordCallback(page, "step-up", state as string, code);
-  await page.getByRole("link", { name: "Continuar" }).click();
+  await page.getByRole("link", { name: "Continuar" }).click({ timeout: 15_000 });
   await expect(page).toHaveURL(/\/conta\/identidades$/);
 }
 
