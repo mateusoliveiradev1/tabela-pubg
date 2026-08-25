@@ -210,6 +210,10 @@ function validate(input) {
   requireAll(input.playwrightConfig, [
     [/globalSetup:\s*"\.\/e2e\/global-setup\.ts"/, "single browser authentication setup"],
     [/storageState:\s*authStatePath/, "reused browser authentication state"],
+    [
+      /name:\s*"phase2-runtime",[\s\S]{0,300}?retries:\s*0/,
+      "retry-free mutable phase 2 runtime project",
+    ],
   ]);
   requireAll(input.authSetup, [
     [/phase2AuthStatePath\(process\.env\)/, "run-owned authentication state path"],
@@ -250,6 +254,8 @@ function validate(input) {
       /expect\(otpOutbox\.correlation_id\)\.toBe\(otpRequest\.correlationId\)/,
       "outbox correlation propagation",
     ],
+    [/await waitForOtpRequestCooldown\(email\)/, "server-advertised OTP cooldown wait"],
+    [/rememberOtpRequestCooldown\(email,/, "server-advertised OTP cooldown tracking"],
   ]);
   requireAll(input.workerMain, [
     [/new OutboxPublisher\(/, "real outbox publisher"],
@@ -559,6 +565,20 @@ function runSelfTest(baseline) {
         ),
     ],
     [
+      "runtime-retries-enabled",
+      (value) => mutate(value, "playwrightConfig", "retries: 0", "retries: 1"),
+    ],
+    [
+      "missing-runtime-otp-cooldown-wait",
+      (value) =>
+        mutateAll(
+          value,
+          "runtimeSpec",
+          "await waitForOtpRequestCooldown(email)",
+          "await removedOtpRequestCooldown(email)",
+        ),
+    ],
+    [
       "missing-run-owned-auth-mailbox",
       (value) =>
         mutate(
@@ -579,7 +599,7 @@ function runSelfTest(baseline) {
         ),
     ],
   ];
-  if (cases.length !== 37) throw new Error("CI validator self-test inventory cardinality changed");
+  if (cases.length !== 39) throw new Error("CI validator self-test inventory cardinality changed");
   const executed = [];
   for (const [name, change] of cases) {
     let rejected = false;

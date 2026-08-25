@@ -65,6 +65,7 @@ export default defineConfig({
     {
       name: "phase2-runtime",
       testMatch: "phase2-runtime.spec.ts",
+      retries: 0,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],

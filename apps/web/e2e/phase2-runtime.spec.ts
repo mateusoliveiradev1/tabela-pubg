@@ -18,6 +18,7 @@ const databaseRequire = createRequire(path.join(repositoryRoot, "packages/databa
 const postgresModule = databaseRequire("postgres");
 const postgres = postgresModule.default ?? postgresModule;
 const evidence = parseEvidence();
+const otpRequestReadyAt = new Map<string, number>();
 const ownerEmail = `owner-${evidence.runScopeId}@example.test`;
 const relinkedOwnerEmail = `owner-relinked-${evidence.runScopeId}@example.test`;
 const adminEmail = `admin-${evidence.runScopeId}@example.test`;
@@ -677,6 +678,7 @@ async function discordStepUp(page: Page): Promise<string> {
 }
 
 async function completeEmailStepUpFromDialog(page: Page, email: string): Promise<void> {
+  await waitForOtpRequestCooldown(email);
   await page.getByLabel("E-mail já vinculado").fill(email);
   const requestPromise = page.waitForResponse((response) =>
     new URL(response.url()).pathname.endsWith("/identity/email/otp/step-up/request"),
@@ -684,6 +686,8 @@ async function completeEmailStepUpFromDialog(page: Page, email: string): Promise
   await page.getByRole("button", { name: "Receber código de confirmação" }).click();
   const requested = await requestPromise;
   expect(requested.ok()).toBe(true);
+  const accepted = (await requested.json()) as { retryAfterSeconds?: unknown };
+  rememberOtpRequestCooldown(email, accepted.retryAfterSeconds);
   const challengeId = requested.headers()["x-otp-challenge-id"];
   expect(challengeId).toBeTruthy();
   const code = await waitForOtp(email, challengeId);
@@ -786,6 +790,7 @@ async function requestOtp(
   email: string,
   csrf: string,
 ): Promise<{ challengeId: string; correlationId: string }> {
+  await waitForOtpRequestCooldown(email);
   const requested = await browserJson(
     page,
     "POST",
@@ -794,6 +799,8 @@ async function requestOtp(
     { email },
   );
   expect(requested.status, JSON.stringify(requested.body)).toBe(201);
+  const accepted = requested.body as { retryAfterSeconds?: unknown };
+  rememberOtpRequestCooldown(email, accepted.retryAfterSeconds);
   const challenge = requested.headers["x-otp-challenge-id"];
   expect(challenge).toBeTruthy();
   const correlationId = requested.headers["x-correlation-id"];
@@ -801,6 +808,32 @@ async function requestOtp(
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
   );
   return { challengeId: challenge as string, correlationId };
+}
+
+async function waitForOtpRequestCooldown(email: string): Promise<void> {
+  const key = email.trim().toLowerCase();
+  while (true) {
+    const readyAt = otpRequestReadyAt.get(key);
+    if (readyAt === undefined) return;
+    const remainingMs = readyAt - Date.now();
+    if (remainingMs <= 0) {
+      otpRequestReadyAt.delete(key);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, remainingMs));
+  }
+}
+
+function rememberOtpRequestCooldown(email: string, retryAfterSeconds: unknown): void {
+  if (
+    typeof retryAfterSeconds !== "number" ||
+    !Number.isInteger(retryAfterSeconds) ||
+    retryAfterSeconds < 1 ||
+    retryAfterSeconds > 3_600
+  ) {
+    throw new Error("OTP request response contained an invalid cooldown");
+  }
+  otpRequestReadyAt.set(email.trim().toLowerCase(), Date.now() + retryAfterSeconds * 1_000);
 }
 
 async function waitForOtp(email: string, challengeId: string): Promise<string> {
