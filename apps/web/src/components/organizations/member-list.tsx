@@ -1,7 +1,7 @@
 "use client";
 
 import type { MembershipSummary } from "@pubg-camp/contracts";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ConfirmSensitiveActionDialog } from "../authorization/confirm-sensitive-action-dialog";
 import {
   type AuthorizationScopeOption,
@@ -9,6 +9,10 @@ import {
   ScopeRoleEditor,
   updateMembership,
 } from "../authorization/scope-role-editor";
+import {
+  consumeSensitiveActionContinuation,
+  type SensitiveActionContinuation,
+} from "../authorization/sensitive-action-continuation";
 import { Button } from "../ui/button";
 import { EmptyState, InlineAlert, RoleBadge, StatusBadge } from "../ui/feedback";
 
@@ -37,6 +41,8 @@ export function MemberList({
   const [transferName, setTransferName] = useState("");
   const [transferReady, setTransferReady] = useState(false);
   const [notice, setNotice] = useState<string>();
+  const [restoredContinuation, setRestoredContinuation] = useState<SensitiveActionContinuation>();
+  const continuationChecked = useRef(false);
   const canManage =
     capabilities.includes("members:manage") || capabilities.includes("organization:roles:manage");
   const canInvite =
@@ -49,6 +55,31 @@ export function MemberList({
   const ownerCount = members.filter(
     (member) => member.status === "active" && member.organizationRole === "owner",
   ).length;
+
+  useEffect(() => {
+    if (continuationChecked.current) return;
+    continuationChecked.current = true;
+    const restored = consumeSensitiveActionContinuation(sessionStorage, organizationId);
+    if (!restored) return;
+    if (restored.kind === "membership-role-change") {
+      const member = members.find((candidate) => candidate.id === restored.membershipId);
+      if (!member) return;
+      setEditing(member);
+      setDraft(restored.draft);
+    } else if (restored.kind === "membership-revocation") {
+      const member = members.find((candidate) => candidate.id === restored.membershipId);
+      if (!member) return;
+      setRevoking(member);
+    } else {
+      const member = members.find((candidate) => candidate.id === restored.targetMembershipId);
+      if (!member || restored.organizationNameConfirmation !== organizationName) return;
+      setTransferTargetId(restored.targetMembershipId);
+      setTransferName(restored.organizationNameConfirmation);
+      setTransferOpen(true);
+      setTransferReady(true);
+    }
+    setRestoredContinuation(restored);
+  }, [members, organizationId, organizationName]);
 
   if (members.length === 0) {
     return (
@@ -75,6 +106,7 @@ export function MemberList({
     setNotice("Permissões atualizadas");
     setDraft(undefined);
     setEditing(undefined);
+    setRestoredContinuation(undefined);
   }
 
   async function commitRevocation(reason: string) {
@@ -87,6 +119,7 @@ export function MemberList({
     await refreshAuthoritative();
     setNotice("Acesso revogado");
     setRevoking(undefined);
+    setRestoredContinuation(undefined);
   }
 
   async function commitTransfer(reason: string) {
@@ -106,6 +139,7 @@ export function MemberList({
     setTransferOpen(false);
     setTransferTargetId("");
     setTransferName("");
+    setRestoredContinuation(undefined);
   }
 
   async function refreshAuthoritative() {
@@ -229,7 +263,26 @@ export function MemberList({
         <ConfirmSensitiveActionDialog
           impact="As permissões desta pessoa serão alteradas somente depois da confirmação do servidor."
           confirmLabel="Salvar permissões"
-          onCancel={() => setDraft(undefined)}
+          continuation={{
+            kind: "membership-role-change",
+            organizationId,
+            membershipId: editing.id,
+            draft,
+          }}
+          initialReason={
+            restoredContinuation?.kind === "membership-role-change" &&
+            restoredContinuation.membershipId === editing.id
+              ? restoredContinuation.reason
+              : undefined
+          }
+          reauthenticated={
+            restoredContinuation?.kind === "membership-role-change" &&
+            restoredContinuation.membershipId === editing.id
+          }
+          onCancel={() => {
+            setDraft(undefined);
+            setRestoredContinuation(undefined);
+          }}
           onCommit={commitPermissions}
         />
       ) : null}
@@ -238,7 +291,25 @@ export function MemberList({
           impact="Esta pessoa perderá o acesso a esta organização, mas continuará conectada às demais."
           confirmLabel="Revogar acesso"
           destructive
-          onCancel={() => setRevoking(undefined)}
+          continuation={{
+            kind: "membership-revocation",
+            organizationId,
+            membershipId: revoking.id,
+          }}
+          initialReason={
+            restoredContinuation?.kind === "membership-revocation" &&
+            restoredContinuation.membershipId === revoking.id
+              ? restoredContinuation.reason
+              : undefined
+          }
+          reauthenticated={
+            restoredContinuation?.kind === "membership-revocation" &&
+            restoredContinuation.membershipId === revoking.id
+          }
+          onCancel={() => {
+            setRevoking(undefined);
+            setRestoredContinuation(undefined);
+          }}
           onCommit={commitRevocation}
         />
       ) : null}
@@ -301,7 +372,22 @@ export function MemberList({
           impact="Você deixará de ser proprietário. Todas as suas outras sessões serão encerradas; somente esta sessão reautenticada permanecerá conectada."
           confirmLabel="Transferir propriedade"
           destructive
-          onCancel={() => setTransferReady(false)}
+          continuation={{
+            kind: "ownership-transfer",
+            organizationId,
+            targetMembershipId: transferTargetId,
+            organizationNameConfirmation: transferName,
+          }}
+          initialReason={
+            restoredContinuation?.kind === "ownership-transfer"
+              ? restoredContinuation.reason
+              : undefined
+          }
+          reauthenticated={restoredContinuation?.kind === "ownership-transfer"}
+          onCancel={() => {
+            setTransferReady(false);
+            setRestoredContinuation(undefined);
+          }}
           onCommit={commitTransfer}
         />
       ) : null}

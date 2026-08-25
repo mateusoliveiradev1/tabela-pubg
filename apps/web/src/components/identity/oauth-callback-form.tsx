@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
+import { promoteSensitiveActionContinuation } from "../authorization/sensitive-action-continuation";
 import { InlineAlert } from "../ui/feedback";
 
 type CallbackStatus =
@@ -78,6 +79,9 @@ async function completeCallback(
     });
     if (!response.ok) return { state: "error" };
     const payload = (await response.json()) as { nextPath?: unknown };
+    if (purpose === "step-up" && !promoteSensitiveActionContinuation(sessionStorage)) {
+      return { state: "error" };
+    }
     return {
       state: "success",
       nextPath:

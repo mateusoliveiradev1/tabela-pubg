@@ -1,6 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  consumeSensitiveActionContinuation,
+  storeSensitiveActionContinuation,
+} from "../authorization/sensitive-action-continuation";
 import { DiscordButton } from "./discord-button";
 import { EmailOtpForm } from "./email-otp-form";
 import { InvitationAcceptForm } from "./invitation-accept-form";
@@ -11,6 +15,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  sessionStorage.clear();
 });
 
 function csrfResponse(token = "csrf-token-with-safe-length") {
@@ -221,6 +226,48 @@ describe("callback OAuth seguro", () => {
     expect((await screen.findByRole("link", { name: "Continuar" })).getAttribute("href")).toBe(
       "/primeiro-acesso",
     );
+  });
+
+  it("promotes one exact session continuation only after Discord step-up succeeds", async () => {
+    const organizationId = "00000000-0000-4000-8000-000000000001";
+    storeSensitiveActionContinuation(
+      sessionStorage,
+      {
+        kind: "membership-revocation",
+        organizationId,
+        membershipId: "00000000-0000-4000-8000-000000000002",
+      },
+      "Revogação confirmada",
+    );
+    window.history.replaceState(
+      {},
+      "",
+      "/entrar/discord/retorno?code=provider-secret&state=opaque-state-with-safe-length&purpose=step-up",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(csrfResponse())
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ status: "authenticated", nextPath: `/o/${organizationId}/membros` }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+        ),
+    );
+
+    render(<OAuthCallbackForm />);
+
+    expect(await screen.findByRole("link", { name: "Continuar" })).toBeTruthy();
+    expect(consumeSensitiveActionContinuation(sessionStorage, organizationId)).toMatchObject({
+      kind: "membership-revocation",
+      reason: "Revogação confirmada",
+    });
+    expect(consumeSensitiveActionContinuation(sessionStorage, organizationId)).toBeNull();
   });
 });
 

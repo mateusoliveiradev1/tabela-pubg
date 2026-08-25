@@ -181,6 +181,60 @@ describe("criação de organização", () => {
 });
 
 describe("formas de acesso", () => {
+  it("usa endpoints OTP purpose-specific para vincular e-mail", async () => {
+    const user = userEvent.setup();
+    const challengeId = "00000000-0000-4000-8000-000000000099";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(null, { status: 202, headers: { "x-otp-challenge-id": challengeId } }),
+      )
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "identity-link-ready" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <IdentityCards
+        identities={[
+          {
+            id: "00000000-0000-4000-8000-000000000010",
+            provider: "discord",
+            status: "verified",
+            displayIdentifier: "li•••a",
+            linkedAt: "2026-08-20T10:00:00.000Z",
+          },
+        ]}
+        onRefresh={() => undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Vincular e-mail" }));
+    await user.type(screen.getByLabelText("E-mail a vincular"), "New@Example.test");
+    await user.click(screen.getByRole("button", { name: "Enviar código de vínculo" }));
+    await screen.findByLabelText("Código de 8 dígitos");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/platform/identity/email/otp/link-email/request",
+      expect.objectContaining({ body: JSON.stringify({ email: "new@example.test" }) }),
+    );
+
+    await user.type(screen.getByLabelText("Código de 8 dígitos"), "12345678");
+    await user.click(screen.getByRole("button", { name: "Verificar e continuar" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/platform/identity/email/otp/link-email/verify",
+      expect.objectContaining({
+        body: JSON.stringify({ challengeId, email: "new@example.test", code: "12345678" }),
+      }),
+    );
+  });
+
   it("não remove a última identidade e confirma vínculo explicitamente sem estado otimista", async () => {
     const user = userEvent.setup();
     let finishLink: ((response: Response) => void) | undefined;

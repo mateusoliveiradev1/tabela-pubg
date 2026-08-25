@@ -258,7 +258,7 @@ function EmailIdentityLink({ onVerified }: { onVerified: () => void }) {
     setError(undefined);
     try {
       const csrf = await acquireCsrf();
-      const response = await fetch("/api/platform/identity/email/otp/request", {
+      const response = await fetch("/api/platform/identity/email/otp/link-email/request", {
         method: "POST",
         cache: "no-store",
         credentials: "same-origin",
@@ -267,7 +267,7 @@ function EmailIdentityLink({ onVerified }: { onVerified: () => void }) {
           "content-type": "application/json",
           "x-csrf-token": csrf,
         },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), purpose: "link-email" }),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
       const challenge = response.headers.get("x-otp-challenge-id");
       if (!response.ok || !challenge) throw new Error();
@@ -289,7 +289,7 @@ function EmailIdentityLink({ onVerified }: { onVerified: () => void }) {
     setError(undefined);
     try {
       const csrf = await acquireCsrf();
-      const response = await fetch("/api/platform/identity/email/otp/verify", {
+      const response = await fetch("/api/platform/identity/email/otp/link-email/verify", {
         method: "POST",
         cache: "no-store",
         credentials: "same-origin",
@@ -302,7 +302,6 @@ function EmailIdentityLink({ onVerified }: { onVerified: () => void }) {
           challengeId,
           email: email.trim().toLowerCase(),
           code,
-          purpose: "link-email",
         }),
       });
       if (!response.ok) throw new Error();

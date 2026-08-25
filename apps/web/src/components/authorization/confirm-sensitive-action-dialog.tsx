@@ -5,12 +5,19 @@ import { submitDiscordNavigation } from "../identity/discord-navigation";
 import { Button } from "../ui/button";
 import { InlineAlert } from "../ui/feedback";
 import { Input } from "../ui/input";
+import {
+  type SensitiveActionDescriptor,
+  storeSensitiveActionContinuation,
+} from "./sensitive-action-continuation";
 
 interface ConfirmSensitiveActionDialogProps {
   impact: string;
   confirmLabel: string;
   onCancel: () => void;
   onCommit: (reason: string) => Promise<void>;
+  continuation: SensitiveActionDescriptor;
+  initialReason?: string | undefined;
+  reauthenticated?: boolean;
   destructive?: boolean;
 }
 
@@ -21,12 +28,15 @@ export function ConfirmSensitiveActionDialog({
   confirmLabel,
   onCancel,
   onCommit,
+  continuation,
+  initialReason = "",
+  reauthenticated = false,
   destructive = false,
 }: ConfirmSensitiveActionDialogProps) {
   const returnFocus = useRef<HTMLElement | null>(null);
   const reasonInput = useRef<HTMLTextAreaElement | null>(null);
-  const [step, setStep] = useState<Step>("reason");
-  const [reason, setReason] = useState("");
+  const [step, setStep] = useState<Step>(reauthenticated ? "commit" : "reason");
+  const [reason, setReason] = useState(initialReason);
   const [email, setEmail] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [code, setCode] = useState("");
@@ -48,12 +58,12 @@ export function ConfirmSensitiveActionDialog({
     setError(undefined);
     try {
       const csrf = await acquireCsrf();
-      const response = await fetch("/api/platform/identity/email/otp/request", {
+      const response = await fetch("/api/platform/identity/email/otp/step-up/request", {
         method: "POST",
         cache: "no-store",
         credentials: "same-origin",
         headers: jsonHeaders(csrf),
-        body: JSON.stringify({ email: email.trim().toLowerCase(), purpose: "step-up" }),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
       const challenge = response.headers.get("x-otp-challenge-id");
       if (!response.ok || !challenge) throw new Error();
@@ -74,7 +84,7 @@ export function ConfirmSensitiveActionDialog({
     setError(undefined);
     try {
       const csrf = await acquireCsrf();
-      const response = await fetch("/api/platform/identity/email/otp/verify", {
+      const response = await fetch("/api/platform/identity/email/otp/step-up/verify", {
         method: "POST",
         cache: "no-store",
         credentials: "same-origin",
@@ -83,7 +93,6 @@ export function ConfirmSensitiveActionDialog({
           challengeId,
           email: email.trim().toLowerCase(),
           code,
-          purpose: "step-up",
         }),
       });
       const payload = response.ok ? ((await response.json()) as { status?: unknown }) : null;
@@ -102,7 +111,7 @@ export function ConfirmSensitiveActionDialog({
     setError(undefined);
     try {
       const csrf = await acquireCsrf();
-      sessionStorage.setItem("pubg-camp:sensitive-action-reason", reason);
+      storeSensitiveActionContinuation(sessionStorage, continuation, reason);
       submitDiscordNavigation({
         csrfToken: csrf,
         purpose: "step-up",

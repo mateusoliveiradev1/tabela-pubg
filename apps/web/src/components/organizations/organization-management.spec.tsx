@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuditEvent, AuditTimeline } from "../audit/audit-event";
 import { ScopeRoleEditor } from "../authorization/scope-role-editor";
+import {
+  promoteSensitiveActionContinuation,
+  storeSensitiveActionContinuation,
+} from "../authorization/sensitive-action-continuation";
 import { InvitationList } from "./invitation-list";
 import { MemberList } from "./member-list";
 
@@ -25,6 +29,7 @@ const owner = {
 
 afterEach(() => {
   cleanup();
+  sessionStorage.clear();
   vi.restoreAllMocks();
 });
 
@@ -156,8 +161,24 @@ describe("membros e permissões autoritativas", () => {
     expect((reason as HTMLTextAreaElement).value).toBe("Mudança na equipe de organização");
     await user.type(screen.getByRole("textbox", { name: "E-mail da conta" }), "liga@example.com");
     await user.click(screen.getByRole("button", { name: "Confirmar por e-mail" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/platform/identity/email/otp/step-up/request",
+      expect.objectContaining({ body: JSON.stringify({ email: "liga@example.com" }) }),
+    );
     await user.type(screen.getByRole("textbox", { name: "Código de 8 dígitos" }), "12345678");
     await user.click(screen.getByRole("button", { name: "Validar código" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/platform/identity/email/otp/step-up/verify",
+      expect.objectContaining({
+        body: JSON.stringify({
+          challengeId: "00000000-0000-4000-8000-000000000099",
+          email: "liga@example.com",
+          code: "12345678",
+        }),
+      }),
+    );
     expect(await screen.findByText("Identidade confirmada há menos de 10 minutos")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Salvar permissões" }));
     await user.click(screen.getByRole("button", { name: "Salvando…" }));
@@ -177,6 +198,55 @@ describe("membros e permissões autoritativas", () => {
       expect.objectContaining({
         method: "PATCH",
         headers: expect.objectContaining({ "x-csrf-token": "csrf-token-with-safe-length" }),
+      }),
+    );
+  });
+
+  it("restaura uma continuação Discord exata e one-use antes do commit", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(csrfResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "updated" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    storeSensitiveActionContinuation(
+      sessionStorage,
+      {
+        kind: "membership-role-change",
+        organizationId,
+        membershipId: memberId,
+        draft: { organizationRole: "admin", assignments: [] },
+      },
+      "Continuação Discord auditável",
+    );
+    expect(promoteSensitiveActionContinuation(sessionStorage)).toBe(true);
+
+    render(
+      <MemberList
+        organizationId={organizationId}
+        organizationName="Liga Central"
+        members={[{ ...owner, organizationRole: "member" }]}
+        capabilities={["members:view", "members:manage"]}
+        scopes={[]}
+        onAuthoritativeRefresh={() => undefined}
+      />,
+    );
+
+    expect(await screen.findByText("Identidade confirmada há menos de 10 minutos")).toBeTruthy();
+    expect(
+      (screen.getByRole("textbox", { name: "Motivo da alteração" }) as HTMLTextAreaElement).value,
+    ).toBe("Continuação Discord auditável");
+    await user.click(screen.getByRole("button", { name: "Salvar permissões" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/platform/organizations/${organizationId}/members/${memberId}`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          organizationRole: "admin",
+          assignments: [],
+          reason: "Continuação Discord auditável",
+        }),
       }),
     );
   });
