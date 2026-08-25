@@ -532,6 +532,34 @@ describe("IdentityController", () => {
     expect(csrf.rotateCurrent).not.toHaveBeenCalled();
   });
 
+  it("preserves typed reauthentication-required when freshness expires after OTP", async () => {
+    const { controller, otp, identity, csrf } = setup();
+    vi.mocked(otp.verify).mockResolvedValueOnce({
+      status: "identity-link-ready",
+      proofId: "44444444-4444-4444-8444-444444444444",
+      actorId: authenticated.actorId,
+      sessionId: authenticated.sessionId,
+    });
+    vi.mocked(identity.applyEmailSecurityChange).mockRejectedValueOnce(
+      new ReauthenticationRequiredException(),
+    );
+
+    await expect(
+      controller.verifyLinkEmailOtp(
+        {
+          challengeId: "33333333-3333-4333-8333-333333333333",
+          email: "player@example.com",
+          code: "12345678",
+        },
+        "203.0.113.8",
+        "corr-expired-after-otp",
+        request(),
+        reply(),
+      ),
+    ).rejects.toBeInstanceOf(ReauthenticationRequiredException);
+    expect(csrf.rotateToSession).not.toHaveBeenCalled();
+  });
+
   it("promotes only request.auth provisional session to the committed replacement token", async () => {
     const { controller, otp, csrf, events } = setup();
     const provisional = { ...authenticated, trust: "provisional" as const };

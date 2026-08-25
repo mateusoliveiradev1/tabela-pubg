@@ -10,6 +10,7 @@ import {
   executeIdentitySecurityChange,
   type IdentitySecurityChangeBoundary,
   type IdentitySecurityChangeInput,
+  IdentitySecurityChangeReauthenticationRequiredError,
 } from "../src/repositories/identity-security-change.js";
 import { resolveSession } from "../src/repositories/sessions.js";
 import * as schema from "../src/schema.js";
@@ -277,7 +278,7 @@ describe("identity security change transaction", () => {
               71,
             ),
           ),
-        ).rejects.toThrow("identity security change rejected");
+        ).rejects.toBeInstanceOf(IdentitySecurityChangeReauthenticationRequiredError);
         expect(await actorSnapshot(actor.actorId, proofId)).toBe(before);
       }
 

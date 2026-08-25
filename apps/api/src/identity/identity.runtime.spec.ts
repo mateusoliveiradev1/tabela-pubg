@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { IdentitySecurityChangeReauthenticationRequiredError } from "@pubg-camp/database";
+import { ReauthenticationRequiredException } from "./identity.service.js";
 
 const runtimeSpies = vi.hoisted(() => ({
   authConstructor: vi.fn(),
@@ -258,5 +260,32 @@ describe("identity runtime D-08 adapter", () => {
       sessionToken: "replacement-token",
       otherSessionsRevoked: 3,
     });
+  });
+
+  it("maps only the transactional freshness rejection to typed HTTP 428", async () => {
+    const adapter = buildIdentitySecurityChangeApplication({
+      database: { transaction: vi.fn() } as never,
+      tokens: {
+        id: vi.fn(() => "generated-id"),
+        opaque: vi.fn(() => Buffer.alloc(32, 7).toString("base64url")),
+        numericCode: vi.fn(() => "12345678"),
+        digest: vi.fn((value: string) => `digest:${value}`),
+      },
+      clock: { now: () => new Date("2026-08-25T05:00:00.000Z") },
+      execute: vi.fn(async () => {
+        throw new IdentitySecurityChangeReauthenticationRequiredError();
+      }),
+    });
+
+    await expect(
+      adapter.execute({
+        actorId: "actor-1",
+        currentSessionId: "session-1",
+        proofId: "proof-1",
+        change: { type: "link-identity", provider: "email", email: "player@example.com" },
+        now: new Date("2026-08-25T05:00:00.000Z"),
+        correlationId: "corr-reauth",
+      }),
+    ).rejects.toBeInstanceOf(ReauthenticationRequiredException);
   });
 });
