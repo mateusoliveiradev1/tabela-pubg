@@ -31,7 +31,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     await signIn(page, mailRoot);
     const csrf = await acquireCsrf(page);
     const organization = await createOrganization(page, csrf);
-    const invitee = `invitee-${requiredRunId()}@example.test`;
+    const invitee = ORGANIZER_EMAIL;
     await createInvitation(page, csrf, organization.organizationId, invitee);
     const invitationContext = await waitForInvitationToken(mailRoot, invitee);
     await seedSecondarySession();

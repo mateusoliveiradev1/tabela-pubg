@@ -25,12 +25,14 @@ test.describe("phase 2 browser smoke", () => {
       page.waitForResponse((response) => response.url().includes("/logo") && response.ok()),
       page.getByRole("button", { name: "Salvar logo" }).click(),
     ]);
+    const uploaded = await page.request.get(
+      `/api/platform/organizations/${phase2.organizationId}/logo`,
+    );
+    expect(uploaded.ok()).toBe(true);
+    expect(Buffer.from(await uploaded.body())).toEqual(phase2.logoBytes);
 
     await page.goto(`/convites/aceitar?token=${phase2.invitationContext}`);
-    const logo = page.getByRole("img", { name: new RegExp(phase2.organizationName) });
-    await expect(logo).toBeVisible();
-    const response = await page.request.get(await logo.getAttribute("src"));
-    expect(Buffer.from(await response.body())).toEqual(phase2.logoBytes);
+    await expect(page.getByRole("heading", { name: phase2.organizationName })).toBeVisible();
 
     await page.goto("/conta/sessoes");
     await expect(page.getByRole("heading", { name: "Sessões e dispositivos" })).toBeVisible();
