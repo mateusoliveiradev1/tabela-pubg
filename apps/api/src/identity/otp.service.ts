@@ -64,7 +64,7 @@ export interface OtpRepository {
   replaceAndEnqueue(input: {
     challenge: OtpChallengeRecord;
     delivery: OtpDeliveryRequest;
-  }): Promise<void>;
+  }): Promise<boolean>;
   findActive(input: {
     challengeId: string;
     purpose: OtpPurpose;
@@ -171,7 +171,7 @@ export class OtpService {
     }
     const challengeId = this.tokens.id();
     const expiresAt = new Date(this.clock.now().getTime() + this.policy.lifetimeMs);
-    await this.repository.replaceAndEnqueue({
+    const issued = await this.repository.replaceAndEnqueue({
       challenge: {
         id: challengeId,
         emailDigest,
@@ -191,7 +191,7 @@ export class OtpService {
         correlationId: input.correlationId,
       },
     });
-    return { response: this.acceptedResponse(), challengeId };
+    return { response: this.acceptedResponse(), ...(issued ? { challengeId } : {}) };
   }
 
   async verify(input: {

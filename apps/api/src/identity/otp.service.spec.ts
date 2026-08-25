@@ -40,6 +40,7 @@ function setup(options?: {
       }
       challenges.set(challenge.id, { ...challenge });
       await delivery.enqueue(request);
+      return true;
     }),
     findActive: vi.fn(async (input) => {
       const found = challenges.get(input.challengeId);

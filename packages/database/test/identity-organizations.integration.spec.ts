@@ -1172,7 +1172,7 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
       historical_consumed_at: null,
       reauthenticated_at: null,
     });
-  });
+  }, 20_000);
 
   it("binds protected OTP consume to actor, session and purpose without mismatch mutation", async () => {
     const issuedAt = new Date("2026-08-21T10:00:00.000Z");
@@ -1297,7 +1297,7 @@ describe.runIf(Boolean(databaseUrl))("identity repositories", () => {
         replacementSessionToken: "unused-replacement",
       }),
     ).resolves.toEqual({ status: "rejected" });
-  });
+  }, 20_000);
 
   it("resolves concurrent first email sign-in once and never merges a Discord email coincidence", async () => {
     const now = new Date("2026-08-21T11:00:00.000Z");

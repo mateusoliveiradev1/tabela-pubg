@@ -413,6 +413,45 @@ export async function replaceAuthChallengeDigest(
 
 export type OtpRequestMutationStage = "supersession" | "challenge" | "delivery" | "outbox";
 
+async function ownsActiveVerifiedEmailForStepUp(
+  executor: RepositoryExecutor,
+  input: { actorId: string; sessionId: string; email: string; now: Date },
+): Promise<boolean> {
+  const activeSession = await lockActiveSessionForOtp(executor, {
+    userId: input.actorId,
+    sessionId: input.sessionId,
+    now: input.now,
+  });
+  if (!activeSession) return false;
+
+  const normalized = normalizeEmail(input.email);
+  const [owned] = await executor
+    .select({ id: identities.id })
+    .from(identities)
+    .innerJoin(users, eq(users.id, identities.userId))
+    .innerJoin(
+      verifiedEmails,
+      and(
+        eq(verifiedEmails.userId, identities.userId),
+        eq(verifiedEmails.identityId, identities.id),
+        eq(verifiedEmails.normalizedEmail, normalized),
+        isNull(verifiedEmails.revokedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(identities.userId, input.actorId),
+        eq(identities.provider, "email"),
+        eq(identities.providerSubject, emailDigest(normalized)),
+        eq(identities.status, "verified"),
+        isNull(identities.revokedAt),
+        eq(users.status, "active"),
+      ),
+    )
+    .limit(1);
+  return Boolean(owned);
+}
+
 export async function replaceAuthChallengeWithNotification(
   database: Pick<PostgresJsDatabase<typeof databaseSchema>, "transaction">,
   input: {
@@ -420,8 +459,19 @@ export async function replaceAuthChallengeWithNotification(
     delivery: CreateEncryptedNotificationDeliveryInput;
     afterMutation?: (stage: OtpRequestMutationStage) => void | Promise<void>;
   },
-): Promise<void> {
-  await database.transaction(async (transaction) => {
+): Promise<boolean> {
+  return database.transaction(async (transaction) => {
+    if (
+      input.challenge.purpose === "step-up" &&
+      !(await ownsActiveVerifiedEmailForStepUp(transaction, {
+        actorId: input.challenge.actorId as string,
+        sessionId: input.challenge.sessionId as string,
+        email: input.delivery.recipient,
+        now: input.challenge.now,
+      }))
+    ) {
+      return false;
+    }
     await replaceAuthChallengeDigest(transaction, {
       ...input.challenge,
       ...(input.afterMutation === undefined ? {} : { afterMutation: input.afterMutation }),
@@ -430,6 +480,7 @@ export async function replaceAuthChallengeWithNotification(
       ...input.delivery,
       ...(input.afterMutation === undefined ? {} : { afterMutation: input.afterMutation }),
     });
+    return true;
   });
 }
 
@@ -900,6 +951,17 @@ export async function completeOtpChallenge(
             });
       if (input.purpose !== "sign-in" && !boundSession) throw otpCompletionRejected;
       if (input.purpose === "verify-provisional-email" && boundSession?.trust !== "provisional") {
+        throw otpCompletionRejected;
+      }
+      if (
+        input.purpose === "step-up" &&
+        !(await ownsActiveVerifiedEmailForStepUp(transaction, {
+          actorId: input.actorId as string,
+          sessionId: input.sessionId as string,
+          email: input.email,
+          now: input.now,
+        }))
+      ) {
         throw otpCompletionRejected;
       }
 
